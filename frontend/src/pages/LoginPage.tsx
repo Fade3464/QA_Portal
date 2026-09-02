@@ -46,14 +46,14 @@ export function LoginPage() {
         <BrandMark />
         <div className="auth-story__content">
           <Text className="eyebrow">QUALITY, IN FOCUS</Text>
-          <Title level={1}>Every conversation.<br />One clear standard.</Title>
-          <Paragraph>
+          <Title level={1} className="auth-story-title">Every conversation.<br />One clear standard.</Title>
+          <Paragraph className="auth-story-copy">
             Turn live dialer activity into consistent reviews, focused coaching, and measurable operational confidence.
           </Paragraph>
           <div className="auth-benefits">
-            <div><CheckCircleFilled /><span><strong>Real-time intake</strong><small>Calls and recordings organized automatically</small></span></div>
-            <div><CheckCircleFilled /><span><strong>Branch-level control</strong><small>The right work, visible to the right team</small></span></div>
-            <div><CheckCircleFilled /><span><strong>Actionable quality</strong><small>From review queue to coaching insight</small></span></div>
+            <div><CheckCircleFilled className="auth-benefit-icon" /><span><strong>Real-time intake</strong><small>Calls and recordings organized automatically</small></span></div>
+            <div><CheckCircleFilled className="auth-benefit-icon" /><span><strong>Branch-level control</strong><small>The right work, visible to the right team</small></span></div>
+            <div><CheckCircleFilled className="auth-benefit-icon" /><span><strong>Actionable quality</strong><small>From review queue to coaching insight</small></span></div>
           </div>
         </div>
         <div className="auth-story__footer">
@@ -68,21 +68,21 @@ export function LoginPage() {
           <div className="auth-panel__mobile-brand"><BrandMark /></div>
           <div className="auth-heading">
             <div className="auth-heading__icon"><SafetyCertificateFilled /></div>
-            <Title level={2}>Welcome back</Title>
-            <Paragraph>Sign in to continue to your quality workspace.</Paragraph>
+            <Title level={2} className="auth-form-title">Welcome back</Title>
+            <Paragraph className="auth-form-copy">Sign in to continue to your quality workspace.</Paragraph>
           </div>
 
-          {error && <Alert type="error" showIcon title="Sign-in unsuccessful" description={error} closable={{ onClose: () => setError('') }} />}
+          {error && <Alert className="auth-alert" type="error" showIcon title="Sign-in unsuccessful" description={error} closable={{ onClose: () => setError('') }} />}
 
-          <Form<LoginValues> layout="vertical" size="large" requiredMark={false} onFinish={submit} initialValues={{ remember: false }} className="login-form">
+          <Form<LoginValues> layout="vertical" size="large" requiredMark={false} onFinish={submit} initialValues={{ remember: false }} className="login-form" classNames={{ label: 'login-form__label' }}>
             <Form.Item label="Work email" name="email" rules={[{ required: true, message: 'Enter your work email' }, { type: 'email', message: 'Enter a valid email address' }]}>
-              <Input prefix={<MailOutlined />} placeholder="you@company.com" autoComplete="username" autoFocus />
+              <Input className="login-input" prefix={<MailOutlined />} placeholder="you@company.com" autoComplete="username" autoFocus />
             </Form.Item>
             <Form.Item label="Password" name="password" rules={[{ required: true, message: 'Enter your password' }]}>
-              <Input.Password prefix={<LockOutlined />} placeholder="Enter your password" autoComplete="current-password" />
+              <Input.Password className="login-input" prefix={<LockOutlined />} placeholder="Enter your password" autoComplete="current-password" />
             </Form.Item>
             <div className="login-form__options">
-              <Form.Item name="remember" valuePropName="checked" noStyle><Checkbox>Keep me signed in</Checkbox></Form.Item>
+              <Form.Item name="remember" valuePropName="checked" noStyle><Checkbox className="login-checkbox">Keep me signed in</Checkbox></Form.Item>
               <Link to="/forgot-password">Forgot password?</Link>
             </div>
             <Button type="primary" htmlType="submit" block loading={submitting} icon={<ArrowRightOutlined />} iconPlacement="end">

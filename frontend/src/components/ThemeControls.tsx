@@ -25,13 +25,14 @@ export function ThemeControls({ className = '' }: { className?: string }) {
           <Button
             type="text"
             shape="circle"
+            className="header-icon-button"
             icon={resolvedMode === 'dark' ? <SunOutlined /> : <MoonOutlined />}
             onClick={toggleMode}
             aria-label={`Switch to ${nextMode} mode`}
           />
         </Tooltip>
         <Tooltip title="Appearance settings">
-          <Button type="text" shape="circle" icon={<SettingOutlined />} onClick={() => setOpen(true)} aria-label="Open appearance settings" />
+          <Button type="text" shape="circle" className="header-icon-button" icon={<SettingOutlined />} onClick={() => setOpen(true)} aria-label="Open appearance settings" />
         </Tooltip>
       </Space>
 

@@ -12,11 +12,10 @@ import {
   SettingOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
-import { Avatar, Badge, Button, Dropdown, Layout, Menu, Tag, Tooltip, Typography, type MenuProps } from 'antd';
+import { Avatar, Button, Dropdown, Layout, Menu, Tag, Tooltip, Typography, type MenuProps } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
-import { useThemeSettings } from '../theme/ThemeContext';
 import { BrandMark } from './BrandMark';
 import { ThemeControls } from './ThemeControls';
 
@@ -27,16 +26,32 @@ export function AppShell() {
   const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const { resolvedMode } = useThemeSettings();
   const [collapsed, setCollapsed] = useState(false);
-  const [connected, setConnected] = useState(false);
+  const [connection, setConnection] = useState<'connecting' | 'live' | 'offline'>('connecting');
 
   useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket(`${protocol}//${window.location.host}/ws/notifications/`);
-    socket.onopen = () => setConnected(true);
-    socket.onclose = () => setConnected(false);
-    return () => socket.close();
+    let socket: WebSocket | null = null;
+    let retryTimer = 0;
+    let stopped = false;
+    const connect = () => {
+      if (stopped) return;
+      setConnection('connecting');
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      socket = new WebSocket(`${protocol}//${window.location.host}/ws/notifications/`);
+      socket.onopen = () => setConnection('live');
+      socket.onclose = () => {
+        if (stopped) return;
+        setConnection('offline');
+        retryTimer = window.setTimeout(connect, 3000);
+      };
+      socket.onerror = () => socket?.close();
+    };
+    retryTimer = window.setTimeout(connect, 0);
+    return () => {
+      stopped = true;
+      window.clearTimeout(retryTimer);
+      socket?.close();
+    };
   }, []);
 
   const items = useMemo<MenuProps['items']>(() => {
@@ -60,10 +75,10 @@ export function AppShell() {
 
   return (
     <Layout className="app-layout" hasSider>
-      <Sider width={264} collapsedWidth={76} collapsed={collapsed} trigger={null} breakpoint="lg" onBreakpoint={setCollapsed} className="app-sider" theme={resolvedMode}>
+      <Sider width={264} collapsedWidth={76} collapsed={collapsed} trigger={null} breakpoint="lg" onBreakpoint={setCollapsed} className="app-sider" theme="light">
         <div className="sider-brand"><BrandMark compact={collapsed} /></div>
         {!collapsed && <Text className="nav-label">WORKSPACE</Text>}
-        <Menu mode="inline" theme={resolvedMode} selectedKeys={[location.pathname]} items={items} className="app-menu" />
+        <Menu mode="inline" theme="light" selectedKeys={[location.pathname]} items={items} className="app-menu" classNames={{ itemIcon: 'app-menu__icon', itemContent: 'app-menu__content' }} />
         <div className="sider-foot">
           {!collapsed && <div className="workspace-card"><span className="workspace-card__icon"><AppstoreOutlined /></span><span><small>Active branch</small><strong>{user?.branch?.name ?? 'System-wide'}</strong></span></div>}
           <Tooltip title={collapsed ? 'Expand navigation' : 'Collapse navigation'} placement="right">
@@ -71,21 +86,21 @@ export function AppShell() {
           </Tooltip>
         </div>
       </Sider>
-      <Layout>
+      <Layout className="app-main">
         <Header className="app-header">
           <div className="header-context">
-            <Text type="secondary">{user?.company?.name ?? 'System administration'}</Text>
+            <Text type="secondary" className="header-context__company">{user?.company?.name ?? 'System administration'}</Text>
             <strong>{user?.branch?.name ?? 'All organizations'}</strong>
           </div>
           <div className="header-actions">
-            <Tag color={connected ? 'success' : 'default'} className="live-status"><span className={`live-dot ${connected ? '' : 'live-dot--muted'}`} />{connected ? 'Live' : 'Connecting'}</Tag>
-            <Badge dot><Button type="text" icon={<BellOutlined />} aria-label="Notifications" /></Badge>
+            <Tag color={connection === 'live' ? 'success' : connection === 'offline' ? 'error' : 'default'} className="live-status"><span className={`live-dot ${connection === 'live' ? '' : 'live-dot--muted'}`} />{connection === 'live' ? 'Live' : connection === 'offline' ? 'Offline' : 'Connecting'}</Tag>
+            <Tooltip title="No new notifications"><Button type="text" shape="circle" className="header-icon-button" icon={<BellOutlined />} aria-label="Notifications" /></Tooltip>
             <ThemeControls />
             <Dropdown menu={{ items: accountMenu }} trigger={['click']} placement="bottomRight">
               <button className="account-button" type="button">
-                <Avatar size={38}>{initials}</Avatar>
+                <Avatar size={38} className="account-avatar">{initials}</Avatar>
                 <span className="account-button__copy"><strong>{user?.name}</strong><small>{user?.role_label}</small></span>
-                <DownOutlined />
+                <DownOutlined className="account-chevron" />
               </button>
             </Dropdown>
           </div>

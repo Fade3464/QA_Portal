@@ -3,6 +3,7 @@ import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './auth/AuthContext';
 import { AppShell } from './components/AppShell';
+import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { useThemeSettings } from './theme/ThemeContext';
 
 const CallsPage = lazy(() => import('./pages/CallsPage').then((module) => ({ default: module.CallsPage })));
@@ -31,6 +32,10 @@ function AdministratorRoute() {
 export default function App() {
   const { resolvedMode, primaryColor, compact } = useThemeSettings();
   const dark = resolvedMode === 'dark';
+  const surface = dark ? '#161a23' : '#ffffff';
+  const text = dark ? '#edf1f7' : '#172033';
+  const muted = dark ? '#a2aaba' : '#70798d';
+  const soft = dark ? '#1b202b' : '#f4f7fb';
 
   return (
     <ConfigProvider
@@ -46,22 +51,39 @@ export default function App() {
           colorBgBase: dark ? '#10131a' : '#f5f7fb',
           borderRadius: 10,
           borderRadiusLG: 16,
-          fontFamily: "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+          fontFamily: "'DM Sans', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
           controlHeight: 40,
         },
         components: {
           Button: { controlHeightLG: 48, fontWeight: 650, primaryShadow: `0 10px 28px ${primaryColor}38` },
-          Card: { headerFontSize: 15 },
+          Card: { headerFontSize: 15, headerBg: surface },
           Input: { controlHeightLG: 48, activeShadow: `0 0 0 3px ${primaryColor}1f` },
-          Layout: { bodyBg: dark ? '#10131a' : '#f5f7fb', headerBg: dark ? '#161a23' : '#ffffff', siderBg: dark ? '#161a23' : '#ffffff' },
-          Menu: { itemBorderRadius: 10, itemHeight: 46, itemMarginInline: 12 },
+          Layout: { bodyBg: dark ? '#10131a' : '#f5f7fb', headerBg: surface, siderBg: surface, lightSiderBg: surface, lightTriggerBg: surface },
+          Menu: {
+            itemBg: surface,
+            subMenuItemBg: surface,
+            itemColor: muted,
+            itemHoverColor: text,
+            itemHoverBg: soft,
+            itemSelectedBg: `${primaryColor}18`,
+            itemSelectedColor: primaryColor,
+            itemBorderRadius: 10,
+            itemHeight: 46,
+            itemMarginBlock: 4,
+            itemMarginInline: 12,
+            iconSize: 17,
+            collapsedIconSize: 17,
+            iconMarginInlineEnd: 12,
+          },
+          Statistic: { titleFontSize: 12, contentFontSize: 29 },
           Table: { headerBg: dark ? '#181d27' : '#fafbfd' },
         },
       }}
     >
       <AntApp>
-        <Suspense fallback={<div className="app-loader"><Spin size="large" /><span>Loading…</span></div>}>
-          <Routes>
+        <AppErrorBoundary>
+          <Suspense fallback={<div className="app-loader"><Spin size="large" /><span>Loading…</span></div>}>
+            <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
@@ -76,8 +98,9 @@ export default function App() {
               <Route path="administration" element={<AdministratorRoute />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </Suspense>
+            </Routes>
+          </Suspense>
+        </AppErrorBoundary>
       </AntApp>
     </ConfigProvider>
   );

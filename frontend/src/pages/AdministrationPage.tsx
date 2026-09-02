@@ -14,6 +14,7 @@ import {
 } from '@ant-design/icons';
 import {
   App as AntApp,
+  Alert,
   Avatar,
   Button,
   Card,
@@ -69,6 +70,7 @@ export function AdministrationPage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
   const [editor, setEditor] = useState<EditorState>(null);
   const [form] = Form.useForm();
@@ -76,6 +78,7 @@ export function AdministrationPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError('');
     try {
       const [nextSummary, nextCompanies, nextBranches, nextUsers, nextDialers, nextEvents] = await Promise.all([
         api<AdminSummary>('/api/v1/administration/summary/'),
@@ -92,7 +95,9 @@ export function AdministrationPage() {
       setDialers(nextDialers);
       setSecurityEvents(nextEvents);
     } catch (error) {
-      message.error(error instanceof ApiError ? error.message : 'Administration data could not be loaded.');
+      const detail = error instanceof ApiError ? error.message : 'Administration data could not be loaded.';
+      setLoadError(detail);
+      message.error(detail);
     } finally {
       setLoading(false);
     }
@@ -200,6 +205,7 @@ export function AdministrationPage() {
         <div className="admin-hero__copy"><Text className="admin-kicker">SYSTEM CONTROL</Text><Title level={2}>Administration</Title><Paragraph>Manage your organization, access, dialer connections, and security from one workspace.</Paragraph></div>
         <Space wrap><Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading}>Refresh</Button><Button type="primary" icon={<PlusOutlined />} onClick={() => { setActiveTab('companies'); openEditor('companies'); }}>Add company</Button></Space>
       </section>
+      {loadError && <Alert type="error" showIcon title="Unable to load administration" description={loadError} action={<Button onClick={() => void load()}>Try again</Button>} />}
       <Tabs activeKey={activeTab} onChange={(key) => { setActiveTab(key); setQuery(''); }} items={tabs} animated={{ inkBar: true, tabPane: true }} className="admin-tabs" classNames={{ header: 'admin-tabs__header' }} />
       <EditorDrawer editor={editor} form={form} saving={saving} companies={companies} branches={branches} selectedCompany={selectedCompany} onClose={() => setEditor(null)} onSave={save} />
     </div>

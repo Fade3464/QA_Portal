@@ -31,6 +31,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setCsrfToken(session.csrfToken);
         setUser(session.authenticated ? (session.user ?? null) : null);
       })
+      .catch(() => { if (active) setUser(null); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);

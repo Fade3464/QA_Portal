@@ -69,6 +69,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     document.documentElement.dataset.density = preferences.compact ? 'compact' : 'comfortable';
     document.documentElement.style.setProperty('--qa-primary', preferences.primaryColor);
     document.documentElement.style.colorScheme = resolvedMode;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', resolvedMode === 'dark' ? '#10131a' : '#f5f7fb');
   }, [preferences, resolvedMode]);
 
   const value = useMemo<ThemeContextValue>(() => ({

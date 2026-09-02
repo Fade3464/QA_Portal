@@ -17,10 +17,10 @@ export function ForgotPasswordPage() {
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  if (sent) return <AuthCard><Result status="success" title="Check your inbox" subTitle="If an account matches that email, a secure reset link is on its way." extra={<Link to="/login"><Button type="primary">Return to sign in</Button></Link>} /></AuthCard>;
+  if (sent) return <AuthCard><Result status="success" title="Check your inbox" subTitle="If an account matches that email, a secure reset link is on its way." extra={<Button type="primary" href="/login">Return to sign in</Button>} /></AuthCard>;
   return <AuthCard>
-    <div className="simple-auth__heading"><Title level={2}>Reset your password</Title><Paragraph>Enter your work email and we’ll send a time-limited reset link.</Paragraph></div>
-    {error && <Alert type="error" title={error} showIcon />}
+    <div className="simple-auth__heading"><Title level={2} className="auth-form-title">Reset your password</Title><Paragraph className="auth-form-copy">Enter your work email and we’ll send a time-limited reset link.</Paragraph></div>
+    {error && <Alert className="auth-alert" type="error" title={error} showIcon />}
     <Form layout="vertical" size="large" requiredMark={false} onFinish={async ({ email }) => { setLoading(true); setError(''); try { await api('/api/v1/auth/password-reset/', { method: 'POST', body: JSON.stringify({ email }) }); setSent(true); } catch (caught) { setError(caught instanceof ApiError ? caught.message : 'Please try again.'); } finally { setLoading(false); } }}>
       <Form.Item label="Work email" name="email" rules={[{ required: true }, { type: 'email' }]}><Input prefix={<MailOutlined />} autoComplete="email" placeholder="you@company.com" /></Form.Item>
       <Button type="primary" htmlType="submit" loading={loading} block>Send reset link</Button>
@@ -34,10 +34,10 @@ export function ResetPasswordPage() {
   const [complete, setComplete] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  if (complete) return <AuthCard><Result status="success" title="Password updated" subTitle="Your new password is ready to use." extra={<Link to="/login"><Button type="primary">Sign in</Button></Link>} /></AuthCard>;
+  if (complete) return <AuthCard><Result status="success" title="Password updated" subTitle="Your new password is ready to use." extra={<Button type="primary" href="/login">Sign in</Button>} /></AuthCard>;
   return <AuthCard>
-    <div className="simple-auth__heading"><Title level={2}>Choose a new password</Title><Paragraph>Use at least 12 characters and avoid common phrases.</Paragraph></div>
-    {error && <Alert type="error" title={error} showIcon />}
+    <div className="simple-auth__heading"><Title level={2} className="auth-form-title">Choose a new password</Title><Paragraph className="auth-form-copy">Use at least 12 characters and avoid common phrases.</Paragraph></div>
+    {error && <Alert className="auth-alert" type="error" title={error} showIcon />}
     <Form layout="vertical" size="large" requiredMark={false} onFinish={async ({ password }) => { setLoading(true); setError(''); try { await api('/api/v1/auth/password-reset/confirm/', { method: 'POST', body: JSON.stringify({ uid: params.get('uid'), token: params.get('token'), password }) }); setComplete(true); } catch (caught) { setError(caught instanceof ApiError ? caught.message : 'Please try again.'); } finally { setLoading(false); } }}>
       <Form.Item label="New password" name="password" rules={[{ required: true }, { min: 12, message: 'Use at least 12 characters' }]}><Input.Password prefix={<LockOutlined />} autoComplete="new-password" /></Form.Item>
       <Form.Item label="Confirm password" name="confirm" dependencies={['password']} rules={[{ required: true }, ({ getFieldValue }) => ({ validator(_, value) { return !value || getFieldValue('password') === value ? Promise.resolve() : Promise.reject(new Error('Passwords do not match')); } })]}><Input.Password prefix={<LockOutlined />} autoComplete="new-password" /></Form.Item>
@@ -55,8 +55,8 @@ export function ChangePasswordPage() {
   if (!user) return <Navigate to="/login" replace />;
   if (!user.must_change_password) return <Navigate to="/" replace />;
   return <AuthCard>
-    <div className="simple-auth__heading"><Title level={2}>Secure your account</Title><Paragraph>Replace the temporary password before entering your workspace.</Paragraph></div>
-    {error && <Alert type="error" title={error} showIcon />}
+    <div className="simple-auth__heading"><Title level={2} className="auth-form-title">Secure your account</Title><Paragraph className="auth-form-copy">Replace the temporary password before entering your workspace.</Paragraph></div>
+    {error && <Alert className="auth-alert" type="error" title={error} showIcon />}
     <Form layout="vertical" size="large" requiredMark={false} onFinish={async ({ currentPassword, password }) => { setLoading(true); setError(''); try { await changePassword(currentPassword, password); navigate('/', { replace: true }); } catch (caught) { setError(caught instanceof ApiError ? caught.message : 'Please try again.'); } finally { setLoading(false); } }}>
       <Form.Item label="Temporary password" name="currentPassword" rules={[{ required: true }]}><Input.Password prefix={<LockOutlined />} autoComplete="current-password" /></Form.Item>
       <Form.Item label="New password" name="password" rules={[{ required: true }, { min: 12, message: 'Use at least 12 characters' }]}><Input.Password prefix={<LockOutlined />} autoComplete="new-password" /></Form.Item>
