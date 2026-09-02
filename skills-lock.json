@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "skills": {
+    "ant-design": {
+      "source": "ant-design/antd-skill",
+      "sourceType": "github",
+      "skillPath": "skills/ant-design/SKILL.md",
+      "computedHash": "096d4ac9513e43030f960aab49b50168a3d5eb35be86926ac6e96e5998ea9466"
+    },
+    "antd": {
+      "source": "ant-design/antd-skill",
+      "sourceType": "github",
+      "skillPath": "skills/antd/SKILL.md",
+      "computedHash": "5e26c8042060bb811118927b5daf637af7929a00fa973dd8f5f804f3ba6e2bf2"
+    },
+    "django-celery-expert": {
+      "source": "vintasoftware/django-ai-plugins",
+      "ref": "main",
+      "sourceType": "github",
+      "skillPath": "skills/django-celery-expert/SKILL.md",
+      "computedHash": "31eb59e33c4251087afc81387abf26502814885921b93c9c9afa06090c3495ca"
+    },
+    "postgres-introspection": {
+      "source": "TechSpokes/skill-postgres-introspection",
+      "ref": "main",
+      "sourceType": "github",
+      "skillPath": "src/SKILL.md",
+      "computedHash": "539e94cde1ea64a65d520aa405e97054bdebdc9aff6715306895e9e738b38dd5"
+    }
+  }
+}
