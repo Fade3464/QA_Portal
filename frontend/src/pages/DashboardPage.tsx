@@ -61,10 +61,10 @@ export function DashboardPage() {
       {error && <Alert type="error" showIcon title="Unable to load dashboard" description={error} action={<Button onClick={retry}>Try again</Button>} />}
       {loading ? <Skeleton active paragraph={{ rows: 8 }} /> : !error && <>
         <Row gutter={[16, 16]}>
-          <Col xs={24} sm={12} xl={6}><MetricCard title="Calls received" value={data?.metrics.total_calls ?? 0} icon={<CustomerServiceOutlined />} footer={<><span className="positive"><RiseOutlined /> Live intake</span><Text type="secondary">24 hours</Text></>} /></Col>
-          <Col xs={24} sm={12} xl={6}><MetricCard title="Recordings ready" value={data?.metrics.recordings_ready ?? 0} icon={<DownloadOutlined />} footer={<><span className="positive"><CheckCircleFilled /> Available</span><Text type="secondary">for review</Text></>} /></Col>
-          <Col xs={24} sm={12} xl={6}><MetricCard title="Awaiting recording" value={data?.metrics.recordings_pending ?? 0} icon={<ClockCircleOutlined />} footer={<span>Automatic retries active</span>} /></Col>
-          <Col xs={24} sm={12} xl={6}><MetricCard title="Average talk time" value={formatDuration(data?.metrics.avg_talk_time ?? 0)} icon={<BarChartVisual />} footer={<span>Across received calls</span>} /></Col>
+          <Col xs={24} sm={12} xl={6}><MetricCard order={0} title="Calls received" value={data?.metrics.total_calls ?? 0} icon={<CustomerServiceOutlined />} footer={<><span className="positive"><RiseOutlined /> Live intake</span><Text type="secondary">24 hours</Text></>} /></Col>
+          <Col xs={24} sm={12} xl={6}><MetricCard order={1} title="Recordings ready" value={data?.metrics.recordings_ready ?? 0} icon={<DownloadOutlined />} footer={<><span className="positive"><CheckCircleFilled /> Available</span><Text type="secondary">for review</Text></>} /></Col>
+          <Col xs={24} sm={12} xl={6}><MetricCard order={2} title="Awaiting recording" value={data?.metrics.recordings_pending ?? 0} icon={<ClockCircleOutlined />} footer={<span>Automatic retries active</span>} /></Col>
+          <Col xs={24} sm={12} xl={6}><MetricCard order={3} title="Average talk time" value={formatDuration(data?.metrics.avg_talk_time ?? 0)} icon={<BarChartVisual />} footer={<span>Across received calls</span>} /></Col>
         </Row>
 
         <Row gutter={[16, 16]}>
@@ -86,8 +86,8 @@ export function DashboardPage() {
   );
 }
 
-function MetricCard({ title, value, icon, footer }: { title: string; value: number | string; icon: ReactNode; footer: ReactNode }) {
-  return <Card hoverable className="metric-card" classNames={{ body: 'metric-card__body' }}><Statistic classNames={{ title: 'metric-title', content: 'metric-value', prefix: 'metric-icon' }} title={title} value={value} prefix={icon} /><div className="metric-foot">{footer}</div></Card>;
+function MetricCard({ order, title, value, icon, footer }: { order: number; title: string; value: number | string; icon: ReactNode; footer: ReactNode }) {
+  return <Card hoverable className={`metric-card metric-card--${order}`} classNames={{ body: 'metric-card__body' }}><Statistic classNames={{ title: 'metric-title', content: 'metric-value', prefix: 'metric-icon' }} title={title} value={value} prefix={icon} /><div className="metric-foot">{footer}</div></Card>;
 }
 
 function BarChartVisual() {
