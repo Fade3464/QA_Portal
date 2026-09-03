@@ -20,6 +20,7 @@ def env_list(name: str, default: str = "") -> list[str]:
     ]
 
 
+PRODUCTION = env_bool("PRODUCTION", False)
 DEBUG = env_bool("DJANGO_DEBUG", True)
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "")
 if not SECRET_KEY:
@@ -33,6 +34,11 @@ CSRF_TRUSTED_ORIGINS = env_list(
     "DJANGO_CSRF_TRUSTED_ORIGINS",
     "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080" if DEBUG else "",
 )
+if not PRODUCTION:
+    # Quick Tunnels receive a random hostname on each container start. Limit the
+    # development exception to Cloudflare's dedicated temporary-tunnel domain.
+    ALLOWED_HOSTS.append(".trycloudflare.com")
+    CSRF_TRUSTED_ORIGINS.append("https://*.trycloudflare.com")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -186,7 +192,10 @@ CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_WORKER_MAX_TASKS_PER_CHILD = 500
 CELERY_TASK_SOFT_TIME_LIMIT = 270
 CELERY_TASK_TIME_LIMIT = 300
-CELERY_TASK_ROUTES = {"apps.calls.tasks.*": {"queue": "recordings"}}
+# Tasks use explicit public names (``calls.resolve_recording`` and
+# ``calls.fetch_recording``), so routing must match those names rather than the
+# Python module path.
+CELERY_TASK_ROUTES = {"calls.*": {"queue": "recordings"}}
 
 AXES_ENABLED = True
 AXES_FAILURE_LIMIT = 5
@@ -233,6 +242,7 @@ RECORDING_RETRY_DELAYS = [
     int(value) for value in env_list("RECORDING_RETRY_DELAYS", "5,15,30,60,120")
 ]
 RECORDING_MAX_BYTES = int(os.getenv("RECORDING_MAX_BYTES", str(250 * 1024 * 1024)))
+RECORDING_DOWNLOAD_VERIFY_TLS = env_bool("RECORDING_DOWNLOAD_VERIFY_TLS", True)
 RECORDINGS_ROOT = Path(os.getenv("RECORDINGS_ROOT", MEDIA_ROOT / "recordings"))
 
 LOGGING = {
@@ -245,4 +255,14 @@ LOGGING = {
         "console": {"class": "logging.StreamHandler", "formatter": "standard"}
     },
     "root": {"handlers": ["console"], "level": os.getenv("LOG_LEVEL", "INFO")},
+    # httpx logs complete query strings at INFO. VICIdial's legacy API carries
+    # credentials in its query string, so only warnings/errors may propagate.
+    "loggers": {
+        "httpx": {"handlers": ["console"], "level": "WARNING", "propagate": False},
+        "httpcore": {
+            "handlers": ["console"],
+            "level": "WARNING",
+            "propagate": False,
+        },
+    },
 }

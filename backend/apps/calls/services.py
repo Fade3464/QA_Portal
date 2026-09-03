@@ -71,7 +71,7 @@ def parse_recordings(text: str) -> list[RecordingResult]:
         if not line or line.startswith("ERROR:"):
             continue
         parts = line.split("|")
-        if len(parts) < 6:
+        if len(parts) < 6 or not "|".join(parts[5:]).strip():
             continue
         try:
             duration = int(parts[4].strip())
@@ -135,7 +135,7 @@ def lookup_recording(dialer: Dialer, event) -> RecordingResult | None:
         "date": date,
     }
     with httpx.Client(
-        timeout=dialer.request_timeout_seconds, follow_redirects=True
+        timeout=dialer.request_timeout_seconds, follow_redirects=True, verify=True
     ) as client:
         response = client.get(dialer.api_url, params=params)
         response.raise_for_status()
@@ -191,7 +191,11 @@ def download_recording(
         write=dialer.request_timeout_seconds,
         pool=dialer.request_timeout_seconds,
     )
-    with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+    with httpx.Client(
+        timeout=timeout,
+        follow_redirects=True,
+        verify=settings.RECORDING_DOWNLOAD_VERIFY_TLS,
+    ) as client:
         with client.stream("GET", url) as response:
             response.raise_for_status()
             declared = safe_int(response.headers.get("content-length"))

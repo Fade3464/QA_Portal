@@ -37,6 +37,22 @@ export interface CallEvent {
   recording_available: boolean;
 }
 
+export interface PaginatedResponse<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
+
+export interface CallFilterOptions {
+  agents: string[];
+  campaigns: string[];
+  dispositions: string[];
+  dialers: string[];
+  event_types: Array<{ value: string; label: string }>;
+  recording_statuses: Array<{ value: string; label: string }>;
+}
+
 export interface DashboardSummary {
   metrics: {
     total_calls: number;

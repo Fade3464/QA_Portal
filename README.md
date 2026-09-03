@@ -32,6 +32,22 @@ docker compose logs -f backend worker
 
 Open <http://localhost:8080>. The initial administrator comes from `ADMIN_EMAIL` and `ADMIN_PASSWORD`; it is created once and is not overwritten on later boots.
 
+## Development tunnel
+
+When `PRODUCTION=false`, Docker Compose starts a Cloudflare Quick Tunnel for testing VICIdial callbacks against a development machine. After the tunnel connects, its temporary public URL is written to:
+
+```text
+runtime/cloudflared-url.txt
+```
+
+Read it after startup with:
+
+```bash
+cat runtime/cloudflared-url.txt
+```
+
+The URL changes whenever the tunnel container is recreated. Quick Tunnels are intended only for development and testing. Set both `PRODUCTION=true` and `DJANGO_DEBUG=false` for a production deployment; the Cloudflare sidecar will exit without opening a tunnel, and no `trycloudflare.com` host will be trusted by Django.
+
 ## Configure a company and VICIdial
 
 1. Sign into `/admin` with the system administrator to use the Ant Design administration workspace. The low-level Django fallback is available at `/django-admin/`.
@@ -60,7 +76,7 @@ The endpoint responds immediately after the call is stored. A Celery worker perf
 - Recording downloads require HTTPS, an explicit host allowlist, supported audio types, and a size cap.
 - Login, logout, failures, and password reset operations are audited.
 
-For public deployment, set `DJANGO_DEBUG=false`, configure trusted HTTPS origins/hosts, enable TLS at the load balancer, use managed secrets, configure SMTP, and rotate the bootstrap administrator password out of the environment after first use.
+For public deployment, set `PRODUCTION=true` and `DJANGO_DEBUG=false`, configure trusted HTTPS origins/hosts, enable TLS at the load balancer, use managed secrets, configure SMTP, and rotate the bootstrap administrator password out of the environment after first use.
 
 ## Checks
 

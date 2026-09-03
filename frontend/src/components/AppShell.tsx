@@ -77,14 +77,25 @@ export function AppShell() {
     <Layout className="app-layout" hasSider>
       <Sider width={264} collapsedWidth={76} collapsed={collapsed} trigger={null} breakpoint="lg" onBreakpoint={setCollapsed} className="app-sider" theme="light">
         <div className="sider-brand"><BrandMark compact={collapsed} /></div>
-        {!collapsed && <Text className="nav-label">WORKSPACE</Text>}
-        <Menu mode="inline" theme="light" selectedKeys={[location.pathname]} items={items} className="app-menu" classNames={{ itemIcon: 'app-menu__icon', itemContent: 'app-menu__content' }} />
-        <div className="sider-foot">
-          {!collapsed && <div className="workspace-card"><span className="workspace-card__icon"><AppstoreOutlined /></span><span><small>Active branch</small><strong>{user?.branch?.name ?? 'System-wide'}</strong></span></div>}
+        <div className={`sider-nav-header${collapsed ? ' sider-nav-header--collapsed' : ''}`}>
+          {!collapsed && <Text className="nav-label">WORKSPACE</Text>}
           <Tooltip title={collapsed ? 'Expand navigation' : 'Collapse navigation'} placement="right">
-            <Button type="text" className="collapse-button" icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />} onClick={() => setCollapsed((value) => !value)} aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'} />
+            <Button
+              type="text"
+              shape="circle"
+              className="collapse-button"
+              icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              onClick={() => setCollapsed((value) => !value)}
+              aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+            />
           </Tooltip>
         </div>
+        <Menu mode="inline" theme="light" selectedKeys={[location.pathname]} items={items} className="app-menu" classNames={{ itemIcon: 'app-menu__icon', itemContent: 'app-menu__content' }} />
+        {!collapsed && (
+          <div className="sider-foot">
+            <div className="workspace-card"><span className="workspace-card__icon"><AppstoreOutlined /></span><span><small>Active branch</small><strong>{user?.branch?.name ?? 'System-wide'}</strong></span></div>
+          </div>
+        )}
       </Sider>
       <Layout className="app-main">
         <Header className="app-header">

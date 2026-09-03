@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
     max_retries=5,
     acks_late=True,
     reject_on_worker_lost=True,
+    rate_limit="2/s",
     soft_time_limit=90,
     time_limit=120,
 )
@@ -114,6 +115,7 @@ def resolve_recording(self, event_id: str):
     max_retries=5,
     acks_late=True,
     reject_on_worker_lost=True,
+    rate_limit="1/s",
     soft_time_limit=240,
     time_limit=270,
 )

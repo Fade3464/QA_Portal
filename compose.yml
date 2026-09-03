@@ -35,11 +35,14 @@ services:
       - path: .env
         required: false
     environment:
+      PRODUCTION: ${PRODUCTION:-false}
       DATABASE_URL: postgresql://${POSTGRES_USER:-qa_portal}:${POSTGRES_PASSWORD:-qa_portal_dev_only}@db:5432/${POSTGRES_DB:-qa_portal}
       REDIS_URL: redis://redis:6379/0
+      CACHE_URL: redis://redis:6379/2
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
       RECORDINGS_ROOT: /recordings
+      RECORDING_DOWNLOAD_VERIFY_TLS: ${RECORDING_DOWNLOAD_VERIFY_TLS:-false}
     volumes:
       - recordings:/recordings
     read_only: true
@@ -60,17 +63,22 @@ services:
   worker:
     build: ./backend
     restart: unless-stopped
-    command: ["celery", "-A", "config", "worker", "--loglevel=INFO", "--queues=recordings", "--concurrency=2", "--prefetch-multiplier=1", "--max-tasks-per-child=500"]
+    # Consume the legacy default queue while the pre-fix recording backlog
+    # drains. New recording tasks are routed to the recordings queue.
+    command: ["celery", "-A", "config", "worker", "--loglevel=INFO", "--queues=recordings,celery", "--concurrency=2", "--prefetch-multiplier=1", "--max-tasks-per-child=500"]
     stop_grace_period: 5m
     env_file:
       - path: .env
         required: false
     environment:
+      PRODUCTION: ${PRODUCTION:-false}
       DATABASE_URL: postgresql://${POSTGRES_USER:-qa_portal}:${POSTGRES_PASSWORD:-qa_portal_dev_only}@db:5432/${POSTGRES_DB:-qa_portal}
       REDIS_URL: redis://redis:6379/0
+      CACHE_URL: redis://redis:6379/2
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
       RECORDINGS_ROOT: /recordings
+      RECORDING_DOWNLOAD_VERIFY_TLS: ${RECORDING_DOWNLOAD_VERIFY_TLS:-false}
     volumes:
       - recordings:/recordings
     read_only: true
@@ -89,6 +97,32 @@ services:
       - "${PORTAL_PORT:-8080}:80"
     depends_on:
       backend: { condition: service_healthy }
+    networks: [internal]
+
+  cloudflared:
+    build: ./cloudflared
+    restart: on-failure
+    environment:
+      PRODUCTION: ${PRODUCTION:-false}
+      CLOUDFLARED_ORIGIN_URL: http://frontend:80
+      CLOUDFLARED_URL_FILE: /runtime/cloudflared-url.txt
+    volumes:
+      - ./runtime:/runtime
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    # The entrypoint needs DAC_OVERRIDE to initialize the UID-1000-owned bind
+    # mount, then SETUID/SETGID solely to drop to the non-root tunnel user.
+    cap_add:
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      frontend: { condition: service_started }
     networks: [internal]
 
 networks:
