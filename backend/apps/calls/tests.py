@@ -6,17 +6,26 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import httpx
 from cryptography.fernet import Fernet
+from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
 from apps.accounts.models import User
-from apps.tenancy.models import Branch, Company, Dialer
+from apps.notifications.models import SystemNotification
+from apps.tenancy.models import Branch, Company, Dialer, Team
 from config.celery import app as celery_app
 
 from .models import CallEvent
-from .services import download_recording, lookup_recording, parse_recordings
+from .services import (
+    RecordingResult,
+    download_recording,
+    lookup_recording,
+    parse_recordings,
+    validate_recording_url,
+)
 from .tasks import fetch_recording, resolve_recording
 
 
@@ -324,6 +333,188 @@ class WebhookTests(TestCase):
         queue_task.assert_called_once()
         announce.assert_called_once()
 
+    @patch("apps.calls.webhooks.announce_call")
+    @patch("apps.calls.webhooks.resolve_recording.delay")
+    def test_agent_full_name_assigns_team_case_insensitively(
+        self, _queue_task, _announce
+    ):
+        leader = User.objects.create_user(
+            email="leader@example.com",
+            password="a-very-strong-password",
+            first_name="Team",
+            last_name="Leader",
+            role=User.Role.TEAM_LEADER,
+            company=self.branch.company,
+            branch=self.branch,
+            must_change_password=False,
+        )
+        team = Team.objects.create(
+            branch=self.branch, name="Annihilators", team_leader=leader
+        )
+
+        response = self.client.get(
+            self.url,
+            {
+                "token": self.secret,
+                "lead_id": "TEAM-1",
+                "call_id": "TEAM-CALL-1",
+                "user": "8014",
+                "agent_full_name": "aNNIHILATORS - Ali",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        event = CallEvent.objects.get(lead_id="TEAM-1")
+        self.assertEqual(event.agent_name, "Ali")
+        self.assertEqual(event.team_name, "aNNIHILATORS")
+        self.assertEqual(event.team, team)
+        self.assertFalse(SystemNotification.objects.exists())
+
+    @patch("apps.calls.webhooks.announce_call")
+    @patch("apps.calls.webhooks.resolve_recording.delay")
+    def test_agent_full_name_prefix_can_match_team_leader_name(
+        self, _queue_task, _announce
+    ):
+        leader = User.objects.create_user(
+            email="fatima@example.com",
+            password="a-very-strong-password",
+            first_name="Fatima",
+            last_name="Noor",
+            role=User.Role.TEAM_LEADER,
+            company=self.branch.company,
+            branch=self.branch,
+            must_change_password=False,
+        )
+        team = Team.objects.create(
+            branch=self.branch, name="Falcons", team_leader=leader
+        )
+
+        self.client.get(
+            self.url,
+            {
+                "token": self.secret,
+                "lead_id": "LEADER-1",
+                "call_id": "LEADER-CALL-1",
+                "user": "8020",
+                "agent_full_name": "fATIMA nOOR - Amna",
+            },
+        )
+
+        event = CallEvent.objects.get(lead_id="LEADER-1")
+        self.assertEqual(event.team, team)
+        self.assertEqual(event.agent_name, "Amna")
+        self.assertFalse(SystemNotification.objects.exists())
+
+    @patch("apps.calls.webhooks.announce_call")
+    @patch("apps.calls.webhooks.resolve_recording.delay")
+    def test_ambiguous_team_leader_prefix_stays_queued(
+        self, _queue_task, _announce
+    ):
+        leader = User.objects.create_user(
+            email="shared-leader@example.com",
+            password="a-very-strong-password",
+            first_name="Shared",
+            last_name="Leader",
+            role=User.Role.TEAM_LEADER,
+            company=self.branch.company,
+            branch=self.branch,
+            must_change_password=False,
+        )
+        Team.objects.create(branch=self.branch, name="Alpha", team_leader=leader)
+        Team.objects.create(branch=self.branch, name="Beta", team_leader=leader)
+
+        self.client.get(
+            self.url,
+            {
+                "token": self.secret,
+                "lead_id": "AMBIGUOUS-1",
+                "call_id": "AMBIGUOUS-CALL-1",
+                "agent_full_name": "Shared Leader - Zain",
+            },
+        )
+
+        event = CallEvent.objects.get(lead_id="AMBIGUOUS-1")
+        self.assertIsNone(event.team)
+        self.assertEqual(SystemNotification.objects.count(), 1)
+
+    @patch("apps.calls.webhooks.announce_call")
+    @patch("apps.calls.webhooks.resolve_recording.delay")
+    def test_unknown_team_calls_are_queued_and_notification_is_deduplicated(
+        self, _queue_task, _announce
+    ):
+        for index, full_name in enumerate(
+            ("Night Owls - Sana", "night owls — Hira"), start=1
+        ):
+            response = self.client.get(
+                self.url,
+                {
+                    "token": self.secret,
+                    "lead_id": f"UNKNOWN-{index}",
+                    "call_id": f"UNKNOWN-CALL-{index}",
+                    "user": f"80{index}",
+                    "agent_full_name": full_name,
+                },
+            )
+            self.assertEqual(response.status_code, 200)
+
+        self.assertEqual(CallEvent.objects.filter(team__isnull=True).count(), 2)
+        self.assertEqual(
+            list(CallEvent.objects.order_by("call_id").values_list("agent_name", flat=True)),
+            ["Sana", "Hira"],
+        )
+        notification = SystemNotification.objects.get()
+        self.assertEqual(notification.occurrences, 2)
+        self.assertEqual(notification.metadata["normalized_team_name"], "night owls")
+
+    @patch("apps.calls.webhooks.announce_call")
+    @patch("apps.calls.webhooks.resolve_recording.delay")
+    def test_creating_team_assigns_waiting_calls_and_resolves_notification(
+        self, _queue_task, _announce
+    ):
+        self.client.get(
+            self.url,
+            {
+                "token": self.secret,
+                "lead_id": "WAITING-1",
+                "call_id": "WAITING-CALL-1",
+                "agent_full_name": "Ayesha Lead - Ayesha",
+            },
+        )
+        leader = User.objects.create_user(
+            email="resolver@example.com",
+            password="a-very-strong-password",
+            first_name="Ayesha",
+            last_name="Lead",
+            role=User.Role.TEAM_LEADER,
+            company=self.branch.company,
+            branch=self.branch,
+            must_change_password=False,
+        )
+        administrator = User.objects.create_superuser(
+            email="resolve-admin@example.com",
+            password="a-very-strong-password",
+            first_name="System",
+            last_name="Administrator",
+            must_change_password=False,
+        )
+        self.client.force_login(administrator)
+
+        response = self.client.post(
+            "/api/v1/administration/teams/",
+            {
+                "branch": str(self.branch.pk),
+                "name": "resolvers",
+                "team_leader": str(leader.pk),
+                "is_active": True,
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        event = CallEvent.objects.get(lead_id="WAITING-1")
+        self.assertEqual(str(event.team_id), response.json()["id"])
+        self.assertIsNotNone(SystemNotification.objects.get().resolved_at)
+
 
 class RecordingTaskConfigurationTests(TestCase):
     def test_recording_tasks_route_to_the_recordings_queue(self):
@@ -338,11 +529,106 @@ class RecordingTaskConfigurationTests(TestCase):
         self.assertEqual(fetch_recording.rate_limit, "1/s")
 
 
+@override_settings(DIALER_CREDENTIAL_KEY=Fernet.generate_key().decode())
+class RecordingDownloadRecoveryTests(TestCase):
+    def setUp(self):
+        company = Company.objects.create(name="Recovery", slug="recovery")
+        branch = Branch.objects.create(company=company, name="Karachi", code="khi")
+        self.dialer = Dialer(
+            branch=branch,
+            name="Recovery dialer",
+            api_url="https://dialer.example.com/non_agent_api.php",
+            api_username="api",
+            allowed_recording_hosts="recordings.example.com",
+        )
+        self.dialer.set_api_password("secret")
+        self.dialer.set_webhook_secret("long-recovery-webhook-secret")
+        self.dialer.save()
+        self.event = CallEvent.objects.create(
+            dialer=self.dialer,
+            branch=branch,
+            event_key="recovery".ljust(64, "0"),
+            event_type=CallEvent.EventType.DISPOSITION,
+            lead_id="12345",
+            agent_user="8014",
+            source_recording_id="old-recording",
+            recording_source_url="http://recordings.example.com/stale.wav",
+        )
+
+    @patch("apps.calls.tasks.lookup_recording")
+    @patch("apps.calls.tasks.download_recording")
+    def test_404_refreshes_changed_url_and_downloads_immediately(
+        self, download, lookup
+    ):
+        request = httpx.Request("GET", self.event.recording_source_url)
+        response = httpx.Response(404, request=request)
+        stale_error = httpx.HTTPStatusError(
+            "stale recording URL", request=request, response=response
+        )
+        refreshed_url = "https://recordings.example.com/replaced.wav"
+        lookup.return_value = RecordingResult(
+            "2026-09-04 10:00:00",
+            "8014",
+            "new-recording",
+            "12345",
+            30,
+            refreshed_url,
+        )
+        download.side_effect = [
+            stale_error,
+            ("/recordings/recovered.wav", 4096, "a" * 64),
+        ]
+
+        result = fetch_recording.apply(args=[str(self.event.pk)]).get()
+
+        self.assertEqual(result, {"status": "downloaded", "bytes": 4096})
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.recording_source_url, refreshed_url)
+        self.assertEqual(self.event.source_recording_id, "new-recording")
+        self.assertEqual(
+            self.event.recording_download_status, CallEvent.Status.DOWNLOADED
+        )
+        self.assertEqual(
+            [item.args[1] for item in download.call_args_list],
+            ["http://recordings.example.com/stale.wav", refreshed_url],
+        )
+        lookup.assert_called_once()
+
+
 class RecordingResponseParsingTests(SimpleTestCase):
     def test_rows_without_a_recording_location_are_ignored(self):
         response = "2026-09-04 01:02:03|agent01|42|123|30|"
 
         self.assertEqual(parse_recordings(response), [])
+
+    def test_http_and_https_are_accepted_for_allowlisted_public_hosts(self):
+        dialer = SimpleNamespace(
+            api_url="https://dialer.example.com/non_agent_api.php",
+            recording_hosts={"recordings.example.com"},
+        )
+
+        for scheme in ("http", "https"):
+            with self.subTest(scheme=scheme):
+                validate_recording_url(
+                    dialer, f"{scheme}://recordings.example.com/audio/call.mp3"
+                )
+
+    def test_recording_url_validation_keeps_ssrf_guards_for_both_schemes(self):
+        dialer = SimpleNamespace(
+            api_url="https://dialer.example.com/non_agent_api.php",
+            recording_hosts={"recordings.example.com", "127.0.0.1"},
+        )
+        invalid_urls = [
+            "ftp://recordings.example.com/audio/call.mp3",
+            "http://user:password@recordings.example.com/audio/call.mp3",
+            "http://127.0.0.1/audio/call.mp3",
+            "https://untrusted.example.com/audio/call.mp3",
+            "/audio/call.mp3",
+        ]
+
+        for url in invalid_urls:
+            with self.subTest(url=url), self.assertRaises(ValidationError):
+                validate_recording_url(dialer, url)
 
     @override_settings(RECORDING_DOWNLOAD_VERIFY_TLS=False)
     @patch("apps.calls.services.validate_recording_url")

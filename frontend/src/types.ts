@@ -27,6 +27,9 @@ export interface CallEvent {
   call_id: string;
   lead_id: string;
   agent_user: string;
+  agent_name: string;
+  team: string | null;
+  team_name: string;
   campaign: string;
   phone_number: string;
   disposition: string;
@@ -46,6 +49,7 @@ export interface PaginatedResponse<T> {
 
 export interface CallFilterOptions {
   agents: string[];
+  teams: string[];
   campaigns: string[];
   dispositions: string[];
   dialers: string[];
@@ -69,12 +73,50 @@ export interface DashboardSummary {
 export interface AdminSummary {
   companies: number;
   branches: number;
+  teams: number;
+  active_teams: number;
   users: number;
   active_users: number;
   dialers: number;
   active_dialers: number;
   calls: number;
   recent_security_events: SecurityEvent[];
+}
+
+export interface TeamRecord {
+  id: string;
+  branch: string;
+  branch_name: string;
+  company_name: string;
+  name: string;
+  team_leader: string;
+  team_leader_name: string;
+  team_leader_email: string;
+  is_active: boolean;
+  calls_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SystemNotification {
+  id: string;
+  category: string;
+  severity: 'info' | 'warning' | 'error';
+  title: string;
+  message: string;
+  branch_id: string | null;
+  branch_name: string;
+  call_id: string | null;
+  metadata: Record<string, string>;
+  occurrences: number;
+  is_read: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NotificationResponse {
+  unread_count: number;
+  results: SystemNotification[];
 }
 
 export interface CompanyRecord {

@@ -1,5 +1,5 @@
 import { ArrowRightOutlined, AuditOutlined, CheckCircleFilled, ClockCircleOutlined, CustomerServiceOutlined, DownloadOutlined, MoreOutlined, RiseOutlined } from '@ant-design/icons';
-import { Alert, Button, Card, Col, Progress, Row, Skeleton, Statistic, Table, Tag, Typography, type TableProps } from 'antd';
+import { Alert, Button, Card, Col, Progress, Row, Skeleton, Statistic, Table, Tag, Tooltip, Typography, type TableProps } from 'antd';
 import dayjs from 'dayjs';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -43,7 +43,7 @@ export function DashboardPage() {
 
   const columns: TableProps<CallEvent>['columns'] = [
     { title: 'Call', key: 'call', render: (_, call) => <div className="table-primary"><strong>{call.call_id || `Lead ${call.lead_id}`}</strong><small>{call.phone_number}</small></div> },
-    { title: 'Agent', dataIndex: 'agent_user', key: 'agent_user', render: (value) => value || 'Unassigned' },
+    { title: 'Agent', key: 'agent', render: (_, row) => <Tooltip title={row.agent_user ? `Agent ID: ${row.agent_user}` : 'Agent ID unavailable'}>{row.agent_name || row.agent_user || 'Unassigned'}</Tooltip> },
     { title: 'Campaign', dataIndex: 'campaign', key: 'campaign', render: (value) => <Tag>{value || '—'}</Tag> },
     { title: 'Duration', dataIndex: 'talk_time', key: 'talk_time', render: formatDuration },
     { title: 'Recording', dataIndex: 'recording_download_status', key: 'recording', render: (value) => <Tag color={statusColor[value]}>{value.replace('_', ' ')}</Tag> },

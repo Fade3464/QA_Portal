@@ -171,7 +171,7 @@ export function AudioPlayerModal({ call, onClose }: AudioPlayerModalProps) {
         <div className="audio-player__meta">
           <div>
             <Text strong>{call?.phone_number || 'Unknown number'}</Text>
-            <Text type="secondary">{call?.agent_user || 'Unknown agent'} · {call?.campaign || 'No campaign'}</Text>
+            <Text type="secondary">{call?.agent_name || call?.agent_user || 'Unknown agent'} · {call?.campaign || 'No campaign'}</Text>
           </div>
           <Tag color={isPlaying ? 'processing' : 'default'}>{isBuffering ? 'Buffering' : isPlaying ? 'Playing' : 'Ready'}</Tag>
         </div>

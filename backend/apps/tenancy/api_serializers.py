@@ -1,10 +1,11 @@
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from rest_framework import serializers
 
 from apps.accounts.models import AuthenticationEvent, User
 
-from .models import Branch, Company, Dialer
+from .models import Branch, Company, Dialer, Team
 
 
 class CompanyAdminSerializer(serializers.ModelSerializer):
@@ -47,6 +48,106 @@ class BranchAdminSerializer(serializers.ModelSerializer):
             "updated_at",
         )
         read_only_fields = ("id", "created_at", "updated_at")
+
+
+class TeamAdminSerializer(serializers.ModelSerializer):
+    branch_name = serializers.CharField(source="branch.name", read_only=True)
+    company_name = serializers.CharField(source="branch.company.name", read_only=True)
+    team_leader_name = serializers.CharField(
+        source="team_leader.full_name", read_only=True
+    )
+    team_leader_email = serializers.EmailField(
+        source="team_leader.email", read_only=True
+    )
+    calls_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Team
+        fields = (
+            "id",
+            "branch",
+            "branch_name",
+            "company_name",
+            "name",
+            "team_leader",
+            "team_leader_name",
+            "team_leader_email",
+            "is_active",
+            "calls_count",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("id", "calls_count", "created_at", "updated_at")
+
+    def validate(self, attrs):
+        branch = attrs.get("branch", getattr(self.instance, "branch", None))
+        leader = attrs.get(
+            "team_leader", getattr(self.instance, "team_leader", None)
+        )
+        name = " ".join(attrs.get("name", getattr(self.instance, "name", "")).split())
+        if not branch or not leader:
+            raise serializers.ValidationError("A branch and team leader are required.")
+        if leader.branch_id != branch.id:
+            raise serializers.ValidationError(
+                {"team_leader": "The team leader must belong to the selected branch."}
+            )
+        if leader.role != User.Role.TEAM_LEADER:
+            raise serializers.ValidationError(
+                {"team_leader": "The selected user must have the Team Leader role."}
+            )
+        duplicate = Team.objects.filter(branch=branch, name__iexact=name)
+        if self.instance:
+            duplicate = duplicate.exclude(pk=self.instance.pk)
+            if branch.id != self.instance.branch_id and self.instance.call_events.exists():
+                raise serializers.ValidationError(
+                    {"branch": "A team with assigned calls cannot move to another branch."}
+                )
+        if duplicate.exists():
+            raise serializers.ValidationError(
+                {"name": "A team with this name already exists in the branch."}
+            )
+        attrs["name"] = name
+        return attrs
+
+    @staticmethod
+    def _assign_waiting_calls(team):
+        from apps.calls.models import CallEvent
+        from apps.notifications.services import resolve_unknown_team_notifications
+        from django.db.models import Q
+
+        prefixes = Q(team_name__iexact=team.name)
+        leader_is_unambiguous = not Team.objects.filter(
+            branch=team.branch,
+            team_leader=team.team_leader,
+            is_active=True,
+        ).exclude(pk=team.pk).exists()
+        notification_aliases = []
+        if team.is_active and leader_is_unambiguous:
+            prefixes |= Q(team_name__iexact=team.team_leader.full_name)
+            notification_aliases.append(team.team_leader.full_name)
+        assigned = CallEvent.objects.filter(
+            branch=team.branch,
+            team__isnull=True,
+        ).filter(prefixes).update(team=team)
+        resolve_unknown_team_notifications(team, aliases=notification_aliases)
+        return assigned
+
+    def create(self, validated_data):
+        with transaction.atomic():
+            team = Team(**validated_data)
+            team.full_clean()
+            team.save()
+            self._assign_waiting_calls(team)
+        return team
+
+    def update(self, instance, validated_data):
+        with transaction.atomic():
+            for field, value in validated_data.items():
+                setattr(instance, field, value)
+            instance.full_clean()
+            instance.save()
+            self._assign_waiting_calls(instance)
+        return instance
 
 
 class DialerAdminSerializer(serializers.ModelSerializer):
@@ -155,6 +256,19 @@ class UserAdminSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("A company and branch are required.")
         if branch.company_id != company.id:
             raise serializers.ValidationError({"branch": "The branch must belong to the selected company."})
+        role = attrs.get("role", getattr(self.instance, "role", None))
+        if self.instance and self.instance.led_teams.exists():
+            led_branch_ids = set(
+                self.instance.led_teams.values_list("branch_id", flat=True)
+            )
+            if role != User.Role.TEAM_LEADER:
+                raise serializers.ValidationError(
+                    {"role": "A user leading a team must retain the Team Leader role."}
+                )
+            if branch.id not in led_branch_ids or len(led_branch_ids) != 1:
+                raise serializers.ValidationError(
+                    {"branch": "Move or reassign this user's teams before changing branches."}
+                )
         password = attrs.get("password")
         if not self.instance and not password:
             raise serializers.ValidationError({"password": "A temporary password is required."})

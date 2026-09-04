@@ -17,5 +17,6 @@ urlpatterns = [
     path("api/v1/dashboard/", include("apps.dashboard.urls")),
     path("api/v1/administration/", include("apps.tenancy.api_urls")),
     path("api/v1/calls/", include("apps.calls.urls")),
+    path("api/v1/notifications/", include("apps.notifications.urls")),
     path("api/v1/webhooks/vicidial/", include("apps.calls.webhook_urls")),
 ]

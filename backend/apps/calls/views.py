@@ -19,7 +19,7 @@ from .serializers import CallEventSerializer
 
 
 def scoped_calls(user):
-    queryset = CallEvent.objects.select_related("dialer", "branch")
+    queryset = CallEvent.objects.select_related("dialer", "branch", "team")
     return queryset if user.is_superuser else queryset.filter(branch_id=user.branch_id)
 
 
@@ -82,6 +82,9 @@ class CallListView(ListAPIView):
                 | Q(lead_id__icontains=search)
                 | Q(agent_log_id__icontains=search)
                 | Q(agent_user__icontains=search)
+                | Q(agent_name__icontains=search)
+                | Q(team_name__icontains=search)
+                | Q(team__name__icontains=search)
                 | Q(campaign__icontains=search)
                 | Q(phone_number__icontains=search)
                 | Q(disposition__icontains=search)
@@ -89,8 +92,21 @@ class CallListView(ListAPIView):
                 | Q(source_recording_filename__icontains=search)
             )
 
+        agent_values = self._values("agent")
+        if agent_values:
+            queryset = queryset.filter(
+                Q(agent_name__in=agent_values)
+                | Q(agent_name="", agent_user__in=agent_values)
+            )
+
+        team_values = self._values("team")
+        if team_values:
+            team_query = Q()
+            for value in team_values:
+                team_query |= Q(team_name__iexact=value) | Q(team__name__iexact=value)
+            queryset = queryset.filter(team_query)
+
         dimension_filters = {
-            "agent": "agent_user__in",
             "campaign": "campaign__in",
             "disposition": "disposition__in",
             "dialer": "dialer__name__in",
@@ -143,6 +159,8 @@ class CallListView(ListAPIView):
             "call_date",
             "talk_time",
             "agent_user",
+            "agent_name",
+            "team_name",
             "campaign",
             "disposition",
         }
@@ -165,9 +183,38 @@ class CallFilterOptionsView(APIView):
                 .distinct()[:250]
             )
 
+        def case_insensitive_choices(values):
+            unique = {}
+            for value in values:
+                unique.setdefault(value.casefold(), value)
+            return sorted(unique.values(), key=str.casefold)[:250]
+
         return Response(
             {
-                "agents": choices("agent_user"),
+                "agents": sorted(
+                    set(choices("agent_name"))
+                    | set(
+                        queryset.filter(agent_name="")
+                        .exclude(agent_user="")
+                        .values_list("agent_user", flat=True)[:250]
+                    ),
+                    key=str.casefold,
+                )[:250],
+                "teams": case_insensitive_choices(
+                    list(
+                        queryset.filter(team__isnull=False)
+                        .order_by("team__name")
+                        .values_list("team__name", flat=True)
+                        .distinct()[:250]
+                    )
+                    + list(
+                        queryset.filter(team__isnull=True)
+                        .exclude(team_name="")
+                        .order_by("team_name")
+                        .values_list("team_name", flat=True)
+                        .distinct()[:250]
+                    )
+                ),
                 "campaigns": choices("campaign"),
                 "dispositions": choices("disposition"),
                 "dialers": choices("dialer__name"),

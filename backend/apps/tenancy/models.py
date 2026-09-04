@@ -5,6 +5,7 @@ from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.db import models
+from django.db.models.functions import Lower
 
 
 class Company(models.Model):
@@ -45,6 +46,45 @@ class Branch(models.Model):
 
     def __str__(self) -> str:
         return f"{self.company.name} · {self.name}"
+
+
+class Team(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    branch = models.ForeignKey(
+        Branch, on_delete=models.PROTECT, related_name="teams"
+    )
+    name = models.CharField(max_length=160)
+    team_leader = models.ForeignKey(
+        "accounts.User", on_delete=models.PROTECT, related_name="led_teams"
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["branch__company__name", "branch__name", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                Lower("name"), "branch", name="unique_team_name_per_branch_ci"
+            )
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        self.name = " ".join(self.name.split())
+        if not self.branch_id or not self.team_leader_id:
+            return
+        if self.team_leader.branch_id != self.branch_id:
+            raise ValidationError(
+                {"team_leader": "The team leader must belong to the selected branch."}
+            )
+        if self.team_leader.role != self.team_leader.Role.TEAM_LEADER:
+            raise ValidationError(
+                {"team_leader": "The selected user must have the Team Leader role."}
+            )
+
+    def __str__(self) -> str:
+        return f"{self.branch} · {self.name}"
 
 
 class Dialer(models.Model):

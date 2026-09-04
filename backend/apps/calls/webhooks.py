@@ -1,13 +1,29 @@
+import re
+
 from django.db import transaction
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET
 
-from apps.notifications.services import announce_call
+from apps.notifications.services import announce_call, queue_unknown_team_notification
 from apps.tenancy.models import Dialer
+from apps.tenancy.services import resolve_team_prefix
 
 from .models import CallEvent
 from .services import event_key, parse_call_date, safe_int
 from .tasks import resolve_recording
+
+
+TEAM_SEPARATOR = re.compile(r"\s*[-‐‑‒–—]\s*", re.UNICODE)
+
+
+def parse_agent_full_name(value: str) -> tuple[str, str]:
+    cleaned = " ".join((value or "").split())
+    if not cleaned:
+        return "", ""
+    pieces = TEAM_SEPARATOR.split(cleaned, maxsplit=1)
+    if len(pieces) == 2 and pieces[0].strip() and pieces[1].strip():
+        return pieces[0].strip()[:160], pieces[1].strip()[:160]
+    return "", cleaned[:160]
 
 
 @require_GET
@@ -33,6 +49,10 @@ def receive_vicidial(request, dialer_id, event_type):
     payload = request.GET.dict()
     payload.pop("token", None)
     disposition = payload.get("dispo") or payload.get("status") or ""
+    team_name, agent_name = parse_agent_full_name(payload.get("agent_full_name", ""))
+    team = None
+    if team_name:
+        team = resolve_team_prefix(dialer.branch, team_name)
     key = event_key(event_type, payload)
     with transaction.atomic():
         event, created = CallEvent.objects.get_or_create(
@@ -46,6 +66,9 @@ def receive_vicidial(request, dialer_id, event_type):
                 "lead_id": payload.get("lead_id", "")[:80],
                 "agent_log_id": payload.get("agent_log_id", "")[:80],
                 "agent_user": payload.get("user", "")[:120],
+                "agent_name": agent_name,
+                "team_name": team_name,
+                "team": team,
                 "campaign": payload.get("campaign", "")[:120],
                 "phone_number": payload.get("phone_number", "")[:40],
                 "list_id": payload.get("list_id", "")[:80],
@@ -61,6 +84,8 @@ def receive_vicidial(request, dialer_id, event_type):
             },
         )
         if created:
+            if team_name and team is None:
+                queue_unknown_team_notification(event, team_name)
             transaction.on_commit(lambda: resolve_recording.delay(str(event.pk)))
             transaction.on_commit(lambda: announce_call(event))
     return JsonResponse({"status": "OK", "event_id": str(event.pk), "created": created})

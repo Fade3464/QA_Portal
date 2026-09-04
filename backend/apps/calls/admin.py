@@ -9,7 +9,9 @@ class CallEventAdmin(admin.ModelAdmin):
         "call_id",
         "lead_id",
         "branch",
+        "agent_name",
         "agent_user",
+        "team",
         "campaign",
         "disposition",
         "recording_download_status",
@@ -19,10 +21,18 @@ class CallEventAdmin(admin.ModelAdmin):
         "branch__company",
         "branch",
         "dialer",
+        "team",
         "disposition",
         "recording_download_status",
     )
-    search_fields = ("call_id", "lead_id", "agent_user", "phone_number")
+    search_fields = (
+        "call_id",
+        "lead_id",
+        "agent_name",
+        "agent_user",
+        "team_name",
+        "phone_number",
+    )
     readonly_fields = tuple(field.name for field in CallEvent._meta.fields)
 
     def has_add_permission(self, request):

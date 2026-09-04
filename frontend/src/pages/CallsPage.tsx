@@ -1,10 +1,11 @@
 import { CustomerServiceOutlined, PlayCircleOutlined } from '@ant-design/icons';
-import { Alert, Button, Card, Table, Tag, Tooltip, Typography, type TableProps } from 'antd';
+import { Alert, Button, Card, Progress, Table, Tag, Tooltip, Typography, type TableProps } from 'antd';
 import dayjs from 'dayjs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AudioPlayerModal } from '../components/AudioPlayerModal';
 import { CallLibraryFilters, type CallLibraryFilterValue } from '../components/CallLibraryFilters';
+import { PortalLoader } from '../components/PortalLoader';
 import { api } from '../lib/api';
 import type { CallEvent, CallFilterOptions, PaginatedResponse } from '../types';
 
@@ -13,7 +14,7 @@ const PAGE_CACHE_TTL_MS = 30_000;
 const PAGE_CACHE_LIMIT = 20;
 
 const DEFAULT_FILTERS: CallLibraryFilterValue = {
-  search: '', agents: [], campaigns: [], dispositions: [], dialers: [], eventTypes: [], recordingStatuses: [],
+  search: '', agents: [], teams: [], campaigns: [], dispositions: [], dialers: [], eventTypes: [], recordingStatuses: [],
   dateField: 'received_at', dateFrom: '', dateTo: '', relativeRange: '', talkTimeMin: undefined, talkTimeMax: undefined, ordering: '-received_at',
 };
 
@@ -33,7 +34,7 @@ function numberParameter(params: URLSearchParams, name: string) {
 function filtersFromParams(params: URLSearchParams): CallLibraryFilterValue {
   return {
     search: params.get('search') ?? '',
-    agents: listParameter(params, 'agent'), campaigns: listParameter(params, 'campaign'),
+    agents: listParameter(params, 'agent'), teams: listParameter(params, 'team'), campaigns: listParameter(params, 'campaign'),
     dispositions: listParameter(params, 'disposition'), dialers: listParameter(params, 'dialer'),
     eventTypes: listParameter(params, 'event_type'), recordingStatuses: listParameter(params, 'recording_status'),
     dateField: params.get('date_field') === 'call_date' ? 'call_date' : 'received_at',
@@ -53,7 +54,7 @@ function filterQuery(filters: CallLibraryFilterValue) {
   ];
   values.forEach(([name, value]) => { if (value !== '' && value !== undefined) query.set(name, String(value)); });
   const multipleValues: Array<[string, string[]]> = [
-    ['agent', filters.agents], ['campaign', filters.campaigns], ['disposition', filters.dispositions],
+    ['agent', filters.agents], ['team', filters.teams], ['campaign', filters.campaigns], ['disposition', filters.dispositions],
     ['dialer', filters.dialers], ['event_type', filters.eventTypes], ['recording_status', filters.recordingStatuses],
   ];
   multipleValues.forEach(([name, selected]) => selected.forEach((value) => query.append(name, value)));
@@ -138,7 +139,8 @@ export function CallsPage() {
 
   const columns: TableProps<CallEvent>['columns'] = [
     { title: 'Lead ID', dataIndex: 'lead_id', key: 'lead_id', render: (value) => <strong>{value || '—'}</strong> },
-    { title: 'Agent', dataIndex: 'agent_user', key: 'agent_user', render: (value) => value || '—' },
+    { title: 'Agent', key: 'agent', render: (_, row) => <Tooltip title={row.agent_user ? `Agent ID: ${row.agent_user}` : 'Agent ID unavailable'}><span className="agent-name">{row.agent_name || row.agent_user || '—'}</span></Tooltip> },
+    { title: 'Team', dataIndex: 'team_name', key: 'team_name', render: (value) => value ? <Tag>{value}</Tag> : '—' },
     { title: 'Campaign', dataIndex: 'campaign', key: 'campaign', render: (value) => <Tag>{value || '—'}</Tag> },
     { title: 'Phone number', dataIndex: 'phone_number', key: 'phone_number', render: (value) => value || '—' },
     { title: 'Disposition', dataIndex: 'disposition', key: 'disposition', render: (value) => <Tag color="blue">{value || '—'}</Tag> },
@@ -160,8 +162,8 @@ export function CallsPage() {
         <CallLibraryFilters value={filters} options={options} optionsLoading={optionsLoading} loading={loading} onChange={changeFilters} onReset={resetFilters} onRefresh={reload} />
       </Card>
       {error && <Alert type="error" showIcon title="Unable to filter calls" description={error} action={<Button onClick={reload}>Try again</Button>} />}
-      <Card className="content-card" classNames={{ body: 'content-card__body' }}>
-        <Table className="content-table" rowKey="id" columns={columns} dataSource={calls} loading={loading} scroll={{ x: 960 }} pagination={{ current: currentPage, pageSize, total, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], showTotal: (recordCount, range) => `${range[0]}–${range[1]} of ${recordCount} records`, onChange: (page, nextPageSize) => { setLoading(true); setError(''); if (nextPageSize !== pageSize) { setPageSize(nextPageSize); setCurrentPage(1); return; } setCurrentPage(page); }, position: ['bottomRight'] }} locale={{ emptyText: <div className="empty-table"><CustomerServiceOutlined className="empty-table__icon" /><strong>No matching calls</strong><span>Adjust or clear filters to expand the result set.</span></div> }} />
+      <Card className="content-card" classNames={{ body: 'content-card__body' }} title={<span>Library results <Tag>{total}</Tag></span>} extra={<div className="page-capacity"><Progress type="circle" size={48} percent={Math.round((calls.length / pageSize) * 100)} strokeWidth={9} format={() => `${calls.length}/${pageSize}`} /><span><strong>Page capacity</strong><small>{pageSize} records selected</small></span></div>}>
+        <Table className="content-table" rowKey="id" columns={columns} dataSource={calls} loading={{ spinning: loading, indicator: <PortalLoader compact label="Loading calls…" /> }} scroll={{ x: 1080 }} pagination={{ current: currentPage, pageSize, total, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], showTotal: (recordCount, range) => `${range[0]}–${range[1]} of ${recordCount} records`, onChange: (page, nextPageSize) => { setLoading(true); setError(''); if (nextPageSize !== pageSize) { setPageSize(nextPageSize); setCurrentPage(1); return; } setCurrentPage(page); }, position: ['bottomRight'] }} locale={{ emptyText: <div className="empty-table"><CustomerServiceOutlined className="empty-table__icon" /><strong>No matching calls</strong><span>Adjust or clear filters to expand the result set.</span></div> }} />
       </Card>
       <AudioPlayerModal call={selectedCall} onClose={() => setSelectedCall(null)} />
     </div>

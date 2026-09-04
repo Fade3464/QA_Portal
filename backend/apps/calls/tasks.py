@@ -16,6 +16,44 @@ from .services import download_recording, lookup_recording
 logger = logging.getLogger(__name__)
 
 
+def _http_status(exc) -> int | None:
+    return exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+
+
+def _refresh_recording_after_404(event):
+    """Re-query VICIdial because recording hosts can replace a stale URL."""
+    try:
+        recording = lookup_recording(event.dialer, event)
+    except (ValidationError, httpx.HTTPError) as exc:
+        logger.warning(
+            "Recording URL refresh failed after a 404",
+            extra={"event_id": str(event.pk), "error": str(exc)},
+        )
+        return None
+    if recording is None:
+        logger.info(
+            "Recording URL is not yet available after a 404",
+            extra={"event_id": str(event.pk)},
+        )
+        return None
+
+    CallEvent.objects.filter(pk=event.pk).update(
+        source_recording_id=recording.recording_id or event.source_recording_id,
+        recording_source_url=recording.location,
+        recording_lookup_status=CallEvent.Status.FOUND,
+        recording_lookup_attempts=event.recording_lookup_attempts + 1,
+        recording_lookup_last_error="",
+    )
+    logger.info(
+        "Recording URL refreshed after a 404",
+        extra={
+            "event_id": str(event.pk),
+            "url_changed": recording.location != event.recording_source_url,
+        },
+    )
+    return recording
+
+
 @shared_task(
     name="calls.resolve_recording",
     bind=True,
@@ -150,6 +188,7 @@ def fetch_recording(self, event_id: str):
         recording_download_attempts=self.request.retries + 1,
         recording_download_last_error="",
     )
+    download_error = None
     try:
         path, size, sha256 = download_recording(
             event.dialer, event.recording_source_url, recording_uuid
@@ -165,24 +204,52 @@ def fetch_recording(self, event_id: str):
         )
         raise
     except (httpx.HTTPError, OSError) as exc:
+        download_error = exc
+
+    if _http_status(download_error) == 404:
+        refreshed = _refresh_recording_after_404(event)
+        if refreshed and refreshed.location != event.recording_source_url:
+            try:
+                path, size, sha256 = download_recording(
+                    event.dialer, refreshed.location, recording_uuid
+                )
+                download_error = None
+            except (ValidationError, SoftTimeLimitExceeded) as exc:
+                CallEvent.objects.filter(pk=event.pk).update(
+                    recording_download_status=CallEvent.Status.FAILED,
+                    recording_download_last_error=str(exc)[:1000],
+                )
+                logger.error(
+                    "Refreshed recording download permanently failed",
+                    extra={"event_id": event_id, "error": str(exc)},
+                )
+                raise
+            except (httpx.HTTPError, OSError) as exc:
+                download_error = exc
+
+    if download_error is not None:
         final_attempt = self.request.retries >= self.max_retries
         CallEvent.objects.filter(pk=event.pk).update(
             recording_download_status=CallEvent.Status.FAILED
             if final_attempt
             else CallEvent.Status.RETRYING,
-            recording_download_last_error=str(exc)[:1000],
+            recording_download_last_error=str(download_error)[:1000],
         )
         logger.warning(
             "Recording download failed",
             extra={
                 "event_id": event_id,
                 "attempt": self.request.retries + 1,
-                "error": str(exc),
+                "status_code": _http_status(download_error),
+                "error": str(download_error),
             },
         )
         if final_attempt:
-            raise
-        raise self.retry(exc=exc, countdown=min(120, 2 ** (self.request.retries + 1)))
+            raise download_error
+        raise self.retry(
+            exc=download_error,
+            countdown=min(120, 2 ** (self.request.retries + 1)),
+        )
     CallEvent.objects.filter(pk=event.pk).update(
         recording_path=path,
         recording_size_bytes=size,

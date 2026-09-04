@@ -11,9 +11,10 @@ from .api_serializers import (
     BranchAdminSerializer,
     CompanyAdminSerializer,
     DialerAdminSerializer,
+    TeamAdminSerializer,
     UserAdminSerializer,
 )
-from .models import Branch, Company, Dialer
+from .models import Branch, Company, Dialer, Team
 
 
 class IsSystemAdministrator(permissions.BasePermission):
@@ -54,6 +55,13 @@ class DialerViewSet(ManagedModelViewSet):
     queryset = Dialer.objects.select_related("branch", "branch__company")
 
 
+class TeamViewSet(ManagedModelViewSet):
+    serializer_class = TeamAdminSerializer
+    queryset = Team.objects.select_related(
+        "branch", "branch__company", "team_leader"
+    ).annotate(calls_count=Count("call_events", distinct=True))
+
+
 class UserViewSet(ManagedModelViewSet):
     serializer_class = UserAdminSerializer
     queryset = User.objects.filter(is_superuser=False).select_related("company", "branch")
@@ -73,6 +81,8 @@ class AdministrationSummaryView(APIView):
             {
                 "companies": Company.objects.count(),
                 "branches": Branch.objects.count(),
+                "teams": Team.objects.count(),
+                "active_teams": Team.objects.filter(is_active=True).count(),
                 "users": User.objects.filter(is_superuser=False).count(),
                 "active_users": User.objects.filter(is_superuser=False, is_active=True).count(),
                 "dialers": Dialer.objects.count(),

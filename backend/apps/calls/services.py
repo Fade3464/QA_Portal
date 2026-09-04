@@ -147,13 +147,13 @@ def lookup_recording(dialer: Dialer, event) -> RecordingResult | None:
 def validate_recording_url(dialer: Dialer, url: str) -> None:
     parsed = urlparse(url)
     if (
-        parsed.scheme != "https"
+        parsed.scheme not in {"http", "https"}
         or not parsed.hostname
         or parsed.username
         or parsed.password
     ):
         raise ValidationError(
-            "Recording URL must be an absolute HTTPS URL without embedded credentials."
+            "Recording URL must be an absolute HTTP or HTTPS URL without embedded credentials."
         )
     hostname = parsed.hostname.lower().rstrip(".")
     try:

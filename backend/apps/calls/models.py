@@ -33,6 +33,15 @@ class CallEvent(models.Model):
     lead_id = models.CharField(max_length=80, blank=True, db_index=True)
     agent_log_id = models.CharField(max_length=80, blank=True)
     agent_user = models.CharField(max_length=120, blank=True, db_index=True)
+    agent_name = models.CharField(max_length=160, blank=True, db_index=True)
+    team_name = models.CharField(max_length=160, blank=True, db_index=True)
+    team = models.ForeignKey(
+        "tenancy.Team",
+        on_delete=models.PROTECT,
+        related_name="call_events",
+        null=True,
+        blank=True,
+    )
     campaign = models.CharField(max_length=120, blank=True, db_index=True)
     phone_number = models.CharField(max_length=40, blank=True)
     list_id = models.CharField(max_length=80, blank=True)

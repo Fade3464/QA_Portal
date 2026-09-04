@@ -2,7 +2,7 @@ from django import forms
 from django.contrib import admin
 from django.core.exceptions import ImproperlyConfigured
 
-from .models import Branch, Company, Dialer
+from .models import Branch, Company, Dialer, Team
 
 
 @admin.register(Company)
@@ -17,6 +17,14 @@ class BranchAdmin(admin.ModelAdmin):
     list_display = ("name", "company", "code", "timezone", "is_active")
     list_filter = ("company", "is_active")
     search_fields = ("name", "code", "company__name")
+
+
+@admin.register(Team)
+class TeamAdmin(admin.ModelAdmin):
+    list_display = ("name", "branch", "team_leader", "is_active", "updated_at")
+    list_filter = ("branch__company", "branch", "is_active")
+    search_fields = ("name", "branch__name", "team_leader__email")
+    autocomplete_fields = ("team_leader",)
 
 
 class DialerAdminForm(forms.ModelForm):

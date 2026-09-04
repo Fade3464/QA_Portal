@@ -1,9 +1,10 @@
-import { App as AntApp, ConfigProvider, Spin, theme } from 'antd';
+import { App as AntApp, ConfigProvider, theme } from 'antd';
 import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './auth/AuthContext';
 import { AppShell } from './components/AppShell';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
+import { PortalLoader } from './components/PortalLoader';
 import { useThemeSettings } from './theme/ThemeContext';
 
 const CallsPage = lazy(() => import('./pages/CallsPage').then((module) => ({ default: module.CallsPage })));
@@ -18,7 +19,7 @@ const AdministrationPage = lazy(() => import('./pages/AdministrationPage').then(
 function ProtectedLayout() {
   const { user, loading } = useAuth();
   const location = useLocation();
-  if (loading) return <div className="app-loader"><Spin size="large" /><span>Preparing your workspace…</span></div>;
+  if (loading) return <div className="app-loader"><PortalLoader /></div>;
   if (!user) return <Navigate to="/login" state={{ from: location.pathname }} replace />;
   if (user.must_change_password) return <Navigate to="/change-password" replace />;
   return <AppShell />;
@@ -82,7 +83,7 @@ export default function App() {
     >
       <AntApp>
         <AppErrorBoundary>
-          <Suspense fallback={<div className="app-loader"><Spin size="large" /><span>Loading…</span></div>}>
+          <Suspense fallback={<div className="app-loader"><PortalLoader label="Loading your next view…" /></div>}>
             <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />

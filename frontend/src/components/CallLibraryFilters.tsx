@@ -26,6 +26,7 @@ const { RangePicker } = DatePicker;
 export interface CallLibraryFilterValue {
   search: string;
   agents: string[];
+  teams: string[];
   campaigns: string[];
   dispositions: string[];
   dialers: string[];
@@ -82,6 +83,7 @@ export function CallLibraryFilters({
   const activeCount = [
     value.search,
     value.agents.length,
+    value.teams.length,
     value.campaigns.length,
     value.dispositions.length,
     value.dialers.length,
@@ -113,6 +115,7 @@ export function CallLibraryFilters({
 
   const chips = [
     value.agents.length ? { key: 'agents', label: `Agent: ${value.agents.join(', ')}`, clear: () => patch({ agents: [] }) } : null,
+    value.teams.length ? { key: 'teams', label: `Team: ${value.teams.join(', ')}`, clear: () => patch({ teams: [] }) } : null,
     value.campaigns.length ? { key: 'campaigns', label: `Campaign: ${value.campaigns.join(', ')}`, clear: () => patch({ campaigns: [] }) } : null,
     value.dispositions.length ? { key: 'dispositions', label: `Disposition: ${value.dispositions.join(', ')}`, clear: () => patch({ dispositions: [] }) } : null,
     value.dialers.length ? { key: 'dialers', label: `Dialer: ${value.dialers.join(', ')}`, clear: () => patch({ dialers: [] }) } : null,
@@ -200,6 +203,7 @@ export function CallLibraryFilters({
             <Text strong>Call dimensions</Text>
             <Text type="secondary">Selections use OR within a field and AND across fields.</Text>
             <label>Agents<Select mode="multiple" allowClear showSearch maxTagCount="responsive" loading={optionsLoading} value={value.agents} options={optionList(options?.agents)} onChange={(agents) => patch({ agents })} placeholder="Any agent" /></label>
+            <label>Teams<Select mode="multiple" allowClear showSearch maxTagCount="responsive" loading={optionsLoading} value={value.teams} options={optionList(options?.teams)} onChange={(teams) => patch({ teams })} placeholder="Any team" /></label>
             <label>Campaigns<Select mode="multiple" allowClear showSearch maxTagCount="responsive" loading={optionsLoading} value={value.campaigns} options={optionList(options?.campaigns)} onChange={(campaigns) => patch({ campaigns })} placeholder="Any campaign" /></label>
             <label>Dispositions<Select mode="multiple" allowClear showSearch maxTagCount="responsive" loading={optionsLoading} value={value.dispositions} options={optionList(options?.dispositions)} onChange={(dispositions) => patch({ dispositions })} placeholder="Any disposition" /></label>
             <label>Dialers<Select mode="multiple" allowClear showSearch maxTagCount="responsive" loading={optionsLoading} value={value.dialers} options={optionList(options?.dialers)} onChange={(dialers) => patch({ dialers })} placeholder="Any dialer" /></label>
@@ -230,7 +234,7 @@ export function CallLibraryFilters({
                 { value: 'call_date', label: 'Oldest call first' },
                 { value: '-talk_time', label: 'Longest talk time first' },
                 { value: 'talk_time', label: 'Shortest talk time first' },
-                { value: 'agent_user', label: 'Agent A–Z' },
+                { value: 'agent_name', label: 'Agent A–Z' },
                 { value: 'campaign', label: 'Campaign A–Z' },
                 { value: 'disposition', label: 'Disposition A–Z' },
               ]}
