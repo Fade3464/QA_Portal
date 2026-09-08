@@ -235,8 +235,17 @@ export function CallLibraryFilters({
                 { value: '-talk_time', label: 'Longest talk time first' },
                 { value: 'talk_time', label: 'Shortest talk time first' },
                 { value: 'agent_name', label: 'Agent A–Z' },
+                { value: '-agent_name', label: 'Agent Z–A' },
+                { value: 'team_name', label: 'Team A–Z' },
+                { value: '-team_name', label: 'Team Z–A' },
+                { value: 'lead_id', label: 'Lead ID ascending' },
+                { value: '-lead_id', label: 'Lead ID descending' },
+                { value: 'phone_number', label: 'Phone number ascending' },
+                { value: '-phone_number', label: 'Phone number descending' },
                 { value: 'campaign', label: 'Campaign A–Z' },
+                { value: '-campaign', label: 'Campaign Z–A' },
                 { value: 'disposition', label: 'Disposition A–Z' },
+                { value: '-disposition', label: 'Disposition Z–A' },
               ]}
             />
           </section>

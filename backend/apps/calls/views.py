@@ -155,6 +155,8 @@ class CallListView(ListAPIView):
 
         ordering = self.request.query_params.get("ordering", "-received_at")
         allowed_ordering = {
+            "lead_id",
+            "phone_number",
             "received_at",
             "call_date",
             "talk_time",

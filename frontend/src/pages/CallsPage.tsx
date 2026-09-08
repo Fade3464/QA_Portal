@@ -1,5 +1,5 @@
-import { CustomerServiceOutlined, PlayCircleOutlined } from '@ant-design/icons';
-import { Alert, Button, Card, Progress, Table, Tag, Tooltip, Typography, type TableProps } from 'antd';
+import { ArrowDownOutlined, ArrowUpOutlined, CustomerServiceOutlined, PlayCircleOutlined } from '@ant-design/icons';
+import { Alert, Button, Card, FloatButton, Table, Tooltip, Typography, type TableProps } from 'antd';
 import dayjs from 'dayjs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -7,11 +7,17 @@ import { AudioPlayerModal } from '../components/AudioPlayerModal';
 import { CallLibraryFilters, type CallLibraryFilterValue } from '../components/CallLibraryFilters';
 import { PortalLoader } from '../components/PortalLoader';
 import { api } from '../lib/api';
+import { useThemeSettings } from '../theme/ThemeContext';
 import type { CallEvent, CallFilterOptions, PaginatedResponse } from '../types';
 
 const { Title, Paragraph } = Typography;
 const PAGE_CACHE_TTL_MS = 30_000;
 const PAGE_CACHE_LIMIT = 20;
+const COLUMN_SORT_FIELDS: Record<string, string> = {
+  lead_id: 'lead_id', agent: 'agent_name', team_name: 'team_name',
+  campaign: 'campaign', phone_number: 'phone_number', disposition: 'disposition',
+  talk_time: 'talk_time', received_at: 'received_at',
+};
 
 const DEFAULT_FILTERS: CallLibraryFilterValue = {
   search: '', agents: [], teams: [], campaigns: [], dispositions: [], dialers: [], eventTypes: [], recordingStatuses: [],
@@ -73,6 +79,7 @@ function recordingTooltip(call: CallEvent) {
 }
 
 export function CallsPage() {
+  const { compact } = useThemeSettings();
   const [searchParams, setSearchParams] = useSearchParams();
   const [calls, setCalls] = useState<CallEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -138,34 +145,84 @@ export function CallsPage() {
   }, [load]);
 
   const columns: TableProps<CallEvent>['columns'] = [
-    { title: 'Lead ID', dataIndex: 'lead_id', key: 'lead_id', render: (value) => <strong>{value || '—'}</strong> },
-    { title: 'Agent', key: 'agent', render: (_, row) => <Tooltip title={row.agent_user ? `Agent ID: ${row.agent_user}` : 'Agent ID unavailable'}><span className="agent-name">{row.agent_name || row.agent_user || '—'}</span></Tooltip> },
-    { title: 'Team', dataIndex: 'team_name', key: 'team_name', render: (value) => value ? <Tag>{value}</Tag> : '—' },
-    { title: 'Campaign', dataIndex: 'campaign', key: 'campaign', render: (value) => <Tag>{value || '—'}</Tag> },
-    { title: 'Phone number', dataIndex: 'phone_number', key: 'phone_number', render: (value) => value || '—' },
-    { title: 'Disposition', dataIndex: 'disposition', key: 'disposition', render: (value) => <Tag color="blue">{value || '—'}</Tag> },
-    { title: 'Talk time', dataIndex: 'talk_time', key: 'talk_time', render: (value) => `${Math.floor(value / 60)}m ${value % 60}s` },
-    { title: 'Received', dataIndex: 'received_at', key: 'received_at', render: (value) => dayjs(value).format('DD MMM, h:mm A') },
-    { title: 'Options', key: 'options', width: 88, align: 'center', render: (_, row) => (
-      <Tooltip title={recordingTooltip(row)}><span><Button type="text" shape="circle" icon={<PlayCircleOutlined />} disabled={!row.recording_available} onClick={() => setSelectedCall(row)} aria-label={row.recording_available ? `Play recording for lead ${row.lead_id || row.id}` : recordingTooltip(row)} /></span></Tooltip>
+    { title: 'Lead ID', dataIndex: 'lead_id', key: 'lead_id', width: 110, render: (value) => <span className="library-id">{value || '—'}</span> },
+    { title: 'Agent', key: 'agent', width: 175, render: (_, row) => <Tooltip title={`${row.agent_name || row.agent_user || 'Unassigned'} · Agent ID: ${row.agent_user || 'unavailable'}`}><span className="library-agent">{row.agent_name || row.agent_user || '—'}</span></Tooltip> },
+    { title: 'Team', dataIndex: 'team_name', key: 'team_name', width: 145, render: (value) => <span className="library-secondary library-wrap">{value || '—'}</span> },
+    { title: 'Campaign', dataIndex: 'campaign', key: 'campaign', width: 125, render: (value) => <span className="library-secondary library-wrap">{value || '—'}</span> },
+    { title: 'Phone number', dataIndex: 'phone_number', key: 'phone_number', width: 175, render: (value) => <span className="library-phone">{value || '—'}</span> },
+    { title: 'Disposition', dataIndex: 'disposition', key: 'disposition', width: 125, render: (value) => <span className="library-disposition">{value || '—'}</span> },
+    { title: 'Talk time', dataIndex: 'talk_time', key: 'talk_time', width: 110, align: 'right', render: (value) => <span className="library-duration">{Math.floor(value / 60)}<small>m </small>{value % 60}<small>s</small></span> },
+    { title: 'Received', dataIndex: 'received_at', key: 'received_at', width: 145, render: (value) => <Tooltip title={dayjs(value).format('DD MMM YYYY, h:mm:ss A')}><span className="library-date">{dayjs(value).format('DD MMM YYYY')}<small>{dayjs(value).format('h:mm A')}</small></span></Tooltip> },
+    { title: 'Options', key: 'options', width: 84, fixed: 'right', align: 'center', render: (_, row) => (
+      <Tooltip title={recordingTooltip(row)}><span className="library-play-target" tabIndex={row.recording_available ? undefined : 0} aria-label={row.recording_available ? undefined : recordingTooltip(row)}><Button className={`library-play${row.recording_available ? ' library-play--ready' : ''}`} type="text" shape="circle" icon={<PlayCircleOutlined />} disabled={!row.recording_available} onClick={() => setSelectedCall(row)} aria-label={row.recording_available ? `Play recording for lead ${row.lead_id || row.id}` : recordingTooltip(row)} /></span></Tooltip>
     ) },
   ];
 
   const reload = () => { pageCache.current.clear(); setLoading(true); setError(''); void load(undefined, true); };
   const changeFilters = (nextFilters: CallLibraryFilterValue) => { setLoading(true); setFilters(nextFilters); setCurrentPage(1); setError(''); };
   const resetFilters = () => { setLoading(true); setFilters(DEFAULT_FILTERS); setCurrentPage(1); setError(''); };
+  const sortableColumns: TableProps<CallEvent>['columns'] = columns.map((column) => {
+    const field = COLUMN_SORT_FIELDS[String(column.key)];
+    if (!field) return { ...column, align: 'center' };
+    return {
+      ...column,
+      align: 'center',
+      sorter: true,
+      onHeaderCell: () => ({ style: { color: 'var(--qa-text-muted)' } }),
+      sortIcon: ({ sortOrder }) => sortOrder ? <span className="library-sort" aria-hidden="true">{sortOrder === 'ascend' ? <ArrowUpOutlined /> : <ArrowDownOutlined />}</span> : null,
+      sortOrder: filters.ordering === field ? 'ascend' : filters.ordering === `-${field}` ? 'descend' : null,
+    };
+  });
+  const handleTableChange: TableProps<CallEvent>['onChange'] = (pagination, _tableFilters, sorter, extra) => {
+    if (extra.action === 'sort') {
+      const selectedSort = Array.isArray(sorter) ? sorter[0] : sorter;
+      const field = COLUMN_SORT_FIELDS[String(selectedSort?.columnKey)];
+      const ordering = field && selectedSort.order
+        ? `${selectedSort.order === 'descend' ? '-' : ''}${field}`
+        : DEFAULT_FILTERS.ordering;
+      if (ordering === filters.ordering && currentPage === 1) return;
+      changeFilters({ ...filters, ordering });
+    } else if (extra.action === 'paginate') {
+      const nextPageSize = pagination.pageSize ?? pageSize;
+      setLoading(true);
+      setError('');
+      setPageSize(nextPageSize);
+      setCurrentPage(nextPageSize !== pageSize ? 1 : pagination.current ?? 1);
+    }
+  };
 
   return (
+    <>
     <div className="page-stack">
       <div className="page-heading"><div><Title level={2} className="page-title">Call library</Title><Paragraph className="page-subtitle">Explore every dialer call available to your branch.</Paragraph></div></div>
       <Card className="call-filter-card" classNames={{ body: 'call-filter-card__body' }}>
         <CallLibraryFilters value={filters} options={options} optionsLoading={optionsLoading} loading={loading} onChange={changeFilters} onReset={resetFilters} onRefresh={reload} />
       </Card>
       {error && <Alert type="error" showIcon title="Unable to filter calls" description={error} action={<Button onClick={reload}>Try again</Button>} />}
-      <Card className="content-card" classNames={{ body: 'content-card__body' }} title={<span>Library results <Tag>{total}</Tag></span>} extra={<div className="page-capacity"><Progress type="circle" size={48} percent={Math.round((calls.length / pageSize) * 100)} strokeWidth={9} format={() => `${calls.length}/${pageSize}`} /><span><strong>Page capacity</strong><small>{pageSize} records selected</small></span></div>}>
-        <Table className="content-table" rowKey="id" columns={columns} dataSource={calls} loading={{ spinning: loading, indicator: <PortalLoader compact label="Loading calls…" /> }} scroll={{ x: 1080 }} pagination={{ current: currentPage, pageSize, total, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], showTotal: (recordCount, range) => `${range[0]}–${range[1]} of ${recordCount} records`, onChange: (page, nextPageSize) => { setLoading(true); setError(''); if (nextPageSize !== pageSize) { setPageSize(nextPageSize); setCurrentPage(1); return; } setCurrentPage(page); }, position: ['bottomRight'] }} locale={{ emptyText: <div className="empty-table"><CustomerServiceOutlined className="empty-table__icon" /><strong>No matching calls</strong><span>Adjust or clear filters to expand the result set.</span></div> }} />
+      <Card className="library-card" classNames={{ header: 'library-card__header', body: 'content-card__body' }} title={<div className="library-card__heading"><span>Call records <span className="library-count">{total.toLocaleString()}</span></span></div>}>
+        <Table<CallEvent>
+          className="library-table"
+          classNames={{ header: { cell: 'library-table__heading' }, body: { cell: 'library-table__cell' }, pagination: { root: 'library-table__pagination' } }}
+          size={compact ? 'small' : 'middle'}
+          rowKey="id" columns={sortableColumns} onChange={handleTableChange} dataSource={calls}
+          showSorterTooltip={false}
+          loading={{ spinning: loading, indicator: <PortalLoader compact label="Loading calls…" /> }}
+          scroll={{ x: 1194 }}
+          pagination={{ current: currentPage, pageSize, total, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], showTotal: (recordCount, range) => `${range[0]}–${range[1]} of ${recordCount.toLocaleString()} calls`, position: ['bottomRight'] }}
+          locale={{ emptyText: <div className="empty-table"><CustomerServiceOutlined className="empty-table__icon" /><strong>No matching calls</strong><span>Adjust or clear filters to expand the result set.</span></div> }}
+        />
       </Card>
       <AudioPlayerModal call={selectedCall} onClose={() => setSelectedCall(null)} />
     </div>
+    {/* Keep fixed positioning outside the animated page-stack children. */}
+    <FloatButton.BackTop
+      showProgress
+      visibilityHeight={80}
+      duration={450}
+      tooltip="Back to top"
+      aria-label="Scroll back to top"
+      style={{ insetInlineEnd: 24, insetBlockEnd: 24 }}
+    />
+    </>
   );
 }

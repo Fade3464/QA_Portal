@@ -77,7 +77,13 @@ export default function App() {
             iconMarginInlineEnd: 12,
           },
           Statistic: { titleFontSize: 12, contentFontSize: 29 },
-          Table: { headerBg: dark ? '#181d27' : '#fafbfd' },
+          Table: {
+            headerBg: 'var(--qa-surface-soft)',
+            bodySortBg: 'transparent',
+            headerSortActiveBg: 'var(--qa-surface-soft)',
+            headerSortHoverBg: 'var(--qa-surface-soft)',
+            fixedHeaderSortActiveBg: 'var(--qa-surface-soft)',
+          },
         },
       }}
     >

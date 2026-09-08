@@ -185,17 +185,36 @@ a { color: var(--qa-primary); font-weight: 600; }
 .bars-icon i { display: block; width: 3px; border-radius: 2px; background: currentColor; }
 .bars-icon i:nth-child(1) { height: 7px; }.bars-icon i:nth-child(2) { height: 12px; }.bars-icon i:nth-child(3) { height: 15px; }
 .content-card__header { min-height: 68px; }
-.page-capacity { display: flex; align-items: center; gap: 10px; }
-.page-capacity > span:last-child { display: flex; flex-direction: column; gap: 1px; text-align: left; }
-.page-capacity strong { color: var(--qa-text); font-size: 11px; }
-.page-capacity small { color: var(--qa-text-muted); font-size: 9px; }
-.page-capacity svg text { font-size: 21px; font-weight: 700; }
 .agent-name { display: inline-block; max-width: 190px; overflow: hidden; color: var(--qa-text); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; cursor: help; }
 .content-card__title > div { display: flex; flex-direction: column; gap: 3px; }
 .content-card__title small { color: var(--qa-text-faint); font-size: 10px; font-weight: 500; }
 .content-card__extra { font-size: 11px; }
 .content-card__body { padding: 0 !important; }
 .content-table { font-size: 12px; }
+.library-card { border-color: var(--qa-border); box-shadow: 0 4px 20px rgba(0,0,0,.035); }
+.library-card__header { min-height: 64px; padding-inline: 22px; }
+.library-card__heading { display: flex; flex-direction: column; gap: 5px; }
+.library-card__heading > span { display: flex; align-items: center; gap: 10px; font-size: 15px; }
+.library-count { padding: 2px 9px; border-radius: 6px; background: var(--qa-surface-soft); color: var(--qa-text-muted); font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.library-table .library-table__heading { padding: 14px 16px; background: var(--qa-surface-soft); color: var(--qa-text-muted); border-bottom-color: var(--qa-border); font-size: 12px; font-weight: 500; white-space: nowrap; }
+.library-table .library-table__heading::before { display: none; }
+.library-table .library-table__cell { padding: 15px 16px; border-bottom-color: var(--qa-border-soft); font-size: 13px; vertical-align: middle; }
+.library-table .library-table__pagination { margin: 0; padding: 18px 20px; border-top: 1px solid var(--qa-border-soft); }
+.library-id { color: var(--qa-text-muted); font-size: 12px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.library-agent { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--qa-text); font-weight: 600; cursor: help; }
+.library-secondary { color: var(--qa-text-muted); }
+.library-wrap { display: block; white-space: normal; overflow-wrap: anywhere; }
+.library-phone { color: var(--qa-text); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.library-disposition { display: inline-block; max-width: 100%; padding: 3px 9px; border: 1px solid var(--qa-border); border-radius: 6px; color: var(--qa-text-muted); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.library-duration { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.library-duration small { color: var(--qa-text-muted); font-size: 11px; }
+.library-date { display: flex; flex-direction: column; gap: 3px; white-space: nowrap; font-size: 12px; font-variant-numeric: tabular-nums; }
+.library-date small { color: var(--qa-text-muted); font-size: 11px; }
+.library-sort { display: inline-flex; margin-inline-start: 6px; color: var(--qa-primary); font-size: 11px; }
+.library-play-target { display: inline-flex; border-radius: 50%; }
+.library-play-target:focus-visible { outline: 2px solid var(--qa-primary); outline-offset: 3px; }
+.library-play.library-play--ready { color: var(--qa-primary); background: color-mix(in srgb, var(--qa-primary) 8%, transparent); }
+:root[data-density='compact'] .library-table .library-table__cell { padding-block: 9px; }
 .table-primary { display: flex; flex-direction: column; gap: 3px; }
 .table-primary small { color: var(--qa-text-faint); font-size: 10px; }
 .empty-table { display: grid; justify-items: center; gap: 7px; padding: 34px; color: var(--qa-text-faint); }

@@ -136,6 +136,38 @@ class WebhookTests(TestCase):
         self.assertEqual(len(last_page["results"]), 5)
         self.assertIsNone(last_page["next"])
 
+    def test_column_sorting_is_applied_before_pagination(self):
+        user = User.objects.create_superuser(
+            email="sorting@example.com", password="a-very-strong-password",
+            first_name="System", last_name="Administrator", must_change_password=False,
+        )
+        self.client.force_login(user)
+        for index in range(12):
+            CallEvent.objects.create(
+                dialer=self.dialer, branch=self.branch, event_key=f"sort-{index}",
+                event_type=CallEvent.EventType.DISPOSITION, campaign="Included",
+                lead_id=f"{index:04d}", phone_number=f"555{index:04d}",
+                agent_name=f"Agent {index:02d}", team_name=f"Team {index:02d}",
+                disposition=f"D{index:02d}", talk_time=index,
+            )
+        for field in ("lead_id", "phone_number", "agent_name", "team_name",
+                      "campaign", "disposition", "talk_time", "received_at"):
+            for prefix in ("", "-"):
+                ordering = f"{prefix}{field}"
+                with self.subTest(ordering=ordering):
+                    expected = list(CallEvent.objects.order_by(ordering, "-id")
+                                    .values_list("id", flat=True))
+                    pages = []
+                    for page in (1, 2):
+                        response = self.client.get(reverse("call-list"), {
+                            "ordering": ordering, "page": page, "page_size": 10,
+                            "campaign": "Included",
+                        })
+                        self.assertEqual(response.status_code, 200)
+                        self.assertEqual(response.json()["count"], 12)
+                        pages.extend(row["id"] for row in response.json()["results"])
+                    self.assertEqual(pages, [str(pk) for pk in expected])
+
     def test_call_library_combines_search_dimensions_ranges_and_ordering(self):
         user = User.objects.create_user(
             email="filters@example.com",
