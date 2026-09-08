@@ -15,7 +15,7 @@ from django.utils import timezone
 
 from apps.accounts.models import User
 from apps.notifications.models import SystemNotification
-from apps.tenancy.models import Branch, Company, Dialer, Team
+from apps.tenancy.models import Branch, Company, Dialer, DialerCampaign, Team
 from config.celery import app as celery_app
 
 from .models import CallEvent
@@ -27,6 +27,7 @@ from .services import (
     validate_recording_url,
 )
 from .tasks import fetch_recording, resolve_recording
+from .webhooks import infer_call_direction
 
 
 @override_settings(DIALER_CREDENTIAL_KEY=Fernet.generate_key().decode())
@@ -72,6 +73,7 @@ class WebhookTests(TestCase):
             call_id="VISIBLE",
             lead_id="LEAD-123",
             phone_number="+923001234567",
+            termination_reason="AGENT",
         )
         other_branch = Branch.objects.create(
             company=self.branch.company, name="Lahore", code="lhe"
@@ -100,6 +102,8 @@ class WebhookTests(TestCase):
         self.assertEqual([row["id"] for row in payload["results"]], [str(own.pk)])
         self.assertEqual(payload["results"][0]["lead_id"], "LEAD-123")
         self.assertEqual(payload["results"][0]["phone_number"], "+923001234567")
+        self.assertEqual(payload["results"][0]["termination_reason"], "AGENT")
+        self.assertEqual(payload["results"][0]["call_direction"], "OUTBOUND")
 
     def test_call_library_uses_server_side_pagination(self):
         user = User.objects.create_superuser(
@@ -138,31 +142,56 @@ class WebhookTests(TestCase):
 
     def test_column_sorting_is_applied_before_pagination(self):
         user = User.objects.create_superuser(
-            email="sorting@example.com", password="a-very-strong-password",
-            first_name="System", last_name="Administrator", must_change_password=False,
+            email="sorting@example.com",
+            password="a-very-strong-password",
+            first_name="System",
+            last_name="Administrator",
+            must_change_password=False,
         )
         self.client.force_login(user)
         for index in range(12):
             CallEvent.objects.create(
-                dialer=self.dialer, branch=self.branch, event_key=f"sort-{index}",
-                event_type=CallEvent.EventType.DISPOSITION, campaign="Included",
-                lead_id=f"{index:04d}", phone_number=f"555{index:04d}",
-                agent_name=f"Agent {index:02d}", team_name=f"Team {index:02d}",
-                disposition=f"D{index:02d}", talk_time=index,
+                dialer=self.dialer,
+                branch=self.branch,
+                event_key=f"sort-{index}",
+                event_type=CallEvent.EventType.DISPOSITION,
+                campaign="Included",
+                lead_id=f"{index:04d}",
+                phone_number=f"555{index:04d}",
+                agent_name=f"Agent {index:02d}",
+                team_name=f"Team {index:02d}",
+                disposition=f"D{index:02d}",
+                talk_time=index,
             )
-        for field in ("lead_id", "phone_number", "agent_name", "team_name",
-                      "campaign", "disposition", "talk_time", "received_at"):
+        for field in (
+            "lead_id",
+            "phone_number",
+            "agent_name",
+            "team_name",
+            "campaign",
+            "disposition",
+            "talk_time",
+            "received_at",
+        ):
             for prefix in ("", "-"):
                 ordering = f"{prefix}{field}"
                 with self.subTest(ordering=ordering):
-                    expected = list(CallEvent.objects.order_by(ordering, "-id")
-                                    .values_list("id", flat=True))
+                    expected = list(
+                        CallEvent.objects.order_by(ordering, "-id").values_list(
+                            "id", flat=True
+                        )
+                    )
                     pages = []
                     for page in (1, 2):
-                        response = self.client.get(reverse("call-list"), {
-                            "ordering": ordering, "page": page, "page_size": 10,
-                            "campaign": "Included",
-                        })
+                        response = self.client.get(
+                            reverse("call-list"),
+                            {
+                                "ordering": ordering,
+                                "page": page,
+                                "page_size": 10,
+                                "campaign": "Included",
+                            },
+                        )
                         self.assertEqual(response.status_code, 200)
                         self.assertEqual(response.json()["count"], 12)
                         pages.extend(row["id"] for row in response.json()["results"])
@@ -180,6 +209,11 @@ class WebhookTests(TestCase):
             must_change_password=False,
         )
         now = timezone.now()
+        DialerCampaign.objects.create(
+            dialer=self.dialer,
+            campaign="RETENTION",
+            project_name="Customer Retention",
+        )
         matching = CallEvent.objects.create(
             dialer=self.dialer,
             branch=self.branch,
@@ -192,6 +226,7 @@ class WebhookTests(TestCase):
             phone_number="+923001112233",
             disposition="SALE",
             talk_time=95,
+            termination_reason="AGENT",
             call_date=now - timedelta(hours=1),
             recording_download_status=CallEvent.Status.DOWNLOADED,
         )
@@ -215,7 +250,9 @@ class WebhookTests(TestCase):
                 "search": "1112233",
                 "agent": ["agent-1", "agent-3"],
                 "campaign": "retention",
+                "project": "customer retention",
                 "disposition": "SALE",
+                "termination_reason": "agent",
                 "dialer": self.dialer.name,
                 "event_type": CallEvent.EventType.DISPOSITION,
                 "recording_status": CallEvent.Status.DOWNLOADED,
@@ -230,6 +267,9 @@ class WebhookTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(matching.pk))
+        self.assertEqual(
+            response.json()["results"][0]["project_name"], "Customer Retention"
+        )
 
     def test_call_library_rejects_invalid_filter_inputs(self):
         user = User.objects.create_superuser(
@@ -247,7 +287,10 @@ class WebhookTests(TestCase):
             {"event_type": "unknown"},
             {"date_field": "deleted_at"},
             {"date_from": "not-a-date"},
-            {"date_from": now.isoformat(), "date_to": (now - timedelta(days=1)).isoformat()},
+            {
+                "date_from": now.isoformat(),
+                "date_to": (now - timedelta(days=1)).isoformat(),
+            },
             {"talk_time_min": "-1"},
             {"talk_time_min": "100", "talk_time_max": "10"},
             {"ordering": "raw_payload"},
@@ -276,6 +319,12 @@ class WebhookTests(TestCase):
             agent_user="visible-agent",
             campaign="visible-campaign",
             disposition="SALE",
+            termination_reason="Caller",
+        )
+        DialerCampaign.objects.create(
+            dialer=self.dialer,
+            campaign="visible-campaign",
+            project_name="Visible Project",
         )
         other_branch = Branch.objects.create(
             company=self.branch.company, name="Islamabad", code="isb"
@@ -298,11 +347,18 @@ class WebhookTests(TestCase):
             campaign="hidden-campaign",
             disposition="HIDDEN",
         )
+        DialerCampaign.objects.create(
+            dialer=other_dialer,
+            campaign="hidden-campaign",
+            project_name="Hidden Project",
+        )
         self.client.force_login(user)
         payload = self.client.get(reverse("call-filter-options")).json()
         self.assertEqual(payload["agents"], ["visible-agent"])
         self.assertEqual(payload["campaigns"], ["visible-campaign"])
+        self.assertEqual(payload["projects"], ["Visible Project"])
         self.assertEqual(payload["dispositions"], ["SALE"])
+        self.assertEqual(payload["termination_reasons"], ["Caller"])
         self.assertEqual(payload["dialers"], [self.dialer.name])
 
     def test_recording_endpoint_supports_byte_ranges_and_downloads(self):
@@ -350,10 +406,15 @@ class WebhookTests(TestCase):
             "token": self.secret,
             "lead_id": "123",
             "call_id": "CALL-1",
+            "closecallid": "CLOSE-1",
+            "xfercallid": "XFER-1",
             "uniqueid": "U-1",
             "dispo": "SALE",
             "talk_time": "42",
             "user": "agent01",
+            "group": "SUPPORT",
+            "did_id": "42",
+            "did_pattern": "18005551212",
         }
         with self.captureOnCommitCallbacks(execute=True):
             first = self.client.get(self.url, payload)
@@ -361,9 +422,40 @@ class WebhookTests(TestCase):
         self.assertTrue(first.json()["created"])
         self.assertFalse(second.json()["created"])
         self.assertEqual(CallEvent.objects.count(), 1)
-        self.assertEqual(CallEvent.objects.get().branch, self.branch)
+        event = CallEvent.objects.get()
+        self.assertEqual(event.branch, self.branch)
+        self.assertEqual(event.call_direction, CallEvent.Direction.INBOUND)
+        self.assertEqual(event.close_call_id, "CLOSE-1")
+        self.assertEqual(event.xfer_call_id, "XFER-1")
+        self.assertEqual(event.closer_group, "SUPPORT")
+        self.assertEqual(event.did_id, "42")
+        self.assertEqual(event.did_pattern, "18005551212")
         queue_task.assert_called_once()
         announce.assert_called_once()
+
+    def test_call_direction_inference_uses_closer_transfer_and_did_evidence(self):
+        cases = (
+            ((" CLOSE-99 ", None, "42", None, "SUPPORT"), CallEvent.Direction.INBOUND),
+            (
+                ("CLOSE-99", "XFER-1", None, None, "SUPPORT"),
+                CallEvent.Direction.TRANSFER,
+            ),
+            (("CLOSE-99", None, None, None, "SUPPORT"), CallEvent.Direction.CLOSER),
+            (
+                (None, "XFER-1", "42", "18005551212", "SUPPORT"),
+                CallEvent.Direction.OUTBOUND,
+            ),
+        )
+        for arguments, expected in cases:
+            with self.subTest(arguments=arguments):
+                self.assertEqual(infer_call_direction(*arguments), expected)
+
+        for empty in (None, "", " 0 ", "NULL", "null", "NONE", "none"):
+            with self.subTest(empty=empty):
+                self.assertEqual(
+                    infer_call_direction(empty, empty, empty, empty, empty),
+                    CallEvent.Direction.OUTBOUND,
+                )
 
     @patch("apps.calls.webhooks.announce_call")
     @patch("apps.calls.webhooks.resolve_recording.delay")
@@ -439,9 +531,7 @@ class WebhookTests(TestCase):
 
     @patch("apps.calls.webhooks.announce_call")
     @patch("apps.calls.webhooks.resolve_recording.delay")
-    def test_ambiguous_team_leader_prefix_stays_queued(
-        self, _queue_task, _announce
-    ):
+    def test_ambiguous_team_leader_prefix_stays_queued(self, _queue_task, _announce):
         leader = User.objects.create_user(
             email="shared-leader@example.com",
             password="a-very-strong-password",
@@ -491,7 +581,11 @@ class WebhookTests(TestCase):
 
         self.assertEqual(CallEvent.objects.filter(team__isnull=True).count(), 2)
         self.assertEqual(
-            list(CallEvent.objects.order_by("call_id").values_list("agent_name", flat=True)),
+            list(
+                CallEvent.objects.order_by("call_id").values_list(
+                    "agent_name", flat=True
+                )
+            ),
             ["Sana", "Hira"],
         )
         notification = SystemNotification.objects.get()
@@ -551,9 +645,7 @@ class WebhookTests(TestCase):
 class RecordingTaskConfigurationTests(TestCase):
     def test_recording_tasks_route_to_the_recordings_queue(self):
         for task in (resolve_recording, fetch_recording):
-            route = celery_app.amqp.router.route(
-                {}, task.name, args=(), kwargs={}
-            )
+            route = celery_app.amqp.router.route({}, task.name, args=(), kwargs={})
             self.assertEqual(route["queue"].name, "recordings")
 
     def test_recording_tasks_are_rate_limited(self):

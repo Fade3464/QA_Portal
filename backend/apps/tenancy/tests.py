@@ -3,7 +3,7 @@ from django.urls import reverse
 
 from apps.accounts.models import User
 
-from .models import Branch, Company
+from .models import Branch, Company, DialerCampaign
 
 
 class AdministrationApiTests(TestCase):
@@ -81,6 +81,10 @@ class AdministrationApiTests(TestCase):
                 "api_source": "qa_portal",
                 "webhook_secret": "a-long-private-webhook-secret",
                 "request_timeout_seconds": 15,
+                "campaigns": [
+                    {"campaign": "RETENTION", "project_name": "Customer Retention"},
+                    {"campaign": "SALES", "project_name": "Direct Sales"},
+                ],
                 "is_active": True,
             },
             content_type="application/json",
@@ -89,6 +93,34 @@ class AdministrationApiTests(TestCase):
         dialer = self.branch.__class__.objects.get(pk=branch_response.json()["id"]).dialers.get()
         self.assertEqual(dialer.get_api_password(), "private-api-password")
         self.assertTrue(dialer.check_webhook_secret("a-long-private-webhook-secret"))
+        self.assertEqual(dialer.campaigns.count(), 2)
+        self.assertEqual(
+            dialer.campaigns.get(campaign="RETENTION").project_name,
+            "Customer Retention",
+        )
+        self.assertEqual(len(dialer_response.json()["campaigns"]), 2)
+
+    def test_dialer_rejects_duplicate_campaign_codes_case_insensitively(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse("administration-dialer-list"),
+            {
+                "branch": str(self.branch.id),
+                "name": "Duplicate campaign dialer",
+                "api_url": "https://dialer.example.com/non_agent_api.php",
+                "api_username": "qa-api",
+                "api_password": "private-api-password",
+                "api_source": "qa_portal",
+                "webhook_secret": "a-long-private-webhook-secret",
+                "campaigns": [
+                    {"campaign": "SALES", "project_name": "Direct Sales"},
+                    {"campaign": "sales", "project_name": "Other Project"},
+                ],
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(DialerCampaign.objects.count(), 0)
 
     def test_administration_summary_returns_operational_counts(self):
         self.client.force_login(self.admin)

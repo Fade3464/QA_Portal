@@ -8,7 +8,7 @@ import {
   PlayCircleFilled,
   SoundOutlined,
 } from '@ant-design/icons';
-import { Button, Modal, Select, Slider, Tag, Tooltip, Typography } from 'antd';
+import { Button, Modal, Select, Slider, Tag, Typography } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CallEvent } from '../types';
 
@@ -171,7 +171,7 @@ export function AudioPlayerModal({ call, onClose }: AudioPlayerModalProps) {
         <div className="audio-player__meta">
           <div>
             <Text strong>{call?.phone_number || 'Unknown number'}</Text>
-            <Text type="secondary">{call?.agent_name || call?.agent_user || 'Unknown agent'} · {call?.campaign || 'No campaign'}</Text>
+            <Text type="secondary">{call?.agent_name || call?.agent_user || 'Unknown agent'} · {call?.project_name || 'Unmapped project'}</Text>
           </div>
           <Tag color={isPlaying ? 'processing' : 'default'}>{isBuffering ? 'Buffering' : isPlaying ? 'Playing' : 'Ready'}</Tag>
         </div>
@@ -183,7 +183,7 @@ export function AudioPlayerModal({ call, onClose }: AudioPlayerModalProps) {
             step={0.1}
             value={Math.min(currentTime, duration || 0)}
             onChange={seek}
-            tooltip={{ formatter: (value) => formatTime(value ?? 0) }}
+            tooltip={{ open: false }}
             aria-label="Recording position"
           />
           <div className="audio-player__times">
@@ -194,22 +194,18 @@ export function AudioPlayerModal({ call, onClose }: AudioPlayerModalProps) {
 
         <div className="audio-player__controls">
           <div className="audio-player__volume">
-            <Tooltip title={muted ? 'Unmute' : 'Mute'}>
-              <Button
-                type="text"
-                shape="circle"
-                icon={muted || volume === 0 ? <AudioMutedOutlined /> : <SoundOutlined />}
-                onClick={toggleMute}
-                aria-label={muted ? 'Unmute recording' : 'Mute recording'}
-              />
-            </Tooltip>
-            <Slider min={0} max={1} step={0.01} value={muted ? 0 : volume} onChange={changeVolume} aria-label="Volume" />
+            <Button
+              type="text"
+              shape="circle"
+              icon={muted || volume === 0 ? <AudioMutedOutlined /> : <SoundOutlined />}
+              onClick={toggleMute}
+              aria-label={muted ? 'Unmute recording' : 'Mute recording'}
+            />
+            <Slider min={0} max={1} step={0.01} value={muted ? 0 : volume} onChange={changeVolume} tooltip={{ open: false }} aria-label="Volume" />
           </div>
 
           <div className="audio-player__transport">
-            <Tooltip title="Back 10 seconds">
-              <Button type="text" shape="circle" icon={<BackwardOutlined />} onClick={() => skip(-10)} aria-label="Back 10 seconds" />
-            </Tooltip>
+            <Button type="text" shape="circle" icon={<BackwardOutlined />} onClick={() => skip(-10)} aria-label="Back 10 seconds" />
             <Button
               className="audio-player__play"
               type="primary"
@@ -220,9 +216,7 @@ export function AudioPlayerModal({ call, onClose }: AudioPlayerModalProps) {
               onClick={() => void togglePlayback()}
               aria-label={isPlaying ? 'Pause recording' : 'Play recording'}
             />
-            <Tooltip title="Forward 10 seconds">
-              <Button type="text" shape="circle" icon={<ForwardOutlined />} onClick={() => skip(10)} aria-label="Forward 10 seconds" />
-            </Tooltip>
+            <Button type="text" shape="circle" icon={<ForwardOutlined />} onClick={() => skip(10)} aria-label="Forward 10 seconds" />
           </div>
 
           <div className="audio-player__tools">
@@ -233,9 +227,7 @@ export function AudioPlayerModal({ call, onClose }: AudioPlayerModalProps) {
               aria-label="Playback speed"
               popupMatchSelectWidth={false}
             />
-            <Tooltip title="Download recording">
-              <Button href={`${recordingUrl}?download=1`} icon={<DownloadOutlined />} aria-label="Download recording" />
-            </Tooltip>
+            <Button href={`${recordingUrl}?download=1`} icon={<DownloadOutlined />} aria-label="Download recording" />
           </div>
         </div>
 

@@ -27,8 +27,9 @@ export interface CallLibraryFilterValue {
   search: string;
   agents: string[];
   teams: string[];
-  campaigns: string[];
+  projects: string[];
   dispositions: string[];
+  terminationReasons: string[];
   dialers: string[];
   eventTypes: string[];
   recordingStatuses: string[];
@@ -84,8 +85,9 @@ export function CallLibraryFilters({
     value.search,
     value.agents.length,
     value.teams.length,
-    value.campaigns.length,
+    value.projects.length,
     value.dispositions.length,
+    value.terminationReasons.length,
     value.dialers.length,
     value.eventTypes.length,
     value.recordingStatuses.length,
@@ -116,8 +118,9 @@ export function CallLibraryFilters({
   const chips = [
     value.agents.length ? { key: 'agents', label: `Agent: ${value.agents.join(', ')}`, clear: () => patch({ agents: [] }) } : null,
     value.teams.length ? { key: 'teams', label: `Team: ${value.teams.join(', ')}`, clear: () => patch({ teams: [] }) } : null,
-    value.campaigns.length ? { key: 'campaigns', label: `Campaign: ${value.campaigns.join(', ')}`, clear: () => patch({ campaigns: [] }) } : null,
+    value.projects.length ? { key: 'projects', label: `Project: ${value.projects.join(', ')}`, clear: () => patch({ projects: [] }) } : null,
     value.dispositions.length ? { key: 'dispositions', label: `Disposition: ${value.dispositions.join(', ')}`, clear: () => patch({ dispositions: [] }) } : null,
+    value.terminationReasons.length ? { key: 'termination-reasons', label: `Termination: ${value.terminationReasons.join(', ')}`, clear: () => patch({ terminationReasons: [] }) } : null,
     value.dialers.length ? { key: 'dialers', label: `Dialer: ${value.dialers.join(', ')}`, clear: () => patch({ dialers: [] }) } : null,
     value.eventTypes.length ? { key: 'events', label: `Event: ${value.eventTypes.join(', ')}`, clear: () => patch({ eventTypes: [] }) } : null,
     value.recordingStatuses.length ? { key: 'recordings', label: `Recording: ${value.recordingStatuses.join(', ')}`, clear: () => patch({ recordingStatuses: [] }) } : null,
@@ -135,7 +138,7 @@ export function CallLibraryFilters({
           value={value.search}
           onChange={(event) => patch({ search: event.target.value })}
           prefix={<SearchOutlined />}
-          placeholder="Search phone, lead, agent, campaign, call ID…"
+          placeholder="Search phone, lead, agent, project, call ID…"
           allowClear
           maxLength={200}
           aria-label="Search calls"
@@ -204,8 +207,9 @@ export function CallLibraryFilters({
             <Text type="secondary">Selections use OR within a field and AND across fields.</Text>
             <label>Agents<Select mode="multiple" allowClear showSearch maxTagCount="responsive" loading={optionsLoading} value={value.agents} options={optionList(options?.agents)} onChange={(agents) => patch({ agents })} placeholder="Any agent" /></label>
             <label>Teams<Select mode="multiple" allowClear showSearch maxTagCount="responsive" loading={optionsLoading} value={value.teams} options={optionList(options?.teams)} onChange={(teams) => patch({ teams })} placeholder="Any team" /></label>
-            <label>Campaigns<Select mode="multiple" allowClear showSearch maxTagCount="responsive" loading={optionsLoading} value={value.campaigns} options={optionList(options?.campaigns)} onChange={(campaigns) => patch({ campaigns })} placeholder="Any campaign" /></label>
+            <label>Projects<Select mode="multiple" allowClear showSearch maxTagCount="responsive" loading={optionsLoading} value={value.projects} options={optionList(options?.projects)} onChange={(projects) => patch({ projects })} placeholder="Any project" /></label>
             <label>Dispositions<Select mode="multiple" allowClear showSearch maxTagCount="responsive" loading={optionsLoading} value={value.dispositions} options={optionList(options?.dispositions)} onChange={(dispositions) => patch({ dispositions })} placeholder="Any disposition" /></label>
+            <label>Termination reasons<Select mode="multiple" allowClear showSearch maxTagCount="responsive" loading={optionsLoading} value={value.terminationReasons} options={optionList(options?.termination_reasons)} onChange={(terminationReasons) => patch({ terminationReasons })} placeholder="Any termination reason" /></label>
             <label>Dialers<Select mode="multiple" allowClear showSearch maxTagCount="responsive" loading={optionsLoading} value={value.dialers} options={optionList(options?.dialers)} onChange={(dialers) => patch({ dialers })} placeholder="Any dialer" /></label>
             <label>Event types<Select mode="multiple" allowClear loading={optionsLoading} value={value.eventTypes} options={options?.event_types ?? []} onChange={(eventTypes) => patch({ eventTypes })} placeholder="Any event type" /></label>
             <label>Recording states<Select mode="multiple" allowClear showSearch maxTagCount="responsive" loading={optionsLoading} value={value.recordingStatuses} options={options?.recording_statuses ?? []} onChange={(recordingStatuses) => patch({ recordingStatuses })} placeholder="Any recording state" /></label>
@@ -242,8 +246,8 @@ export function CallLibraryFilters({
                 { value: '-lead_id', label: 'Lead ID descending' },
                 { value: 'phone_number', label: 'Phone number ascending' },
                 { value: '-phone_number', label: 'Phone number descending' },
-                { value: 'campaign', label: 'Campaign A–Z' },
-                { value: '-campaign', label: 'Campaign Z–A' },
+                { value: 'project_name', label: 'Project A–Z' },
+                { value: '-project_name', label: 'Project Z–A' },
                 { value: 'disposition', label: 'Disposition A–Z' },
                 { value: '-disposition', label: 'Disposition Z–A' },
               ]}

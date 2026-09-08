@@ -18,6 +18,12 @@ class CallEvent(models.Model):
         FAILED = "failed", "Failed"
         SKIPPED = "skipped", "Skipped"
 
+    class Direction(models.TextChoices):
+        INBOUND = "INBOUND", "Inbound"
+        TRANSFER = "TRANSFER", "Transfer"
+        CLOSER = "CLOSER", "Closer"
+        OUTBOUND = "OUTBOUND", "Outbound"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     dialer = models.ForeignKey(
         "tenancy.Dialer", on_delete=models.PROTECT, related_name="call_events"
@@ -29,6 +35,8 @@ class CallEvent(models.Model):
     event_type = models.CharField(max_length=20, choices=EventType.choices)
     received_at = models.DateTimeField(auto_now_add=True)
     call_id = models.CharField(max_length=160, blank=True, db_index=True)
+    close_call_id = models.CharField(max_length=160, blank=True)
+    xfer_call_id = models.CharField(max_length=160, blank=True)
     unique_id = models.CharField(max_length=160, blank=True, db_index=True)
     lead_id = models.CharField(max_length=80, blank=True, db_index=True)
     agent_log_id = models.CharField(max_length=80, blank=True)
@@ -43,6 +51,15 @@ class CallEvent(models.Model):
         blank=True,
     )
     campaign = models.CharField(max_length=120, blank=True, db_index=True)
+    closer_group = models.CharField(max_length=120, blank=True)
+    did_id = models.CharField(max_length=80, blank=True)
+    did_pattern = models.CharField(max_length=160, blank=True)
+    call_direction = models.CharField(
+        max_length=10,
+        choices=Direction.choices,
+        default=Direction.OUTBOUND,
+        db_index=True,
+    )
     phone_number = models.CharField(max_length=40, blank=True)
     list_id = models.CharField(max_length=80, blank=True)
     disposition = models.CharField(max_length=40, blank=True, db_index=True)

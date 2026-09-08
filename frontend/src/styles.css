@@ -205,6 +205,15 @@ a { color: var(--qa-primary); font-weight: 600; }
 .library-secondary { color: var(--qa-text-muted); }
 .library-wrap { display: block; white-space: normal; overflow-wrap: anywhere; }
 .library-phone { color: var(--qa-text); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.library-phone-cell { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.library-direction { flex: 0 0 auto; width: 16px; height: 16px; stroke-width: .4; }
+.library-direction--inbound { color: #2dd4bf; }
+.library-direction--outbound { color: var(--qa-text); }
+.library-talk-time { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.library-termination { flex: 0 0 auto; width: 15px; height: 15px; }
+.library-termination--agent { color: #ff4d4f; }
+.library-termination--caller { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; color: #fff; background: #334155; }
+.library-termination--caller svg { width: 12px; height: 12px; transform: rotate(135deg); }
 .library-disposition { display: inline-block; max-width: 100%; padding: 3px 9px; border: 1px solid var(--qa-border); border-radius: 6px; color: var(--qa-text-muted); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 .library-duration { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .library-duration small { color: var(--qa-text-muted); font-size: 11px; }
@@ -405,6 +414,12 @@ a { color: var(--qa-primary); font-weight: 600; }
 .call-filter-form__unit > div { flex: 1; width: 100%; border-radius: 6px 0 0 6px; }
 .call-filter-form__unit > span { display: grid; place-items: center; padding: 0 11px; border: 1px solid var(--qa-border); border-left: 0; border-radius: 0 6px 6px 0; color: var(--qa-text-muted); background: var(--qa-surface-soft); font-size: 11px; font-weight: 500; }
 .call-filter-form__actions { position: sticky; bottom: -24px; display: flex; justify-content: flex-end; gap: 9px; margin: 24px -24px -24px; padding: 15px 24px; border-top: 1px solid var(--qa-border); background: color-mix(in srgb, var(--qa-surface) 94%, transparent); backdrop-filter: blur(14px); }
+.campaign-mapping-editor { display: grid; gap: 12px; margin-bottom: 24px; padding: 16px; border: 1px solid var(--qa-border); border-radius: 12px; background: var(--qa-surface-soft); }
+.campaign-mapping-editor__heading { display: grid; gap: 3px; }
+.campaign-mapping-editor__heading .ant-typography { font-size: 11px; }
+.campaign-mapping-editor__list { display: grid; gap: 4px; }
+.campaign-mapping-editor__list .ant-form-item { margin-bottom: 8px; }
+.campaign-mapping-editor__remove--labelled { padding-top: 28px; }
 
 @keyframes audio-border-beam {
   to { transform: rotate(1turn); }

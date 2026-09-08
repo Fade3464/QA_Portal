@@ -26,6 +26,39 @@ def parse_agent_full_name(value: str) -> tuple[str, str]:
     return "", cleaned[:160]
 
 
+def infer_call_direction(
+    closecallid: str | None,
+    xfercallid: str | None,
+    did_id: str | None,
+    did_pattern: str | None,
+    group: str | None,
+) -> str:
+    def clean(value: str | None) -> str:
+        return (value or "").strip()
+
+    closecallid = clean(closecallid)
+    xfercallid = clean(xfercallid)
+    did_id = clean(did_id)
+    did_pattern = clean(did_pattern)
+    group = clean(group)
+
+    empty_values = {"0", "NULL", "NONE"}
+    valid_closecall = bool(closecallid and closecallid.upper() not in empty_values)
+    valid_xfercall = bool(xfercallid and xfercallid.upper() not in empty_values)
+    has_did = bool(
+        (did_id and did_id.upper() not in empty_values)
+        or (did_pattern and did_pattern.upper() not in empty_values)
+    )
+
+    if valid_closecall and has_did:
+        return CallEvent.Direction.INBOUND
+    if valid_closecall and valid_xfercall:
+        return CallEvent.Direction.TRANSFER
+    if valid_closecall:
+        return CallEvent.Direction.CLOSER
+    return CallEvent.Direction.OUTBOUND
+
+
 @require_GET
 def receive_vicidial(request, dialer_id, event_type):
     dialer = (
@@ -62,6 +95,8 @@ def receive_vicidial(request, dialer_id, event_type):
                 "branch": dialer.branch,
                 "event_type": event_type,
                 "call_id": payload.get("call_id", "")[:160],
+                "close_call_id": payload.get("closecallid", "")[:160],
+                "xfer_call_id": payload.get("xfercallid", "")[:160],
                 "unique_id": payload.get("uniqueid", "")[:160],
                 "lead_id": payload.get("lead_id", "")[:80],
                 "agent_log_id": payload.get("agent_log_id", "")[:80],
@@ -70,6 +105,16 @@ def receive_vicidial(request, dialer_id, event_type):
                 "team_name": team_name,
                 "team": team,
                 "campaign": payload.get("campaign", "")[:120],
+                "closer_group": payload.get("group", "")[:120],
+                "did_id": payload.get("did_id", "")[:80],
+                "did_pattern": payload.get("did_pattern", "")[:160],
+                "call_direction": infer_call_direction(
+                    payload.get("closecallid"),
+                    payload.get("xfercallid"),
+                    payload.get("did_id"),
+                    payload.get("did_pattern"),
+                    payload.get("group"),
+                ),
                 "phone_number": payload.get("phone_number", "")[:40],
                 "list_id": payload.get("list_id", "")[:80],
                 "disposition": disposition[:40],

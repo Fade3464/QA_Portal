@@ -5,7 +5,7 @@ from rest_framework import serializers
 
 from apps.accounts.models import AuthenticationEvent, User
 
-from .models import Branch, Company, Dialer, Team
+from .models import Branch, Company, Dialer, DialerCampaign, Team
 
 
 class CompanyAdminSerializer(serializers.ModelSerializer):
@@ -150,12 +150,20 @@ class TeamAdminSerializer(serializers.ModelSerializer):
         return instance
 
 
+class DialerCampaignAdminSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DialerCampaign
+        fields = ("id", "campaign", "project_name")
+        read_only_fields = ("id",)
+
+
 class DialerAdminSerializer(serializers.ModelSerializer):
     branch_name = serializers.CharField(source="branch.name", read_only=True)
     company_name = serializers.CharField(source="branch.company.name", read_only=True)
     api_password = serializers.CharField(write_only=True, required=False, allow_blank=False)
     webhook_secret = serializers.CharField(write_only=True, required=False, allow_blank=False)
     webhook_path = serializers.SerializerMethodField()
+    campaigns = DialerCampaignAdminSerializer(many=True, required=False)
 
     class Meta:
         model = Dialer
@@ -171,6 +179,7 @@ class DialerAdminSerializer(serializers.ModelSerializer):
             "api_source",
             "webhook_secret",
             "webhook_path",
+            "campaigns",
             "allowed_recording_hosts",
             "request_timeout_seconds",
             "is_active",
@@ -188,19 +197,52 @@ class DialerAdminSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"api_password": "An API password is required."})
             if not attrs.get("webhook_secret"):
                 raise serializers.ValidationError({"webhook_secret": "A webhook secret is required."})
+        campaigns = attrs.get("campaigns")
+        if campaigns is not None:
+            seen = set()
+            for mapping in campaigns:
+                campaign = " ".join(mapping["campaign"].split())
+                project_name = " ".join(mapping["project_name"].split())
+                if not campaign:
+                    raise serializers.ValidationError(
+                        {"campaigns": "Every campaign code is required."}
+                    )
+                if not project_name:
+                    raise serializers.ValidationError(
+                        {"campaigns": "Every campaign must have a project name."}
+                    )
+                key = campaign.casefold()
+                if key in seen:
+                    raise serializers.ValidationError(
+                        {"campaigns": f"Campaign {campaign} is listed more than once."}
+                    )
+                seen.add(key)
+                mapping["campaign"] = campaign
+                mapping["project_name"] = project_name
         return attrs
 
+    @staticmethod
+    def _replace_campaigns(dialer, campaigns):
+        dialer.campaigns.all().delete()
+        DialerCampaign.objects.bulk_create(
+            [DialerCampaign(dialer=dialer, **mapping) for mapping in campaigns]
+        )
+
     def create(self, validated_data):
+        campaigns = validated_data.pop("campaigns", [])
         api_password = validated_data.pop("api_password")
         webhook_secret = validated_data.pop("webhook_secret")
-        dialer = Dialer(**validated_data)
-        dialer.set_api_password(api_password)
-        dialer.set_webhook_secret(webhook_secret)
-        dialer.full_clean()
-        dialer.save()
+        with transaction.atomic():
+            dialer = Dialer(**validated_data)
+            dialer.set_api_password(api_password)
+            dialer.set_webhook_secret(webhook_secret)
+            dialer.full_clean()
+            dialer.save()
+            self._replace_campaigns(dialer, campaigns)
         return dialer
 
     def update(self, instance, validated_data):
+        campaigns = validated_data.pop("campaigns", None)
         api_password = validated_data.pop("api_password", "")
         webhook_secret = validated_data.pop("webhook_secret", "")
         for field, value in validated_data.items():
@@ -209,8 +251,11 @@ class DialerAdminSerializer(serializers.ModelSerializer):
             instance.set_api_password(api_password)
         if webhook_secret:
             instance.set_webhook_secret(webhook_secret)
-        instance.full_clean()
-        instance.save()
+        with transaction.atomic():
+            instance.full_clean()
+            instance.save()
+            if campaigns is not None:
+                self._replace_campaigns(instance, campaigns)
         return instance
 
 

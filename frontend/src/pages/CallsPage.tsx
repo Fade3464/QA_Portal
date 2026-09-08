@@ -1,4 +1,5 @@
 import { ArrowDownOutlined, ArrowUpOutlined, CustomerServiceOutlined, PlayCircleOutlined } from '@ant-design/icons';
+import { RiArrowDownLongLine, RiArrowRightUpLongLine, RiFlagFill, RiPhoneFill } from '@remixicon/react';
 import { Alert, Button, Card, FloatButton, Table, Tooltip, Typography, type TableProps } from 'antd';
 import dayjs from 'dayjs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -15,16 +16,26 @@ const PAGE_CACHE_TTL_MS = 30_000;
 const PAGE_CACHE_LIMIT = 20;
 const COLUMN_SORT_FIELDS: Record<string, string> = {
   lead_id: 'lead_id', agent: 'agent_name', team_name: 'team_name',
-  campaign: 'campaign', phone_number: 'phone_number', disposition: 'disposition',
+  project_name: 'project_name', phone_number: 'phone_number', disposition: 'disposition',
   talk_time: 'talk_time', received_at: 'received_at',
 };
 
 const DEFAULT_FILTERS: CallLibraryFilterValue = {
-  search: '', agents: [], teams: [], campaigns: [], dispositions: [], dialers: [], eventTypes: [], recordingStatuses: [],
+  search: '', agents: [], teams: [], projects: [], dispositions: [], terminationReasons: [], dialers: [], eventTypes: [], recordingStatuses: [],
   dateField: 'received_at', dateFrom: '', dateTo: '', relativeRange: '', talkTimeMin: undefined, talkTimeMax: undefined, ordering: '-received_at',
 };
 
 type CachedCallPage = { cachedAt: number; response: PaginatedResponse<CallEvent> };
+
+function CallDirectionIcon({ direction }: { direction: CallEvent['call_direction'] }) {
+  if (direction === 'INBOUND') {
+    return <RiArrowDownLongLine className="library-direction library-direction--inbound" aria-label="Inbound call" />;
+  }
+  if (direction === 'OUTBOUND') {
+    return <RiArrowRightUpLongLine className="library-direction library-direction--outbound" aria-label="Outbound call" />;
+  }
+  return null;
+}
 
 function listParameter(params: URLSearchParams, name: string) {
   return params.getAll(name).map((value) => value.trim()).filter(Boolean);
@@ -40,8 +51,8 @@ function numberParameter(params: URLSearchParams, name: string) {
 function filtersFromParams(params: URLSearchParams): CallLibraryFilterValue {
   return {
     search: params.get('search') ?? '',
-    agents: listParameter(params, 'agent'), teams: listParameter(params, 'team'), campaigns: listParameter(params, 'campaign'),
-    dispositions: listParameter(params, 'disposition'), dialers: listParameter(params, 'dialer'),
+    agents: listParameter(params, 'agent'), teams: listParameter(params, 'team'), projects: listParameter(params, 'project'),
+    dispositions: listParameter(params, 'disposition'), terminationReasons: listParameter(params, 'termination_reason'), dialers: listParameter(params, 'dialer'),
     eventTypes: listParameter(params, 'event_type'), recordingStatuses: listParameter(params, 'recording_status'),
     dateField: params.get('date_field') === 'call_date' ? 'call_date' : 'received_at',
     dateFrom: params.get('date_from') ?? '', dateTo: params.get('date_to') ?? '', relativeRange: params.get('time_range') ?? '',
@@ -60,7 +71,8 @@ function filterQuery(filters: CallLibraryFilterValue) {
   ];
   values.forEach(([name, value]) => { if (value !== '' && value !== undefined) query.set(name, String(value)); });
   const multipleValues: Array<[string, string[]]> = [
-    ['agent', filters.agents], ['team', filters.teams], ['campaign', filters.campaigns], ['disposition', filters.dispositions],
+    ['agent', filters.agents], ['team', filters.teams], ['project', filters.projects], ['disposition', filters.dispositions],
+    ['termination_reason', filters.terminationReasons],
     ['dialer', filters.dialers], ['event_type', filters.eventTypes], ['recording_status', filters.recordingStatuses],
   ];
   multipleValues.forEach(([name, selected]) => selected.forEach((value) => query.append(name, value)));
@@ -145,13 +157,15 @@ export function CallsPage() {
   }, [load]);
 
   const columns: TableProps<CallEvent>['columns'] = [
-    { title: 'Lead ID', dataIndex: 'lead_id', key: 'lead_id', width: 110, render: (value) => <span className="library-id">{value || '—'}</span> },
+    { title: 'Phone number', dataIndex: 'phone_number', key: 'phone_number', width: 175, render: (value, row) => <span className="library-phone-cell"><span className="library-phone">{value || '—'}</span><CallDirectionIcon direction={row.call_direction} /></span> },
     { title: 'Agent', key: 'agent', width: 175, render: (_, row) => <Tooltip title={`${row.agent_name || row.agent_user || 'Unassigned'} · Agent ID: ${row.agent_user || 'unavailable'}`}><span className="library-agent">{row.agent_name || row.agent_user || '—'}</span></Tooltip> },
     { title: 'Team', dataIndex: 'team_name', key: 'team_name', width: 145, render: (value) => <span className="library-secondary library-wrap">{value || '—'}</span> },
-    { title: 'Campaign', dataIndex: 'campaign', key: 'campaign', width: 125, render: (value) => <span className="library-secondary library-wrap">{value || '—'}</span> },
-    { title: 'Phone number', dataIndex: 'phone_number', key: 'phone_number', width: 175, render: (value) => <span className="library-phone">{value || '—'}</span> },
+    { title: 'Project', dataIndex: 'project_name', key: 'project_name', width: 145, render: (value) => <span className="library-secondary library-wrap">{value || 'Unmapped'}</span> },
     { title: 'Disposition', dataIndex: 'disposition', key: 'disposition', width: 125, render: (value) => <span className="library-disposition">{value || '—'}</span> },
-    { title: 'Talk time', dataIndex: 'talk_time', key: 'talk_time', width: 110, align: 'right', render: (value) => <span className="library-duration">{Math.floor(value / 60)}<small>m </small>{value % 60}<small>s</small></span> },
+    { title: 'Talk time', dataIndex: 'talk_time', key: 'talk_time', width: 125, align: 'right', render: (value, row) => {
+      const terminationReason = row.termination_reason?.trim().toUpperCase() ?? '';
+      return <span className="library-talk-time"><span className="library-duration">{Math.floor(value / 60)}<small>m </small>{value % 60}<small>s</small></span>{terminationReason === 'AGENT' ? <RiFlagFill className="library-termination library-termination--agent" aria-label="Agent terminated the call" /> : terminationReason === 'CALLER' ? <span className="library-termination library-termination--caller" role="img" aria-label="Caller terminated the call"><RiPhoneFill /></span> : null}</span>;
+    } },
     { title: 'Received', dataIndex: 'received_at', key: 'received_at', width: 145, render: (value) => <Tooltip title={dayjs(value).format('DD MMM YYYY, h:mm:ss A')}><span className="library-date">{dayjs(value).format('DD MMM YYYY')}<small>{dayjs(value).format('h:mm A')}</small></span></Tooltip> },
     { title: 'Options', key: 'options', width: 84, fixed: 'right', align: 'center', render: (_, row) => (
       <Tooltip title={recordingTooltip(row)}><span className="library-play-target" tabIndex={row.recording_available ? undefined : 0} aria-label={row.recording_available ? undefined : recordingTooltip(row)}><Button className={`library-play${row.recording_available ? ' library-play--ready' : ''}`} type="text" shape="circle" icon={<PlayCircleOutlined />} disabled={!row.recording_available} onClick={() => setSelectedCall(row)} aria-label={row.recording_available ? `Play recording for lead ${row.lead_id || row.id}` : recordingTooltip(row)} /></span></Tooltip>
@@ -207,7 +221,7 @@ export function CallsPage() {
           rowKey="id" columns={sortableColumns} onChange={handleTableChange} dataSource={calls}
           showSorterTooltip={false}
           loading={{ spinning: loading, indicator: <PortalLoader compact label="Loading calls…" /> }}
-          scroll={{ x: 1194 }}
+          scroll={{ x: 1119 }}
           pagination={{ current: currentPage, pageSize, total, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], showTotal: (recordCount, range) => `${range[0]}–${range[1]} of ${recordCount.toLocaleString()} calls`, position: ['bottomRight'] }}
           locale={{ emptyText: <div className="empty-table"><CustomerServiceOutlined className="empty-table__icon" /><strong>No matching calls</strong><span>Adjust or clear filters to expand the result set.</span></div> }}
         />

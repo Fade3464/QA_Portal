@@ -2,7 +2,7 @@ from django import forms
 from django.contrib import admin
 from django.core.exceptions import ImproperlyConfigured
 
-from .models import Branch, Company, Dialer, Team
+from .models import Branch, Company, Dialer, DialerCampaign, Team
 
 
 @admin.register(Company)
@@ -72,6 +72,12 @@ class DialerAdminForm(forms.ModelForm):
         return instance
 
 
+class DialerCampaignInline(admin.TabularInline):
+    model = DialerCampaign
+    extra = 1
+    fields = ("campaign", "project_name")
+
+
 @admin.register(Dialer)
 class DialerAdmin(admin.ModelAdmin):
     form = DialerAdminForm
@@ -79,3 +85,4 @@ class DialerAdmin(admin.ModelAdmin):
     list_filter = ("branch__company", "branch", "is_active")
     search_fields = ("name", "branch__name", "branch__company__name", "api_url")
     readonly_fields = ("id", "created_at", "updated_at")
+    inlines = (DialerCampaignInline,)

@@ -2,7 +2,7 @@ import mimetypes
 import re
 from pathlib import Path
 
-from django.db.models import Q
+from django.db.models import OuterRef, Q, Subquery
 from django.http import FileResponse, Http404, HttpResponse, StreamingHttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -16,10 +16,17 @@ from rest_framework.views import APIView
 
 from .models import CallEvent
 from .serializers import CallEventSerializer
+from apps.tenancy.models import DialerCampaign
 
 
 def scoped_calls(user):
-    queryset = CallEvent.objects.select_related("dialer", "branch", "team")
+    project = DialerCampaign.objects.filter(
+        dialer_id=OuterRef("dialer_id"),
+        campaign__iexact=OuterRef("campaign"),
+    ).values("project_name")[:1]
+    queryset = CallEvent.objects.select_related("dialer", "branch", "team").annotate(
+        project_name=Subquery(project)
+    )
     return queryset if user.is_superuser else queryset.filter(branch_id=user.branch_id)
 
 
@@ -86,6 +93,7 @@ class CallListView(ListAPIView):
                 | Q(team_name__icontains=search)
                 | Q(team__name__icontains=search)
                 | Q(campaign__icontains=search)
+                | Q(project_name__icontains=search)
                 | Q(phone_number__icontains=search)
                 | Q(disposition__icontains=search)
                 | Q(source_recording_id__icontains=search)
@@ -114,6 +122,18 @@ class CallListView(ListAPIView):
         for parameter, lookup in dimension_filters.items():
             if values := self._values(parameter):
                 queryset = queryset.filter(**{lookup: values})
+
+        if termination_reasons := self._values("termination_reason"):
+            termination_query = Q()
+            for value in termination_reasons:
+                termination_query |= Q(termination_reason__iexact=value)
+            queryset = queryset.filter(termination_query)
+
+        if project_values := self._values("project"):
+            project_query = Q()
+            for value in project_values:
+                project_query |= Q(project_name__iexact=value)
+            queryset = queryset.filter(project_query)
 
         if event_types := self._values(
             "event_type", allowed=CallEvent.EventType.values
@@ -164,6 +184,7 @@ class CallListView(ListAPIView):
             "agent_name",
             "team_name",
             "campaign",
+            "project_name",
             "disposition",
         }
         if ordering.lstrip("-") not in allowed_ordering:
@@ -218,7 +239,11 @@ class CallFilterOptionsView(APIView):
                     )
                 ),
                 "campaigns": choices("campaign"),
+                "projects": case_insensitive_choices(choices("project_name")),
                 "dispositions": choices("disposition"),
+                "termination_reasons": case_insensitive_choices(
+                    choices("termination_reason")
+                ),
                 "dialers": choices("dialer__name"),
                 "event_types": [
                     {"value": value, "label": label}

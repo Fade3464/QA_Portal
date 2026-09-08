@@ -25,15 +25,23 @@ export interface CallEvent {
   received_at: string;
   call_date: string | null;
   call_id: string;
+  closecallid: string;
+  xfercallid: string;
   lead_id: string;
   agent_user: string;
   agent_name: string;
   team: string | null;
   team_name: string;
   campaign: string;
+  project_name: string | null;
+  group: string;
+  did_id: string;
+  did_pattern: string;
+  call_direction: 'INBOUND' | 'TRANSFER' | 'CLOSER' | 'OUTBOUND';
   phone_number: string;
   disposition: string;
   talk_time: number;
+  termination_reason: string;
   dialer: string;
   recording_lookup_status: string;
   recording_download_status: string;
@@ -50,8 +58,9 @@ export interface PaginatedResponse<T> {
 export interface CallFilterOptions {
   agents: string[];
   teams: string[];
-  campaigns: string[];
+  projects: string[];
   dispositions: string[];
+  termination_reasons: string[];
   dialers: string[];
   event_types: Array<{ value: string; label: string }>;
   recording_statuses: Array<{ value: string; label: string }>;
@@ -154,6 +163,11 @@ export interface DialerRecord {
   api_username: string;
   api_source: string;
   webhook_path: string;
+  campaigns: Array<{
+    id: string;
+    campaign: string;
+    project_name: string;
+  }>;
   allowed_recording_hosts: string;
   request_timeout_seconds: number;
   is_active: boolean;

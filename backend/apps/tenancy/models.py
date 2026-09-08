@@ -157,3 +157,34 @@ class Dialer(models.Model):
             for host in self.allowed_recording_hosts.split(",")
             if host.strip()
         }
+
+
+class DialerCampaign(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    dialer = models.ForeignKey(
+        Dialer, on_delete=models.CASCADE, related_name="campaigns"
+    )
+    campaign = models.CharField(max_length=120)
+    project_name = models.CharField(max_length=160)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["dialer__name", "campaign"]
+        constraints = [
+            models.UniqueConstraint(
+                Lower("campaign"), "dialer", name="unique_campaign_per_dialer_ci"
+            )
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        self.campaign = " ".join(self.campaign.split())
+        self.project_name = " ".join(self.project_name.split())
+        if not self.campaign:
+            raise ValidationError({"campaign": "Campaign is required."})
+        if not self.project_name:
+            raise ValidationError({"project_name": "Project name is required."})
+
+    def __str__(self) -> str:
+        return f"{self.dialer.name} · {self.campaign} → {self.project_name}"
