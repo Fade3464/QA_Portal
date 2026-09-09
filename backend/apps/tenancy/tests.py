@@ -3,7 +3,7 @@ from django.urls import reverse
 
 from apps.accounts.models import User
 
-from .models import Branch, Company, DialerCampaign
+from .models import Branch, Company, Dialer, DialerCampaign, QAProjectAssignment
 
 
 class AdministrationApiTests(TestCase):
@@ -17,7 +17,9 @@ class AdministrationApiTests(TestCase):
             must_change_password=False,
         )
         self.company = Company.objects.create(name="Acme", slug="acme")
-        self.branch = Branch.objects.create(company=self.company, name="Karachi", code="khi")
+        self.branch = Branch.objects.create(
+            company=self.company, name="Karachi", code="khi"
+        )
 
     def test_non_administrator_cannot_access_management_api(self):
         user = User.objects.create_user(
@@ -31,7 +33,9 @@ class AdministrationApiTests(TestCase):
             must_change_password=False,
         )
         self.client.force_login(user)
-        self.assertEqual(self.client.get(reverse("administration-summary")).status_code, 403)
+        self.assertEqual(
+            self.client.get(reverse("administration-summary")).status_code, 403
+        )
 
     def test_administrator_can_manage_tenants_and_users(self):
         self.client.force_login(self.admin)
@@ -69,7 +73,10 @@ class AdministrationApiTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(user_response.status_code, 201)
-        self.assertEqual(str(User.objects.get(email="lead@example.com").branch_id), branch_response.json()["id"])
+        self.assertEqual(
+            str(User.objects.get(email="lead@example.com").branch_id),
+            branch_response.json()["id"],
+        )
         dialer_response = self.client.post(
             reverse("administration-dialer-list"),
             {
@@ -90,7 +97,9 @@ class AdministrationApiTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(dialer_response.status_code, 201)
-        dialer = self.branch.__class__.objects.get(pk=branch_response.json()["id"]).dialers.get()
+        dialer = self.branch.__class__.objects.get(
+            pk=branch_response.json()["id"]
+        ).dialers.get()
         self.assertEqual(dialer.get_api_password(), "private-api-password")
         self.assertTrue(dialer.check_webhook_secret("a-long-private-webhook-secret"))
         self.assertEqual(dialer.campaigns.count(), 2)
@@ -121,6 +130,122 @@ class AdministrationApiTests(TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(DialerCampaign.objects.count(), 0)
+
+    def test_administrator_assigns_qa_to_projects_in_the_same_branch(self):
+        dialer = Dialer(
+            branch=self.branch,
+            name="Primary",
+            api_url="https://dialer.example.com/non_agent_api.php",
+            api_username="api",
+        )
+        dialer.set_api_password("secret")
+        dialer.set_webhook_secret("a-long-private-webhook-secret")
+        dialer.save()
+        project = DialerCampaign.objects.create(
+            dialer=dialer,
+            campaign="SALES",
+            project_name="Direct Sales",
+        )
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse("administration-user-list"),
+            {
+                "email": "qa-project@example.com",
+                "first_name": "Project",
+                "last_name": "Reviewer",
+                "role": User.Role.QA,
+                "company": str(self.company.pk),
+                "branch": str(self.branch.pk),
+                "password": "temporary-strong-password",
+                "project_assignment_ids": [str(project.pk)],
+                "is_active": True,
+                "must_change_password": True,
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201)
+        qa = User.objects.get(email="qa-project@example.com")
+        self.assertTrue(
+            QAProjectAssignment.objects.filter(qa=qa, dialer_campaign=project).exists()
+        )
+        self.assertEqual(response.json()["assigned_projects"][0]["id"], str(project.pk))
+
+    def test_qa_project_assignment_rejects_another_branch(self):
+        other_branch = Branch.objects.create(
+            company=self.company, name="Lahore", code="lhe"
+        )
+        dialer = Dialer(
+            branch=other_branch,
+            name="Secondary",
+            api_url="https://secondary.example.com/non_agent_api.php",
+            api_username="api",
+        )
+        dialer.set_api_password("secret")
+        dialer.set_webhook_secret("another-long-private-webhook-secret")
+        dialer.save()
+        project = DialerCampaign.objects.create(
+            dialer=dialer,
+            campaign="SUPPORT",
+            project_name="Customer Support",
+        )
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse("administration-user-list"),
+            {
+                "email": "invalid-project@example.com",
+                "first_name": "Invalid",
+                "last_name": "Reviewer",
+                "role": User.Role.QA,
+                "company": str(self.company.pk),
+                "branch": str(self.branch.pk),
+                "password": "temporary-strong-password",
+                "project_assignment_ids": [str(project.pk)],
+                "is_active": True,
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(
+            User.objects.filter(email="invalid-project@example.com").exists()
+        )
+
+    def test_updating_dialer_project_name_preserves_qa_access(self):
+        dialer = Dialer(
+            branch=self.branch,
+            name="Stable mapping",
+            api_url="https://dialer.example.com/non_agent_api.php",
+            api_username="api",
+        )
+        dialer.set_api_password("secret")
+        dialer.set_webhook_secret("a-long-private-webhook-secret")
+        dialer.save()
+        project = DialerCampaign.objects.create(
+            dialer=dialer,
+            campaign="SALES",
+            project_name="Original Project",
+        )
+        qa = User.objects.create_user(
+            email="stable-access@example.com",
+            password="a-very-strong-password",
+            first_name="Stable",
+            last_name="Reviewer",
+            role=User.Role.QA,
+            company=self.company,
+            branch=self.branch,
+            must_change_password=False,
+        )
+        assignment = QAProjectAssignment.objects.create(qa=qa, dialer_campaign=project)
+        self.client.force_login(self.admin)
+        response = self.client.patch(
+            reverse("administration-dialer-detail", kwargs={"pk": dialer.pk}),
+            {"campaigns": [{"campaign": "sales", "project_name": "Renamed Project"}]},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.dialer_campaign_id, project.pk)
+        project.refresh_from_db()
+        self.assertEqual(project.project_name, "Renamed Project")
 
     def test_administration_summary_returns_operational_counts(self):
         self.client.force_login(self.admin)

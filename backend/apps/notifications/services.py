@@ -45,6 +45,12 @@ def announce_call(event) -> None:
         },
     }
     _broadcast(f"branch_{event.branch_id}", payload)
+    qa_ids = event.dialer.campaigns.filter(
+        campaign__iexact=event.campaign,
+        qa_assignments__qa__is_active=True,
+    ).values_list("qa_assignments__qa_id", flat=True)
+    for qa_id in qa_ids:
+        _broadcast(f"user_{qa_id}", payload)
     _broadcast("system_admins", payload)
 
 
@@ -82,7 +88,7 @@ def queue_unknown_team_notification(event, team_name: str) -> SystemNotification
         defaults={
             "category": SystemNotification.Category.UNKNOWN_TEAM,
             "severity": SystemNotification.Severity.WARNING,
-            "title": f'Unknown team: {team_name}',
+            "title": f"Unknown team: {team_name}",
             "message": f'Calls for "{team_name}" are waiting for a team assignment in {event.branch.name}.',
             "branch": event.branch,
             "call": event,

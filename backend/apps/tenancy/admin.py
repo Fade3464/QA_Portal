@@ -2,7 +2,7 @@ from django import forms
 from django.contrib import admin
 from django.core.exceptions import ImproperlyConfigured
 
-from .models import Branch, Company, Dialer, DialerCampaign, Team
+from .models import Branch, Company, Dialer, DialerCampaign, QAProjectAssignment, Team
 
 
 @admin.register(Company)
@@ -76,6 +76,36 @@ class DialerCampaignInline(admin.TabularInline):
     model = DialerCampaign
     extra = 1
     fields = ("campaign", "project_name")
+
+
+@admin.register(DialerCampaign)
+class DialerCampaignAdmin(admin.ModelAdmin):
+    list_display = ("campaign", "project_name", "dialer")
+    list_filter = ("dialer__branch__company", "dialer__branch", "dialer")
+    search_fields = (
+        "campaign",
+        "project_name",
+        "dialer__name",
+        "dialer__branch__name",
+    )
+
+
+@admin.register(QAProjectAssignment)
+class QAProjectAssignmentAdmin(admin.ModelAdmin):
+    list_display = ("qa", "dialer_campaign", "created_at")
+    list_filter = (
+        "dialer_campaign__dialer__branch__company",
+        "dialer_campaign__dialer__branch",
+        "dialer_campaign__dialer",
+    )
+    search_fields = (
+        "qa__email",
+        "qa__first_name",
+        "qa__last_name",
+        "dialer_campaign__campaign",
+        "dialer_campaign__project_name",
+    )
+    autocomplete_fields = ("qa", "dialer_campaign")
 
 
 @admin.register(Dialer)

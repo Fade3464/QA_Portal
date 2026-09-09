@@ -21,7 +21,11 @@ class IsSystemAdministrator(permissions.BasePermission):
     message = "System administrator access is required."
 
     def has_permission(self, request, view):
-        return bool(request.user.is_authenticated and request.user.is_active and request.user.is_superuser)
+        return bool(
+            request.user.is_authenticated
+            and request.user.is_active
+            and request.user.is_superuser
+        )
 
 
 class ManagedModelViewSet(
@@ -52,9 +56,9 @@ class BranchViewSet(ManagedModelViewSet):
 
 class DialerViewSet(ManagedModelViewSet):
     serializer_class = DialerAdminSerializer
-    queryset = Dialer.objects.select_related("branch", "branch__company").prefetch_related(
-        "campaigns"
-    )
+    queryset = Dialer.objects.select_related(
+        "branch", "branch__company"
+    ).prefetch_related("campaigns")
 
 
 class TeamViewSet(ManagedModelViewSet):
@@ -66,10 +70,16 @@ class TeamViewSet(ManagedModelViewSet):
 
 class UserViewSet(ManagedModelViewSet):
     serializer_class = UserAdminSerializer
-    queryset = User.objects.filter(is_superuser=False).select_related("company", "branch")
+    queryset = (
+        User.objects.filter(is_superuser=False)
+        .select_related("company", "branch")
+        .prefetch_related("qa_project_assignments__dialer_campaign__dialer")
+    )
 
 
-class AuthenticationEventViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+class AuthenticationEventViewSet(
+    mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
+):
     serializer_class = AuthenticationEventAdminSerializer
     permission_classes = [IsSystemAdministrator]
     queryset = AuthenticationEvent.objects.select_related("user")[:250]
@@ -86,7 +96,9 @@ class AdministrationSummaryView(APIView):
                 "teams": Team.objects.count(),
                 "active_teams": Team.objects.filter(is_active=True).count(),
                 "users": User.objects.filter(is_superuser=False).count(),
-                "active_users": User.objects.filter(is_superuser=False, is_active=True).count(),
+                "active_users": User.objects.filter(
+                    is_superuser=False, is_active=True
+                ).count(),
                 "dialers": Dialer.objects.count(),
                 "active_dialers": Dialer.objects.filter(is_active=True).count(),
                 "calls": CallEvent.objects.count(),

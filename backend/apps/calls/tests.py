@@ -15,7 +15,14 @@ from django.utils import timezone
 
 from apps.accounts.models import User
 from apps.notifications.models import SystemNotification
-from apps.tenancy.models import Branch, Company, Dialer, DialerCampaign, Team
+from apps.tenancy.models import (
+    Branch,
+    Company,
+    Dialer,
+    DialerCampaign,
+    QAProjectAssignment,
+    Team,
+)
 from config.celery import app as celery_app
 
 from .models import CallEvent
@@ -54,7 +61,7 @@ class WebhookTests(TestCase):
         response = self.client.get(self.url, {"token": "wrong", "lead_id": "12"})
         self.assertEqual(response.status_code, 403)
 
-    def test_call_library_is_strictly_branch_scoped(self):
+    def test_call_library_is_strictly_qa_project_scoped(self):
         user = User.objects.create_user(
             email="qa@example.com",
             password="a-very-strong-password",
@@ -65,6 +72,12 @@ class WebhookTests(TestCase):
             branch=self.branch,
             must_change_password=False,
         )
+        allowed_project = DialerCampaign.objects.create(
+            dialer=self.dialer,
+            campaign="ALLOWED",
+            project_name="Allowed Project",
+        )
+        QAProjectAssignment.objects.create(qa=user, dialer_campaign=allowed_project)
         own = CallEvent.objects.create(
             dialer=self.dialer,
             branch=self.branch,
@@ -73,7 +86,16 @@ class WebhookTests(TestCase):
             call_id="VISIBLE",
             lead_id="LEAD-123",
             phone_number="+923001234567",
+            campaign="allowed",
             termination_reason="AGENT",
+        )
+        CallEvent.objects.create(
+            dialer=self.dialer,
+            branch=self.branch,
+            event_key="same-branch-hidden".ljust(64, "0"),
+            event_type=CallEvent.EventType.DISPOSITION,
+            call_id="SAME-BRANCH-HIDDEN",
+            campaign="UNASSIGNED",
         )
         other_branch = Branch.objects.create(
             company=self.branch.company, name="Lahore", code="lhe"
@@ -209,11 +231,12 @@ class WebhookTests(TestCase):
             must_change_password=False,
         )
         now = timezone.now()
-        DialerCampaign.objects.create(
+        project = DialerCampaign.objects.create(
             dialer=self.dialer,
             campaign="RETENTION",
             project_name="Customer Retention",
         )
+        QAProjectAssignment.objects.create(qa=user, dialer_campaign=project)
         matching = CallEvent.objects.create(
             dialer=self.dialer,
             branch=self.branch,
@@ -321,11 +344,12 @@ class WebhookTests(TestCase):
             disposition="SALE",
             termination_reason="Caller",
         )
-        DialerCampaign.objects.create(
+        project = DialerCampaign.objects.create(
             dialer=self.dialer,
             campaign="visible-campaign",
             project_name="Visible Project",
         )
+        QAProjectAssignment.objects.create(qa=user, dialer_campaign=project)
         other_branch = Branch.objects.create(
             company=self.branch.company, name="Islamabad", code="isb"
         )

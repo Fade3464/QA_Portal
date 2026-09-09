@@ -3,6 +3,13 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
 from .forms import UserChangeForm, UserCreationForm
 from .models import AuthenticationEvent, User
+from apps.tenancy.models import QAProjectAssignment
+
+
+class QAProjectAssignmentInline(admin.TabularInline):
+    model = QAProjectAssignment
+    extra = 0
+    autocomplete_fields = ("dialer_campaign",)
 
 
 @admin.register(User)
@@ -28,6 +35,7 @@ class UserAdmin(BaseUserAdmin):
         "updated_at",
         "last_password_change",
     )
+    inlines = (QAProjectAssignmentInline,)
     fieldsets = (
         (None, {"fields": ("email", "password")}),
         (

@@ -50,9 +50,7 @@ class Branch(models.Model):
 
 class Team(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    branch = models.ForeignKey(
-        Branch, on_delete=models.PROTECT, related_name="teams"
-    )
+    branch = models.ForeignKey(Branch, on_delete=models.PROTECT, related_name="teams")
     name = models.CharField(max_length=160)
     team_leader = models.ForeignKey(
         "accounts.User", on_delete=models.PROTECT, related_name="led_teams"
@@ -188,3 +186,52 @@ class DialerCampaign(models.Model):
 
     def __str__(self) -> str:
         return f"{self.dialer.name} · {self.campaign} → {self.project_name}"
+
+
+class QAProjectAssignment(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    qa = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.CASCADE,
+        related_name="qa_project_assignments",
+    )
+    dialer_campaign = models.ForeignKey(
+        DialerCampaign,
+        on_delete=models.CASCADE,
+        related_name="qa_assignments",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = [
+            "qa__first_name",
+            "qa__last_name",
+            "dialer_campaign__dialer__name",
+            "dialer_campaign__project_name",
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["qa", "dialer_campaign"],
+                name="unique_qa_project_assignment",
+            )
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        if not self.qa_id or not self.dialer_campaign_id:
+            return
+        if self.qa.role != self.qa.Role.QA:
+            raise ValidationError(
+                {"qa": "Project access can only be assigned to QA users."}
+            )
+        if self.qa.branch_id != self.dialer_campaign.dialer.branch_id:
+            raise ValidationError(
+                {
+                    "dialer_campaign": (
+                        "The project must belong to a dialer in the QA user's branch."
+                    )
+                }
+            )
+
+    def __str__(self) -> str:
+        return f"{self.qa.full_name} · {self.dialer_campaign}"

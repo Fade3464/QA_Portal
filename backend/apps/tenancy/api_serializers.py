@@ -5,7 +5,14 @@ from rest_framework import serializers
 
 from apps.accounts.models import AuthenticationEvent, User
 
-from .models import Branch, Company, Dialer, DialerCampaign, Team
+from .models import (
+    Branch,
+    Company,
+    Dialer,
+    DialerCampaign,
+    QAProjectAssignment,
+    Team,
+)
 
 
 class CompanyAdminSerializer(serializers.ModelSerializer):
@@ -81,9 +88,7 @@ class TeamAdminSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         branch = attrs.get("branch", getattr(self.instance, "branch", None))
-        leader = attrs.get(
-            "team_leader", getattr(self.instance, "team_leader", None)
-        )
+        leader = attrs.get("team_leader", getattr(self.instance, "team_leader", None))
         name = " ".join(attrs.get("name", getattr(self.instance, "name", "")).split())
         if not branch or not leader:
             raise serializers.ValidationError("A branch and team leader are required.")
@@ -98,9 +103,14 @@ class TeamAdminSerializer(serializers.ModelSerializer):
         duplicate = Team.objects.filter(branch=branch, name__iexact=name)
         if self.instance:
             duplicate = duplicate.exclude(pk=self.instance.pk)
-            if branch.id != self.instance.branch_id and self.instance.call_events.exists():
+            if (
+                branch.id != self.instance.branch_id
+                and self.instance.call_events.exists()
+            ):
                 raise serializers.ValidationError(
-                    {"branch": "A team with assigned calls cannot move to another branch."}
+                    {
+                        "branch": "A team with assigned calls cannot move to another branch."
+                    }
                 )
         if duplicate.exists():
             raise serializers.ValidationError(
@@ -116,19 +126,27 @@ class TeamAdminSerializer(serializers.ModelSerializer):
         from django.db.models import Q
 
         prefixes = Q(team_name__iexact=team.name)
-        leader_is_unambiguous = not Team.objects.filter(
-            branch=team.branch,
-            team_leader=team.team_leader,
-            is_active=True,
-        ).exclude(pk=team.pk).exists()
+        leader_is_unambiguous = (
+            not Team.objects.filter(
+                branch=team.branch,
+                team_leader=team.team_leader,
+                is_active=True,
+            )
+            .exclude(pk=team.pk)
+            .exists()
+        )
         notification_aliases = []
         if team.is_active and leader_is_unambiguous:
             prefixes |= Q(team_name__iexact=team.team_leader.full_name)
             notification_aliases.append(team.team_leader.full_name)
-        assigned = CallEvent.objects.filter(
-            branch=team.branch,
-            team__isnull=True,
-        ).filter(prefixes).update(team=team)
+        assigned = (
+            CallEvent.objects.filter(
+                branch=team.branch,
+                team__isnull=True,
+            )
+            .filter(prefixes)
+            .update(team=team)
+        )
         resolve_unknown_team_notifications(team, aliases=notification_aliases)
         return assigned
 
@@ -160,8 +178,12 @@ class DialerCampaignAdminSerializer(serializers.ModelSerializer):
 class DialerAdminSerializer(serializers.ModelSerializer):
     branch_name = serializers.CharField(source="branch.name", read_only=True)
     company_name = serializers.CharField(source="branch.company.name", read_only=True)
-    api_password = serializers.CharField(write_only=True, required=False, allow_blank=False)
-    webhook_secret = serializers.CharField(write_only=True, required=False, allow_blank=False)
+    api_password = serializers.CharField(
+        write_only=True, required=False, allow_blank=False
+    )
+    webhook_secret = serializers.CharField(
+        write_only=True, required=False, allow_blank=False
+    )
     webhook_path = serializers.SerializerMethodField()
     campaigns = DialerCampaignAdminSerializer(many=True, required=False)
 
@@ -194,9 +216,13 @@ class DialerAdminSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         if not self.instance:
             if not attrs.get("api_password"):
-                raise serializers.ValidationError({"api_password": "An API password is required."})
+                raise serializers.ValidationError(
+                    {"api_password": "An API password is required."}
+                )
             if not attrs.get("webhook_secret"):
-                raise serializers.ValidationError({"webhook_secret": "A webhook secret is required."})
+                raise serializers.ValidationError(
+                    {"webhook_secret": "A webhook secret is required."}
+                )
         campaigns = attrs.get("campaigns")
         if campaigns is not None:
             seen = set()
@@ -223,10 +249,21 @@ class DialerAdminSerializer(serializers.ModelSerializer):
 
     @staticmethod
     def _replace_campaigns(dialer, campaigns):
-        dialer.campaigns.all().delete()
-        DialerCampaign.objects.bulk_create(
-            [DialerCampaign(dialer=dialer, **mapping) for mapping in campaigns]
-        )
+        existing = {item.campaign.casefold(): item for item in dialer.campaigns.all()}
+        retained_ids = []
+        for mapping in campaigns:
+            current = existing.get(mapping["campaign"].casefold())
+            if current:
+                current.campaign = mapping["campaign"]
+                current.project_name = mapping["project_name"]
+                current.full_clean()
+                current.save(update_fields=["campaign", "project_name", "updated_at"])
+            else:
+                current = DialerCampaign(dialer=dialer, **mapping)
+                current.full_clean()
+                current.save()
+            retained_ids.append(current.pk)
+        dialer.campaigns.exclude(pk__in=retained_ids).delete()
 
     def create(self, validated_data):
         campaigns = validated_data.pop("campaigns", [])
@@ -265,6 +302,13 @@ class UserAdminSerializer(serializers.ModelSerializer):
     company_name = serializers.CharField(source="company.name", read_only=True)
     branch_name = serializers.CharField(source="branch.name", read_only=True)
     password = serializers.CharField(write_only=True, required=False, allow_blank=False)
+    project_assignment_ids = serializers.PrimaryKeyRelatedField(
+        queryset=DialerCampaign.objects.select_related("dialer", "dialer__branch"),
+        many=True,
+        required=False,
+        write_only=True,
+    )
+    assigned_projects = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -281,6 +325,8 @@ class UserAdminSerializer(serializers.ModelSerializer):
             "branch",
             "branch_name",
             "password",
+            "project_assignment_ids",
+            "assigned_projects",
             "is_active",
             "must_change_password",
             "last_login",
@@ -291,7 +337,9 @@ class UserAdminSerializer(serializers.ModelSerializer):
 
     def validate_role(self, value):
         if value == User.Role.ADMINISTRATOR:
-            raise serializers.ValidationError("System administrators are created through the server console.")
+            raise serializers.ValidationError(
+                "System administrators are created through the server console."
+            )
         return value
 
     def validate(self, attrs):
@@ -300,8 +348,45 @@ class UserAdminSerializer(serializers.ModelSerializer):
         if not company or not branch:
             raise serializers.ValidationError("A company and branch are required.")
         if branch.company_id != company.id:
-            raise serializers.ValidationError({"branch": "The branch must belong to the selected company."})
+            raise serializers.ValidationError(
+                {"branch": "The branch must belong to the selected company."}
+            )
         role = attrs.get("role", getattr(self.instance, "role", None))
+        assignments = attrs.get("project_assignment_ids")
+        if assignments is None and self.instance:
+            assignments = [
+                assignment.dialer_campaign
+                for assignment in self.instance.qa_project_assignments.select_related(
+                    "dialer_campaign__dialer"
+                )
+            ]
+        assignments = assignments or []
+        if role == User.Role.QA:
+            if not assignments:
+                raise serializers.ValidationError(
+                    {
+                        "project_assignment_ids": "Assign at least one dialer project to every QA user."
+                    }
+                )
+            invalid = [
+                assignment
+                for assignment in assignments
+                if assignment.dialer.branch_id != branch.id
+            ]
+            if invalid:
+                raise serializers.ValidationError(
+                    {
+                        "project_assignment_ids": (
+                            "Every assigned project must belong to a dialer in the selected branch."
+                        )
+                    }
+                )
+        elif attrs.get("project_assignment_ids"):
+            raise serializers.ValidationError(
+                {
+                    "project_assignment_ids": "Project access can only be assigned to QA users."
+                }
+            )
         if self.instance and self.instance.led_teams.exists():
             led_branch_ids = set(
                 self.instance.led_teams.values_list("branch_id", flat=True)
@@ -312,33 +397,75 @@ class UserAdminSerializer(serializers.ModelSerializer):
                 )
             if branch.id not in led_branch_ids or len(led_branch_ids) != 1:
                 raise serializers.ValidationError(
-                    {"branch": "Move or reassign this user's teams before changing branches."}
+                    {
+                        "branch": "Move or reassign this user's teams before changing branches."
+                    }
                 )
         password = attrs.get("password")
         if not self.instance and not password:
-            raise serializers.ValidationError({"password": "A temporary password is required."})
+            raise serializers.ValidationError(
+                {"password": "A temporary password is required."}
+            )
         if password:
             candidate = self.instance or User(email=attrs.get("email", ""))
             try:
                 validate_password(password, user=candidate)
             except DjangoValidationError as exc:
-                raise serializers.ValidationError({"password": list(exc.messages)}) from exc
+                raise serializers.ValidationError(
+                    {"password": list(exc.messages)}
+                ) from exc
         return attrs
 
     def create(self, validated_data):
+        assignments = validated_data.pop("project_assignment_ids", [])
         password = validated_data.pop("password")
-        return User.objects.create_user(password=password, is_staff=False, **validated_data)
+        with transaction.atomic():
+            user = User.objects.create_user(
+                password=password, is_staff=False, **validated_data
+            )
+            QAProjectAssignment.objects.bulk_create(
+                [
+                    QAProjectAssignment(qa=user, dialer_campaign=assignment)
+                    for assignment in assignments
+                ]
+            )
+        return user
 
     def update(self, instance, validated_data):
+        assignments_provided = "project_assignment_ids" in validated_data
+        assignments = validated_data.pop("project_assignment_ids", [])
         password = validated_data.pop("password", "")
-        for field, value in validated_data.items():
-            setattr(instance, field, value)
-        if password:
-            instance.set_password(password)
-            instance.must_change_password = True
-        instance.full_clean()
-        instance.save()
+        with transaction.atomic():
+            for field, value in validated_data.items():
+                setattr(instance, field, value)
+            if password:
+                instance.set_password(password)
+                instance.must_change_password = True
+            instance.full_clean()
+            instance.save()
+            if instance.role != User.Role.QA:
+                instance.qa_project_assignments.all().delete()
+            elif assignments_provided:
+                instance.qa_project_assignments.all().delete()
+                QAProjectAssignment.objects.bulk_create(
+                    [
+                        QAProjectAssignment(qa=instance, dialer_campaign=assignment)
+                        for assignment in assignments
+                    ]
+                )
         return instance
+
+    def get_assigned_projects(self, obj):
+        return [
+            {
+                "id": str(assignment.dialer_campaign_id),
+                "dialer_id": str(assignment.dialer_campaign.dialer_id),
+                "dialer_name": assignment.dialer_campaign.dialer.name,
+                "campaign": assignment.dialer_campaign.campaign,
+                "project_name": assignment.dialer_campaign.project_name,
+            }
+            for assignment in obj.qa_project_assignments.all()
+        ]
 
 
 class AuthenticationEventAdminSerializer(serializers.ModelSerializer):

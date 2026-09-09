@@ -2,7 +2,7 @@ import mimetypes
 import re
 from pathlib import Path
 
-from django.db.models import OuterRef, Q, Subquery
+from django.db.models import Exists, OuterRef, Q, Subquery
 from django.http import FileResponse, Http404, HttpResponse, StreamingHttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -16,7 +16,8 @@ from rest_framework.views import APIView
 
 from .models import CallEvent
 from .serializers import CallEventSerializer
-from apps.tenancy.models import DialerCampaign
+from apps.accounts.models import User
+from apps.tenancy.models import DialerCampaign, QAProjectAssignment
 
 
 def scoped_calls(user):
@@ -27,7 +28,19 @@ def scoped_calls(user):
     queryset = CallEvent.objects.select_related("dialer", "branch", "team").annotate(
         project_name=Subquery(project)
     )
-    return queryset if user.is_superuser else queryset.filter(branch_id=user.branch_id)
+    if user.is_superuser:
+        return queryset
+    queryset = queryset.filter(branch_id=user.branch_id)
+    if user.role != User.Role.QA:
+        return queryset
+    allowed_project = QAProjectAssignment.objects.filter(
+        qa=user,
+        dialer_campaign__dialer_id=OuterRef("dialer_id"),
+        dialer_campaign__campaign__iexact=OuterRef("campaign"),
+    )
+    return queryset.annotate(_qa_project_allowed=Exists(allowed_project)).filter(
+        _qa_project_allowed=True
+    )
 
 
 class CallPagination(PageNumberPagination):
@@ -51,7 +64,9 @@ class CallListView(ListAPIView):
         if allowed is not None:
             invalid = set(values) - set(allowed)
             if invalid:
-                raise ValidationError({name: f"Unsupported value: {sorted(invalid)[0]}"})
+                raise ValidationError(
+                    {name: f"Unsupported value: {sorted(invalid)[0]}"}
+                )
         return values
 
     def _non_negative_int(self, name):
@@ -142,9 +157,7 @@ class CallListView(ListAPIView):
         if recording_statuses := self._values(
             "recording_status", allowed=CallEvent.Status.values
         ):
-            queryset = queryset.filter(
-                recording_download_status__in=recording_statuses
-            )
+            queryset = queryset.filter(recording_download_status__in=recording_statuses)
 
         date_field = self.request.query_params.get("date_field", "received_at")
         if date_field not in {"received_at", "call_date"}:

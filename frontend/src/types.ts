@@ -187,6 +187,13 @@ export interface AdminUserRecord {
   company_name: string;
   branch: string;
   branch_name: string;
+  assigned_projects: Array<{
+    id: string;
+    dialer_id: string;
+    dialer_name: string;
+    campaign: string;
+    project_name: string;
+  }>;
   is_active: boolean;
   must_change_password: boolean;
   last_login: string | null;
