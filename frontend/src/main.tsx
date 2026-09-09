@@ -8,6 +8,7 @@ import '@fontsource/dm-sans/latin-700.css';
 import '@fontsource/manrope/latin-600.css';
 import '@fontsource/manrope/latin-700.css';
 import '@fontsource/manrope/latin-800.css';
+import '@fontsource-variable/material-symbols-rounded/wght.css';
 import App from './App';
 import { AuthProvider } from './auth/AuthContext';
 import { ThemeProvider } from './theme/ThemeContext';

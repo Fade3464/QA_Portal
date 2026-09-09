@@ -7,6 +7,7 @@ import { useSearchParams } from 'react-router-dom';
 import { AudioPlayerModal } from '../components/AudioPlayerModal';
 import { CallLibraryFilters, type CallLibraryFilterValue } from '../components/CallLibraryFilters';
 import { PortalLoader } from '../components/PortalLoader';
+import { MaterialSymbol } from '../components/MaterialSymbol';
 import { api } from '../lib/api';
 import { useThemeSettings } from '../theme/ThemeContext';
 import type { CallEvent, CallFilterOptions, PaginatedResponse } from '../types';
@@ -15,7 +16,7 @@ const { Title, Paragraph } = Typography;
 const PAGE_CACHE_TTL_MS = 30_000;
 const PAGE_CACHE_LIMIT = 20;
 const COLUMN_SORT_FIELDS: Record<string, string> = {
-  lead_id: 'lead_id', agent: 'agent_name', team_name: 'team_name',
+  lead_id: 'lead_id', agent: 'agent_name',
   project_name: 'project_name', phone_number: 'phone_number', disposition: 'disposition',
   talk_time: 'talk_time', received_at: 'received_at',
 };
@@ -35,6 +36,25 @@ function CallDirectionIcon({ direction }: { direction: CallEvent['call_direction
     return <RiArrowRightUpLongLine className="library-direction library-direction--outbound" aria-label="Outbound call" />;
   }
   return null;
+}
+
+function PhoneNumberCell({ call }: { call: CallEvent }) {
+  const content = <span className="library-phone-cell"><span className="library-phone">{call.phone_number || '—'}</span><CallDirectionIcon direction={call.call_direction} /></span>;
+  if (call.call_direction !== 'INBOUND') return content;
+  return <Tooltip title={call.group ? `In-group: ${call.group}` : 'In-group unavailable'} mouseEnterDelay={0.35}>{content}</Tooltip>;
+}
+
+function AgentCell({ call }: { call: CallEvent }) {
+  const name = call.agent_name || call.agent_user || '—';
+  const tooltip = `${call.team_name || 'Unassigned'} · ${call.agent_user || 'ID unavailable'}`;
+  return (
+    <Tooltip title={tooltip} mouseEnterDelay={0.35}>
+      <span className="library-agent-cell">
+        <span className="library-agent">{name}</span>
+        {call.team_avatar && <span className="team-avatar team-avatar--agent"><MaterialSymbol name={call.team_avatar} /></span>}
+      </span>
+    </Tooltip>
+  );
 }
 
 function listParameter(params: URLSearchParams, name: string) {
@@ -157,9 +177,8 @@ export function CallsPage() {
   }, [load]);
 
   const columns: TableProps<CallEvent>['columns'] = [
-    { title: 'Phone number', dataIndex: 'phone_number', key: 'phone_number', width: 175, render: (value, row) => <span className="library-phone-cell"><span className="library-phone">{value || '—'}</span><CallDirectionIcon direction={row.call_direction} /></span> },
-    { title: 'Agent', key: 'agent', width: 175, render: (_, row) => <Tooltip title={`${row.agent_name || row.agent_user || 'Unassigned'} · Agent ID: ${row.agent_user || 'unavailable'}`}><span className="library-agent">{row.agent_name || row.agent_user || '—'}</span></Tooltip> },
-    { title: 'Team', dataIndex: 'team_name', key: 'team_name', width: 145, render: (value) => <span className="library-secondary library-wrap">{value || '—'}</span> },
+    { title: 'Phone number', dataIndex: 'phone_number', key: 'phone_number', width: 175, render: (_, row) => <PhoneNumberCell call={row} /> },
+    { title: 'Agent', key: 'agent', width: 205, render: (_, row) => <AgentCell call={row} /> },
     { title: 'Project', dataIndex: 'project_name', key: 'project_name', width: 145, render: (value) => <span className="library-secondary library-wrap">{value || 'Unmapped'}</span> },
     { title: 'Disposition', dataIndex: 'disposition', key: 'disposition', width: 125, render: (value) => <span className="library-disposition">{value || '—'}</span> },
     { title: 'Talk time', dataIndex: 'talk_time', key: 'talk_time', width: 125, align: 'right', render: (value, row) => {
@@ -221,7 +240,7 @@ export function CallsPage() {
           rowKey="id" columns={sortableColumns} onChange={handleTableChange} dataSource={calls}
           showSorterTooltip={false}
           loading={{ spinning: loading, indicator: <PortalLoader compact label="Loading calls…" /> }}
-          scroll={{ x: 1119 }}
+          scroll={{ x: 1004 }}
           pagination={{ current: currentPage, pageSize, total, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], showTotal: (recordCount, range) => `${range[0]}–${range[1]} of ${recordCount.toLocaleString()} calls`, position: ['bottomRight'] }}
           locale={{ emptyText: <div className="empty-table"><CustomerServiceOutlined className="empty-table__icon" /><strong>No matching calls</strong><span>Adjust or clear filters to expand the result set.</span></div> }}
         />

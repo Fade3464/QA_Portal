@@ -76,6 +76,7 @@ class TeamAdminSerializer(serializers.ModelSerializer):
             "branch_name",
             "company_name",
             "name",
+            "avatar",
             "team_leader",
             "team_leader_name",
             "team_leader_email",

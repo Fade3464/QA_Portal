@@ -21,7 +21,14 @@ class BranchAdmin(admin.ModelAdmin):
 
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
-    list_display = ("name", "branch", "team_leader", "is_active", "updated_at")
+    list_display = (
+        "name",
+        "avatar",
+        "branch",
+        "team_leader",
+        "is_active",
+        "updated_at",
+    )
     list_filter = ("branch__company", "branch", "is_active")
     search_fields = ("name", "branch__name", "team_leader__email")
     autocomplete_fields = ("team_leader",)

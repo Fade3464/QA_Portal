@@ -32,6 +32,7 @@ export interface CallEvent {
   agent_name: string;
   team: string | null;
   team_name: string;
+  team_avatar: string;
   campaign: string;
   project_name: string | null;
   group: string;
@@ -98,6 +99,7 @@ export interface TeamRecord {
   branch_name: string;
   company_name: string;
   name: string;
+  avatar: string;
   team_leader: string;
   team_leader_name: string;
   team_leader_email: string;

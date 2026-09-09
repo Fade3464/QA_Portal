@@ -4,6 +4,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.exceptions import ImproperlyConfigured, ValidationError
+from django.core.validators import RegexValidator
 from django.db import models
 from django.db.models.functions import Lower
 
@@ -52,6 +53,16 @@ class Team(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     branch = models.ForeignKey(Branch, on_delete=models.PROTECT, related_name="teams")
     name = models.CharField(max_length=160)
+    avatar = models.CharField(
+        max_length=80,
+        default="groups",
+        validators=[
+            RegexValidator(
+                regex=r"^[a-z0-9_]+$",
+                message="Choose a valid Material Symbol avatar.",
+            )
+        ],
+    )
     team_leader = models.ForeignKey(
         "accounts.User", on_delete=models.PROTECT, related_name="led_teams"
     )

@@ -26,6 +26,7 @@ from apps.tenancy.models import (
 from config.celery import app as celery_app
 
 from .models import CallEvent
+from .serializers import CallEventSerializer
 from .services import (
     RecordingResult,
     download_recording,
@@ -497,7 +498,10 @@ class WebhookTests(TestCase):
             must_change_password=False,
         )
         team = Team.objects.create(
-            branch=self.branch, name="Annihilators", team_leader=leader
+            branch=self.branch,
+            name="Annihilators",
+            avatar="shield",
+            team_leader=leader,
         )
 
         response = self.client.get(
@@ -516,6 +520,7 @@ class WebhookTests(TestCase):
         self.assertEqual(event.agent_name, "Ali")
         self.assertEqual(event.team_name, "aNNIHILATORS")
         self.assertEqual(event.team, team)
+        self.assertEqual(CallEventSerializer(event).data["team_avatar"], "shield")
         self.assertFalse(SystemNotification.objects.exists())
 
     @patch("apps.calls.webhooks.announce_call")
@@ -654,6 +659,7 @@ class WebhookTests(TestCase):
             {
                 "branch": str(self.branch.pk),
                 "name": "resolvers",
+                "avatar": "shield",
                 "team_leader": str(leader.pk),
                 "is_active": True,
             },
@@ -661,6 +667,7 @@ class WebhookTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["avatar"], "shield")
         event = CallEvent.objects.get(lead_id="WAITING-1")
         self.assertEqual(str(event.team_id), response.json()["id"])
         self.assertIsNotNone(SystemNotification.objects.get().resolved_at)

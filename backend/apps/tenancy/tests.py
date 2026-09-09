@@ -3,7 +3,7 @@ from django.urls import reverse
 
 from apps.accounts.models import User
 
-from .models import Branch, Company, Dialer, DialerCampaign, QAProjectAssignment
+from .models import Branch, Company, Dialer, DialerCampaign, QAProjectAssignment, Team
 
 
 class AdministrationApiTests(TestCase):
@@ -36,6 +36,58 @@ class AdministrationApiTests(TestCase):
         self.assertEqual(
             self.client.get(reverse("administration-summary")).status_code, 403
         )
+
+    def test_administrator_selects_a_team_avatar(self):
+        leader = User.objects.create_user(
+            email="avatar-leader@example.com",
+            password="a-very-strong-password",
+            first_name="Avatar",
+            last_name="Leader",
+            role=User.Role.TEAM_LEADER,
+            company=self.company,
+            branch=self.branch,
+            must_change_password=False,
+        )
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse("administration-team-list"),
+            {
+                "branch": str(self.branch.pk),
+                "name": "Guardians",
+                "avatar": "shield",
+                "team_leader": str(leader.pk),
+                "is_active": True,
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["avatar"], "shield")
+        self.assertEqual(Team.objects.get(name="Guardians").avatar, "shield")
+
+    def test_team_avatar_rejects_unsafe_symbol_names(self):
+        leader = User.objects.create_user(
+            email="unsafe-avatar@example.com",
+            password="a-very-strong-password",
+            first_name="Safe",
+            last_name="Leader",
+            role=User.Role.TEAM_LEADER,
+            company=self.company,
+            branch=self.branch,
+            must_change_password=False,
+        )
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse("administration-team-list"),
+            {
+                "branch": str(self.branch.pk),
+                "name": "Unsafe",
+                "avatar": "<script>",
+                "team_leader": str(leader.pk),
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Team.objects.filter(name="Unsafe").exists())
 
     def test_administrator_can_manage_tenants_and_users(self):
         self.client.force_login(self.admin)
