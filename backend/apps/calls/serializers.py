@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import CallEvent
+from .models import CallEvent, Review
 
 
 class CallEventSerializer(serializers.ModelSerializer):
@@ -13,6 +13,7 @@ class CallEventSerializer(serializers.ModelSerializer):
     closecallid = serializers.CharField(source="close_call_id", read_only=True)
     xfercallid = serializers.CharField(source="xfer_call_id", read_only=True)
     group = serializers.CharField(source="closer_group", read_only=True)
+    reservation = serializers.SerializerMethodField()
 
     class Meta:
         model = CallEvent
@@ -35,6 +36,7 @@ class CallEventSerializer(serializers.ModelSerializer):
             "did_id",
             "did_pattern",
             "call_direction",
+            "dial_method",
             "phone_number",
             "disposition",
             "talk_time",
@@ -43,6 +45,7 @@ class CallEventSerializer(serializers.ModelSerializer):
             "recording_lookup_status",
             "recording_download_status",
             "recording_available",
+            "reservation",
         )
 
     def get_team_name(self, obj):
@@ -55,3 +58,18 @@ class CallEventSerializer(serializers.ModelSerializer):
         return obj.recording_download_status == CallEvent.Status.DOWNLOADED and bool(
             obj.recording_path
         )
+
+    def get_reservation(self, obj):
+        try:
+            review = obj.review
+        except Review.DoesNotExist:
+            return None
+        request = self.context.get("request")
+        return {
+            "review_id": str(review.pk),
+            "reviewer_id": str(review.reviewer_id),
+            "reviewer_name": review.reviewer.full_name,
+            "status": review.status,
+            "reserved_at": review.assigned_at,
+            "is_mine": bool(request and request.user.pk == review.reviewer_id),
+        }

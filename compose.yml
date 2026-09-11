@@ -97,6 +97,12 @@ services:
       - "${PORTAL_PORT:-8080}:80"
     depends_on:
       backend: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -T 3 -O /dev/null http://127.0.0.1/api/health/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
     networks: [internal]
 
   cloudflared:
@@ -122,7 +128,7 @@ services:
     security_opt:
       - no-new-privileges:true
     depends_on:
-      frontend: { condition: service_started }
+      frontend: { condition: service_healthy }
     networks: [internal]
 
 networks:

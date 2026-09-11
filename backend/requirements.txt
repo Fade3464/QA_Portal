@@ -6,9 +6,9 @@ celery==5.6.3
 redis==7.1.0
 psycopg[binary]==3.2.12
 httpx==0.28.1
+mutagen==1.47.0
 cryptography==46.0.5
 argon2-cffi==25.1.0
 django-axes==8.3.1
 whitenoise==6.11.0
 uvicorn[standard]==0.41.0
-

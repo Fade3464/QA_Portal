@@ -21,7 +21,9 @@ def env_list(name: str, default: str = "") -> list[str]:
 
 
 PRODUCTION = env_bool("PRODUCTION", False)
-DEBUG = env_bool("DJANGO_DEBUG", True)
+# Production is an authoritative security boundary. A stale development value
+# in a copied .env file must never turn debug mode back on.
+DEBUG = False if PRODUCTION else env_bool("DJANGO_DEBUG", True)
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "")
 if not SECRET_KEY:
     if DEBUG:
@@ -32,7 +34,9 @@ if not SECRET_KEY:
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,backend")
 CSRF_TRUSTED_ORIGINS = env_list(
     "DJANGO_CSRF_TRUSTED_ORIGINS",
-    "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080" if DEBUG else "",
+    "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080"
+    if DEBUG
+    else "",
 )
 if not PRODUCTION:
     # Quick Tunnels receive a random hostname on each container start. Limit the
@@ -215,7 +219,10 @@ CSRF_COOKIE_NAME = "qa_portal_csrf"
 CSRF_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_HTTPONLY = False
-SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", not DEBUG)
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+# Likewise, production traffic must remain HTTPS-only even if a development
+# .env still contains SECURE_SSL_REDIRECT=false.
+SECURE_SSL_REDIRECT = True if PRODUCTION else env_bool("SECURE_SSL_REDIRECT", False)
 SECURE_HSTS_SECONDS = int(
     os.getenv("SECURE_HSTS_SECONDS", "31536000" if not DEBUG else "0")
 )
@@ -237,7 +244,9 @@ if not DIALER_CREDENTIAL_KEY:
             hashlib.sha256(SECRET_KEY.encode()).digest()
         ).decode()
     else:
-        raise ImproperlyConfigured("DIALER_CREDENTIAL_KEY is required when DEBUG is false")
+        raise ImproperlyConfigured(
+            "DIALER_CREDENTIAL_KEY is required when DEBUG is false"
+        )
 RECORDING_RETRY_DELAYS = [
     int(value) for value in env_list("RECORDING_RETRY_DELAYS", "5,15,30,60,120")
 ]

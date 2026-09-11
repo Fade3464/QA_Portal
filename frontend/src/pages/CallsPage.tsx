@@ -1,16 +1,18 @@
-import { ArrowDownOutlined, ArrowUpOutlined, CustomerServiceOutlined, PlayCircleOutlined } from '@ant-design/icons';
+import { ArrowDownOutlined, ArrowUpOutlined, CustomerServiceOutlined, PlayCircleOutlined, SearchOutlined } from '@ant-design/icons';
 import { RiArrowDownLongLine, RiArrowRightUpLongLine, RiFlagFill, RiPhoneFill } from '@remixicon/react';
 import { Alert, Button, Card, FloatButton, Table, Tooltip, Typography, type TableProps } from 'antd';
 import dayjs from 'dayjs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AudioPlayerModal } from '../components/AudioPlayerModal';
+import { AnalysisWorkspaceModal } from '../components/AnalysisWorkspaceModal';
 import { CallLibraryFilters, type CallLibraryFilterValue } from '../components/CallLibraryFilters';
 import { PortalLoader } from '../components/PortalLoader';
 import { MaterialSymbol } from '../components/MaterialSymbol';
 import { api } from '../lib/api';
+import { useAuth } from '../auth/AuthContext';
 import { useThemeSettings } from '../theme/ThemeContext';
-import type { CallEvent, CallFilterOptions, PaginatedResponse } from '../types';
+import type { CallEvent, CallFilterOptions, CallReservation, PaginatedResponse } from '../types';
 
 const { Title, Paragraph } = Typography;
 const PAGE_CACHE_TTL_MS = 30_000;
@@ -28,18 +30,22 @@ const DEFAULT_FILTERS: CallLibraryFilterValue = {
 
 type CachedCallPage = { cachedAt: number; response: PaginatedResponse<CallEvent> };
 
-function CallDirectionIcon({ direction }: { direction: CallEvent['call_direction'] }) {
+function CallDirectionIcon({ call }: { call: CallEvent }) {
+  const { call_direction: direction, dial_method: dialMethod } = call;
   if (direction === 'INBOUND') {
     return <RiArrowDownLongLine className="library-direction library-direction--inbound" aria-label="Inbound call" />;
   }
   if (direction === 'OUTBOUND') {
+    if (dialMethod === 'MANUAL') {
+      return <span className="library-direction library-direction--manual" aria-label="Manually dialed call">M</span>;
+    }
     return <RiArrowRightUpLongLine className="library-direction library-direction--outbound" aria-label="Outbound call" />;
   }
   return null;
 }
 
 function PhoneNumberCell({ call }: { call: CallEvent }) {
-  const content = <span className="library-phone-cell"><span className="library-phone">{call.phone_number || '—'}</span><CallDirectionIcon direction={call.call_direction} /></span>;
+  const content = <span className="library-phone-cell"><span className="library-phone">{call.phone_number || '—'}</span><CallDirectionIcon call={call} /></span>;
   if (call.call_direction !== 'INBOUND') return content;
   return <Tooltip title={call.group ? `In-group: ${call.group}` : 'In-group unavailable'} mouseEnterDelay={0.35}>{content}</Tooltip>;
 }
@@ -111,6 +117,7 @@ function recordingTooltip(call: CallEvent) {
 }
 
 export function CallsPage() {
+  const { user } = useAuth();
   const { compact } = useThemeSettings();
   const [searchParams, setSearchParams] = useSearchParams();
   const [calls, setCalls] = useState<CallEvent[]>([]);
@@ -120,11 +127,31 @@ export function CallsPage() {
   const [pageSize, setPageSize] = useState(() => [10, 20, 50, 100].includes(Number(searchParams.get('page_size'))) ? Number(searchParams.get('page_size')) : 20);
   const [total, setTotal] = useState(0);
   const [selectedCall, setSelectedCall] = useState<CallEvent | null>(null);
+  const [analysisCall, setAnalysisCall] = useState<CallEvent | null>(null);
   const [filters, setFilters] = useState(() => filtersFromParams(searchParams));
   const [options, setOptions] = useState<CallFilterOptions | null>(null);
   const [optionsLoading, setOptionsLoading] = useState(true);
   const pageCache = useRef(new Map<string, CachedCallPage>());
   const serializedFilters = useMemo(() => filterQuery(filters).toString(), [filters]);
+  const isQa = user?.role === 'qa' && !user.is_superuser;
+
+  const updateReservation = useCallback((callId: string, reservation: CallReservation | null) => {
+    const normalize = (value: CallReservation | null) => value
+      ? { ...value, is_mine: value.reviewer_id === user?.id }
+      : null;
+    const nextReservation = normalize(reservation);
+    setCalls((current) => current.map((item) => item.id === callId ? { ...item, reservation: nextReservation } : item));
+    pageCache.current.clear();
+  }, [user?.id]);
+
+  useEffect(() => {
+    const handleReservation = (event: Event) => {
+      const detail = (event as CustomEvent<{ call_id?: string; reservation?: CallReservation | null }>).detail;
+      if (detail.call_id) updateReservation(detail.call_id, detail.reservation ?? null);
+    };
+    window.addEventListener('qa:call-reservation', handleReservation);
+    return () => window.removeEventListener('qa:call-reservation', handleReservation);
+  }, [updateReservation]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -186,9 +213,15 @@ export function CallsPage() {
       return <span className="library-talk-time"><span className="library-duration">{Math.floor(value / 60)}<small>m </small>{value % 60}<small>s</small></span>{terminationReason === 'AGENT' ? <RiFlagFill className="library-termination library-termination--agent" aria-label="Agent terminated the call" /> : terminationReason === 'CALLER' ? <span className="library-termination library-termination--caller" role="img" aria-label="Caller terminated the call"><RiPhoneFill /></span> : null}</span>;
     } },
     { title: 'Received', dataIndex: 'received_at', key: 'received_at', width: 145, render: (value) => <Tooltip title={dayjs(value).format('DD MMM YYYY, h:mm:ss A')}><span className="library-date">{dayjs(value).format('DD MMM YYYY')}<small>{dayjs(value).format('h:mm A')}</small></span></Tooltip> },
-    { title: 'Options', key: 'options', width: 84, fixed: 'right', align: 'center', render: (_, row) => (
-      <Tooltip title={recordingTooltip(row)}><span className="library-play-target" tabIndex={row.recording_available ? undefined : 0} aria-label={row.recording_available ? undefined : recordingTooltip(row)}><Button className={`library-play${row.recording_available ? ' library-play--ready' : ''}`} type="text" shape="circle" icon={<PlayCircleOutlined />} disabled={!row.recording_available} onClick={() => setSelectedCall(row)} aria-label={row.recording_available ? `Play recording for lead ${row.lead_id || row.id}` : recordingTooltip(row)} /></span></Tooltip>
-    ) },
+    { title: 'Options', key: 'options', width: 84, fixed: 'right', align: 'center', render: (_, row) => {
+      if (isQa) {
+        const lockedByAnother = Boolean(row.reservation && !row.reservation.is_mine);
+        const enabled = row.recording_available && !lockedByAnother;
+        const tooltip = !row.recording_available ? recordingTooltip(row) : lockedByAnother ? `Reserved by ${row.reservation?.reviewer_name}` : row.reservation?.is_mine ? 'Continue analysis' : 'Analyze';
+        return <Tooltip title={tooltip}><span className="library-play-target" tabIndex={enabled ? undefined : 0} aria-label={enabled ? undefined : tooltip}><Button className={`library-play${enabled ? ' library-play--ready' : ''}`} type="text" shape="circle" icon={<SearchOutlined />} disabled={!enabled} onClick={() => setAnalysisCall(row)} aria-label={tooltip} /></span></Tooltip>;
+      }
+      return <Tooltip title={recordingTooltip(row)}><span className="library-play-target" tabIndex={row.recording_available ? undefined : 0} aria-label={row.recording_available ? undefined : recordingTooltip(row)}><Button className={`library-play${row.recording_available ? ' library-play--ready' : ''}`} type="text" shape="circle" icon={<PlayCircleOutlined />} disabled={!row.recording_available} onClick={() => setSelectedCall(row)} aria-label={row.recording_available ? `Play recording for lead ${row.lead_id || row.id}` : recordingTooltip(row)} /></span></Tooltip>;
+    } },
   ];
 
   const reload = () => { pageCache.current.clear(); setLoading(true); setError(''); void load(undefined, true); };
@@ -246,6 +279,7 @@ export function CallsPage() {
         />
       </Card>
       <AudioPlayerModal call={selectedCall} onClose={() => setSelectedCall(null)} />
+      {analysisCall && <AnalysisWorkspaceModal call={analysisCall} onClose={() => setAnalysisCall(null)} onReservationChange={updateReservation} />}
     </div>
     {/* Keep fixed positioning outside the animated page-stack children. */}
     <FloatButton.BackTop

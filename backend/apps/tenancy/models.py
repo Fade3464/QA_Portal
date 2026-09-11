@@ -105,10 +105,6 @@ class Dialer(models.Model):
     api_password_ciphertext = models.TextField(blank=True, editable=False)
     api_source = models.CharField(max_length=120, default="qa_portal")
     webhook_secret_hash = models.CharField(max_length=256, blank=True, editable=False)
-    allowed_recording_hosts = models.TextField(
-        blank=True,
-        help_text="Comma-separated hostnames permitted for recording downloads.",
-    )
     request_timeout_seconds = models.PositiveSmallIntegerField(default=15)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -158,14 +154,6 @@ class Dialer(models.Model):
             and self.webhook_secret_hash
             and check_password(raw_secret, self.webhook_secret_hash)
         )
-
-    @property
-    def recording_hosts(self) -> set[str]:
-        return {
-            host.strip().lower()
-            for host in self.allowed_recording_hosts.split(",")
-            if host.strip()
-        }
 
 
 class DialerCampaign(models.Model):

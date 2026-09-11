@@ -1,6 +1,7 @@
 import secrets
 import tempfile
 import uuid
+import wave
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -25,17 +26,46 @@ from apps.tenancy.models import (
 )
 from config.celery import app as celery_app
 
-from .models import CallEvent
+from .models import CallEvent, Review
 from .serializers import CallEventSerializer
 from .services import (
     RecordingResult,
     download_recording,
     lookup_recording,
     parse_recordings,
+    recording_duration_seconds,
     validate_recording_url,
 )
 from .tasks import fetch_recording, resolve_recording
-from .webhooks import infer_call_direction
+from .webhooks import infer_call_direction, infer_dial_method
+
+
+class CallClassificationTests(SimpleTestCase):
+    def test_dial_method_inference(self):
+        cases = (
+            (("M123456", CallEvent.Direction.OUTBOUND), CallEvent.DialMethod.MANUAL),
+            ((" m123456 ", CallEvent.Direction.OUTBOUND), CallEvent.DialMethod.MANUAL),
+            (("V123456", CallEvent.Direction.OUTBOUND), CallEvent.DialMethod.AUTO),
+            ((" v123456 ", CallEvent.Direction.OUTBOUND), CallEvent.DialMethod.AUTO),
+            (("", CallEvent.Direction.OUTBOUND), CallEvent.DialMethod.UNKNOWN),
+            ((None, CallEvent.Direction.OUTBOUND), CallEvent.DialMethod.UNKNOWN),
+            (("CUSTOM-1", CallEvent.Direction.OUTBOUND), CallEvent.DialMethod.UNKNOWN),
+            (
+                ("M123456", CallEvent.Direction.INBOUND),
+                CallEvent.DialMethod.NOT_APPLICABLE,
+            ),
+            (
+                ("M123456", CallEvent.Direction.TRANSFER),
+                CallEvent.DialMethod.NOT_APPLICABLE,
+            ),
+            (
+                ("V123456", CallEvent.Direction.CLOSER),
+                CallEvent.DialMethod.NOT_APPLICABLE,
+            ),
+        )
+        for arguments, expected in cases:
+            with self.subTest(arguments=arguments):
+                self.assertEqual(infer_dial_method(*arguments), expected)
 
 
 @override_settings(DIALER_CREDENTIAL_KEY=Fernet.generate_key().decode())
@@ -251,6 +281,7 @@ class WebhookTests(TestCase):
             disposition="SALE",
             talk_time=95,
             termination_reason="AGENT",
+            dial_method=CallEvent.DialMethod.MANUAL,
             call_date=now - timedelta(hours=1),
             recording_download_status=CallEvent.Status.DOWNLOADED,
         )
@@ -279,6 +310,7 @@ class WebhookTests(TestCase):
                 "termination_reason": "agent",
                 "dialer": self.dialer.name,
                 "event_type": CallEvent.EventType.DISPOSITION,
+                "dial_method": CallEvent.DialMethod.MANUAL,
                 "recording_status": CallEvent.Status.DOWNLOADED,
                 "date_field": "call_date",
                 "date_from": (now - timedelta(hours=2)).isoformat(),
@@ -309,6 +341,7 @@ class WebhookTests(TestCase):
         invalid_queries = [
             {"recording_status": "unknown"},
             {"event_type": "unknown"},
+            {"dial_method": "INVALID"},
             {"date_field": "deleted_at"},
             {"date_from": "not-a-date"},
             {
@@ -344,6 +377,7 @@ class WebhookTests(TestCase):
             campaign="visible-campaign",
             disposition="SALE",
             termination_reason="Caller",
+            dial_method=CallEvent.DialMethod.AUTO,
         )
         project = DialerCampaign.objects.create(
             dialer=self.dialer,
@@ -384,6 +418,15 @@ class WebhookTests(TestCase):
         self.assertEqual(payload["projects"], ["Visible Project"])
         self.assertEqual(payload["dispositions"], ["SALE"])
         self.assertEqual(payload["termination_reasons"], ["Caller"])
+        self.assertEqual(
+            payload["dial_methods"],
+            [
+                {"value": "AUTO", "label": "Auto Dial"},
+                {"value": "MANUAL", "label": "Manual Dial"},
+                {"value": "UNKNOWN", "label": "Unknown"},
+                {"value": "N/A", "label": "Not Applicable"},
+            ],
+        )
         self.assertEqual(payload["dialers"], [self.dialer.name])
 
     def test_recording_endpoint_supports_byte_ranges_and_downloads(self):
@@ -455,8 +498,31 @@ class WebhookTests(TestCase):
         self.assertEqual(event.closer_group, "SUPPORT")
         self.assertEqual(event.did_id, "42")
         self.assertEqual(event.did_pattern, "18005551212")
+        self.assertEqual(event.dial_method, CallEvent.DialMethod.NOT_APPLICABLE)
+        self.assertEqual(
+            first.json()["dial_method"], CallEvent.DialMethod.NOT_APPLICABLE
+        )
         queue_task.assert_called_once()
         announce.assert_called_once()
+
+    @patch("apps.calls.webhooks.announce_call")
+    @patch("apps.calls.webhooks.resolve_recording.delay")
+    def test_manual_dial_is_persisted_and_returned(self, _queue_task, _announce):
+        response = self.client.get(
+            self.url,
+            {
+                "token": self.secret,
+                "lead_id": "MANUAL-LEAD-1",
+                "call_id": " m1700000000 ",
+                "user": "agent01",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["dial_method"], CallEvent.DialMethod.MANUAL)
+        event = CallEvent.objects.get(lead_id="MANUAL-LEAD-1")
+        self.assertEqual(event.dial_method, CallEvent.DialMethod.MANUAL)
+        self.assertEqual(CallEventSerializer(event).data["dial_method"], "MANUAL")
 
     def test_call_direction_inference_uses_closer_transfer_and_did_evidence(self):
         cases = (
@@ -673,6 +739,137 @@ class WebhookTests(TestCase):
         self.assertIsNotNone(SystemNotification.objects.get().resolved_at)
 
 
+@override_settings(DIALER_CREDENTIAL_KEY=Fernet.generate_key().decode())
+class AnalysisReservationTests(TestCase):
+    def setUp(self):
+        company = Company.objects.create(name="Analysis", slug="analysis")
+        self.branch = Branch.objects.create(
+            company=company, name="Analysis branch", code="analysis"
+        )
+        self.dialer = Dialer(
+            branch=self.branch,
+            name="Analysis dialer",
+            api_url="https://dialer.example.com/non_agent_api.php",
+            api_username="api",
+        )
+        self.dialer.set_api_password("secret")
+        self.dialer.set_webhook_secret("analysis-webhook-secret-long-enough")
+        self.dialer.save()
+        campaign = DialerCampaign.objects.create(
+            dialer=self.dialer,
+            campaign="ANALYSIS",
+            project_name="Analysis Project",
+        )
+        self.qa_one = User.objects.create_user(
+            email="qa-one@example.com",
+            password="a-very-strong-password",
+            first_name="Amina",
+            last_name="Khan",
+            role=User.Role.QA,
+            company=company,
+            branch=self.branch,
+            must_change_password=False,
+        )
+        self.qa_two = User.objects.create_user(
+            email="qa-two@example.com",
+            password="a-very-strong-password",
+            first_name="Bilal",
+            last_name="Ahmed",
+            role=User.Role.QA,
+            company=company,
+            branch=self.branch,
+            must_change_password=False,
+        )
+        for qa in (self.qa_one, self.qa_two):
+            QAProjectAssignment.objects.create(qa=qa, dialer_campaign=campaign)
+        self.call = CallEvent.objects.create(
+            dialer=self.dialer,
+            branch=self.branch,
+            event_key="analysis-call".ljust(64, "0"),
+            event_type=CallEvent.EventType.DISPOSITION,
+            campaign="analysis",
+            recording_download_status=CallEvent.Status.DOWNLOADED,
+            recording_path="/recordings/analysis.wav",
+        )
+
+    def url(self, name):
+        return reverse(name, kwargs={"pk": self.call.pk})
+
+    def test_reservation_is_atomic_idempotent_and_owned_by_one_qa(self):
+        self.client.force_login(self.qa_one)
+        first = self.client.post(self.url("call-reserve"))
+        repeated = self.client.post(self.url("call-reserve"))
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(repeated.status_code, 200)
+        self.assertEqual(first.json()["review_id"], repeated.json()["review_id"])
+        self.assertTrue(first.json()["is_mine"])
+        self.assertEqual(Review.objects.filter(call=self.call).count(), 1)
+
+        self.client.force_login(self.qa_two)
+        blocked = self.client.post(self.url("call-reserve"))
+        self.assertEqual(blocked.status_code, 409)
+        self.assertIn("Amina Khan", str(blocked.json()))
+
+    def test_owner_can_release_and_another_qa_can_then_reserve(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        released = self.client.post(self.url("call-release"))
+        self.assertEqual(released.status_code, 204)
+        self.assertFalse(Review.objects.filter(call=self.call).exists())
+
+        self.client.force_login(self.qa_two)
+        reserved = self.client.post(self.url("call-reserve"))
+        self.assertEqual(reserved.status_code, 200)
+        self.assertEqual(reserved.json()["reviewer_id"], str(self.qa_two.pk))
+
+    def test_non_owner_cannot_release_reservation(self):
+        Review.objects.create(
+            call=self.call,
+            reviewer=self.qa_one,
+            status=Review.Status.IN_PROGRESS,
+        )
+        self.client.force_login(self.qa_two)
+        response = self.client.post(self.url("call-release"))
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(Review.objects.filter(call=self.call).exists())
+
+    def test_analysis_state_and_list_report_reservation_ownership(self):
+        Review.objects.create(
+            call=self.call,
+            reviewer=self.qa_one,
+            status=Review.Status.IN_PROGRESS,
+        )
+        self.client.force_login(self.qa_two)
+        detail = self.client.get(self.url("call-analysis"))
+        listing = self.client.get(reverse("call-list"))
+        self.assertEqual(detail.status_code, 200)
+        self.assertFalse(detail.json()["reservation"]["is_mine"])
+        self.assertEqual(
+            listing.json()["results"][0]["reservation"]["reviewer_name"],
+            "Amina Khan",
+        )
+
+    def test_non_qa_and_calls_without_recordings_are_rejected(self):
+        leader = User.objects.create_user(
+            email="leader@example.com",
+            password="a-very-strong-password",
+            first_name="Team",
+            last_name="Leader",
+            role=User.Role.TEAM_LEADER,
+            company=self.branch.company,
+            branch=self.branch,
+            must_change_password=False,
+        )
+        self.client.force_login(leader)
+        self.assertEqual(self.client.get(self.url("call-analysis")).status_code, 403)
+
+        self.call.recording_download_status = CallEvent.Status.PENDING
+        self.call.recording_path = ""
+        self.call.save(update_fields=["recording_download_status", "recording_path"])
+        self.client.force_login(self.qa_one)
+        self.assertEqual(self.client.post(self.url("call-reserve")).status_code, 409)
+
+
 class RecordingTaskConfigurationTests(TestCase):
     def test_recording_tasks_route_to_the_recordings_queue(self):
         for task in (resolve_recording, fetch_recording):
@@ -694,7 +891,6 @@ class RecordingDownloadRecoveryTests(TestCase):
             name="Recovery dialer",
             api_url="https://dialer.example.com/non_agent_api.php",
             api_username="api",
-            allowed_recording_hosts="recordings.example.com",
         )
         self.dialer.set_api_password("secret")
         self.dialer.set_webhook_secret("long-recovery-webhook-secret")
@@ -712,11 +908,11 @@ class RecordingDownloadRecoveryTests(TestCase):
 
     @patch("apps.calls.tasks.lookup_recording")
     @patch("apps.calls.tasks.download_recording")
-    def test_404_refreshes_changed_url_and_downloads_immediately(
+    def test_download_failure_refreshes_changed_url_and_downloads_immediately(
         self, download, lookup
     ):
         request = httpx.Request("GET", self.event.recording_source_url)
-        response = httpx.Response(404, request=request)
+        response = httpx.Response(503, request=request)
         stale_error = httpx.HTTPStatusError(
             "stale recording URL", request=request, response=response
         )
@@ -749,41 +945,88 @@ class RecordingDownloadRecoveryTests(TestCase):
         )
         lookup.assert_called_once()
 
+    @patch("apps.calls.tasks.recording_duration_seconds", return_value=47)
+    @patch("apps.calls.tasks.download_recording")
+    def test_recording_duration_replaces_webhook_duration(self, download, duration):
+        self.event.talk_time = 999
+        self.event.save(update_fields=["talk_time"])
+        recording_path = "/recordings/measured.wav"
+        download.return_value = (recording_path, 4096, "a" * 64)
+
+        result = fetch_recording.apply(args=[str(self.event.pk)]).get()
+
+        self.assertEqual(result, {"status": "downloaded", "bytes": 4096})
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.talk_time, 47)
+        duration.assert_called_once_with(recording_path)
+
+    @patch("apps.calls.tasks.lookup_recording")
+    @patch("apps.calls.tasks.download_recording")
+    def test_manually_requeued_failed_download_refreshes_before_download(
+        self, download, lookup
+    ):
+        self.event.recording_download_status = CallEvent.Status.FAILED
+        self.event.save(update_fields=["recording_download_status"])
+        refreshed_url = "https://recordings.example.com/final.wav"
+        lookup.return_value = RecordingResult(
+            "2026-09-04 10:00:00",
+            "8014",
+            "final-recording",
+            "12345",
+            30,
+            refreshed_url,
+        )
+        download.return_value = ("/recordings/final.wav", 1024, "b" * 64)
+
+        result = fetch_recording.apply(args=[str(self.event.pk)]).get()
+
+        self.assertEqual(result, {"status": "downloaded", "bytes": 1024})
+        lookup.assert_called_once()
+        self.assertEqual(download.call_args.args[1], refreshed_url)
+
 
 class RecordingResponseParsingTests(SimpleTestCase):
+    def test_recording_duration_is_read_from_downloaded_audio(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "duration.wav"
+            with wave.open(str(path), "wb") as audio:
+                audio.setnchannels(1)
+                audio.setsampwidth(2)
+                audio.setframerate(8000)
+                audio.writeframes(b"\x00\x00" * 26_000)
+
+            self.assertEqual(recording_duration_seconds(path), 3)
+
+    def test_invalid_audio_duration_returns_none(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "invalid.wav"
+            path.write_bytes(b"not an audio file")
+
+            self.assertIsNone(recording_duration_seconds(path))
+
     def test_rows_without_a_recording_location_are_ignored(self):
         response = "2026-09-04 01:02:03|agent01|42|123|30|"
 
         self.assertEqual(parse_recordings(response), [])
 
-    def test_http_and_https_are_accepted_for_allowlisted_public_hosts(self):
-        dialer = SimpleNamespace(
-            api_url="https://dialer.example.com/non_agent_api.php",
-            recording_hosts={"recordings.example.com"},
-        )
-
+    def test_http_and_https_are_accepted_for_any_public_host(self):
         for scheme in ("http", "https"):
             with self.subTest(scheme=scheme):
                 validate_recording_url(
-                    dialer, f"{scheme}://recordings.example.com/audio/call.mp3"
+                    f"{scheme}://unconfigured-recordings.example.com/audio/call.mp3"
                 )
 
     def test_recording_url_validation_keeps_ssrf_guards_for_both_schemes(self):
-        dialer = SimpleNamespace(
-            api_url="https://dialer.example.com/non_agent_api.php",
-            recording_hosts={"recordings.example.com", "127.0.0.1"},
-        )
         invalid_urls = [
             "ftp://recordings.example.com/audio/call.mp3",
             "http://user:password@recordings.example.com/audio/call.mp3",
             "http://127.0.0.1/audio/call.mp3",
-            "https://untrusted.example.com/audio/call.mp3",
             "/audio/call.mp3",
         ]
 
         for url in invalid_urls:
             with self.subTest(url=url), self.assertRaises(ValidationError):
-                validate_recording_url(dialer, url)
+                validate_recording_url(url)
 
     @override_settings(RECORDING_DOWNLOAD_VERIFY_TLS=False)
     @patch("apps.calls.services.validate_recording_url")

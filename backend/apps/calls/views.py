@@ -1,23 +1,34 @@
+import logging
 import mimetypes
 import re
 from pathlib import Path
 
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
+from django.db import transaction
 from django.db.models import Exists, OuterRef, Q, Subquery
 from django.http import FileResponse, Http404, HttpResponse, StreamingHttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.http import content_disposition_header
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import (
+    APIException,
+    NotFound,
+    PermissionDenied,
+    ValidationError,
+)
 from rest_framework.generics import ListAPIView
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import CallEvent
+from .models import CallEvent, Review
 from .serializers import CallEventSerializer
 from apps.accounts.models import User
 from apps.tenancy.models import DialerCampaign, QAProjectAssignment
+
+logger = logging.getLogger(__name__)
 
 
 def scoped_calls(user):
@@ -25,9 +36,9 @@ def scoped_calls(user):
         dialer_id=OuterRef("dialer_id"),
         campaign__iexact=OuterRef("campaign"),
     ).values("project_name")[:1]
-    queryset = CallEvent.objects.select_related("dialer", "branch", "team").annotate(
-        project_name=Subquery(project)
-    )
+    queryset = CallEvent.objects.select_related(
+        "dialer", "branch", "team", "review__reviewer"
+    ).annotate(project_name=Subquery(project))
     if user.is_superuser:
         return queryset
     queryset = queryset.filter(branch_id=user.branch_id)
@@ -47,6 +58,122 @@ class CallPagination(PageNumberPagination):
     page_size = 20
     page_size_query_param = "page_size"
     max_page_size = 100
+
+
+class ReservationConflict(APIException):
+    status_code = 409
+    default_code = "reservation_conflict"
+    default_detail = "This call is already reserved by another QA analyst."
+
+
+def _analysis_call(user, pk, *, for_update=False):
+    if user.role != User.Role.QA or user.is_superuser:
+        raise PermissionDenied("Only QA analysts can analyze calls.")
+    queryset = scoped_calls(user)
+    if for_update:
+        # Lock only the call row. The scoped queryset includes an optional
+        # review via an outer join, which PostgreSQL cannot lock directly.
+        queryset = queryset.select_for_update(of=("self",))
+    call = queryset.filter(pk=pk).first()
+    if not call:
+        raise NotFound("Call not found.")
+    if (
+        call.recording_download_status != CallEvent.Status.DOWNLOADED
+        or not call.recording_path
+    ):
+        raise ReservationConflict("The recording is not ready for analysis yet.")
+    return call
+
+
+def _reservation_data(review, user=None):
+    if not review:
+        return None
+    return {
+        "review_id": str(review.pk),
+        "reviewer_id": str(review.reviewer_id),
+        "reviewer_name": review.reviewer.full_name,
+        "status": review.status,
+        "reserved_at": review.assigned_at.isoformat(),
+        "is_mine": bool(user and user.pk == review.reviewer_id),
+    }
+
+
+def _broadcast_reservation(call, review):
+    payload = {
+        "type": "call.reservation",
+        "call_id": str(call.pk),
+        "reservation": _reservation_data(review),
+    }
+    try:
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"analysis_{call.pk}", {"type": "analysis.event", "payload": payload}
+        )
+        qa_ids = call.dialer.campaigns.filter(
+            campaign__iexact=call.campaign,
+            qa_assignments__qa__is_active=True,
+        ).values_list("qa_assignments__qa_id", flat=True)
+        for qa_id in qa_ids:
+            async_to_sync(channel_layer.group_send)(
+                f"user_{qa_id}",
+                {"type": "portal.notification", "payload": payload},
+            )
+    except Exception:
+        # The database is authoritative; a temporary Redis outage must not
+        # turn a successfully committed reservation into an apparent failure.
+        logger.exception("Unable to broadcast call reservation update")
+
+
+class CallAnalysisView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        call = _analysis_call(request.user, pk)
+        return Response(CallEventSerializer(call, context={"request": request}).data)
+
+
+class CallReserveView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, pk):
+        call = _analysis_call(request.user, pk, for_update=True)
+        review = Review.objects.select_related("reviewer").filter(call=call).first()
+        if review and review.reviewer_id != request.user.pk:
+            raise ReservationConflict(
+                f"This call is reserved by {review.reviewer.full_name}."
+            )
+        if not review:
+            review = Review.objects.create(
+                call=call,
+                reviewer=request.user,
+                status=Review.Status.IN_PROGRESS,
+            )
+            review = Review.objects.select_related("reviewer").get(pk=review.pk)
+            transaction.on_commit(lambda: _broadcast_reservation(call, review))
+        return Response(_reservation_data(review, request.user))
+
+
+class CallReleaseView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, pk):
+        call = _analysis_call(request.user, pk, for_update=True)
+        review = Review.objects.select_related("reviewer").filter(call=call).first()
+        if not review:
+            return Response(status=204)
+        if review.reviewer_id != request.user.pk:
+            raise PermissionDenied(
+                "Only the QA analyst who reserved this call can release it."
+            )
+        if review.status in {Review.Status.COMPLETED, Review.Status.DISPUTED}:
+            raise ReservationConflict(
+                "A completed or disputed review cannot be released."
+            )
+        review.delete()
+        transaction.on_commit(lambda: _broadcast_reservation(call, None))
+        return Response(status=204)
 
 
 class CallListView(ListAPIView):
@@ -154,6 +281,10 @@ class CallListView(ListAPIView):
             "event_type", allowed=CallEvent.EventType.values
         ):
             queryset = queryset.filter(event_type__in=event_types)
+        if dial_methods := self._values(
+            "dial_method", allowed=CallEvent.DialMethod.values
+        ):
+            queryset = queryset.filter(dial_method__in=dial_methods)
         if recording_statuses := self._values(
             "recording_status", allowed=CallEvent.Status.values
         ):
@@ -261,6 +392,10 @@ class CallFilterOptionsView(APIView):
                 "event_types": [
                     {"value": value, "label": label}
                     for value, label in CallEvent.EventType.choices
+                ],
+                "dial_methods": [
+                    {"value": value, "label": label}
+                    for value, label in CallEvent.DialMethod.choices
                 ],
                 "recording_statuses": [
                     {"value": value, "label": label}

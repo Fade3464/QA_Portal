@@ -46,7 +46,7 @@ Read it after startup with:
 cat runtime/cloudflared-url.txt
 ```
 
-The URL changes whenever the tunnel container is recreated. Quick Tunnels are intended only for development and testing. Set both `PRODUCTION=true` and `DJANGO_DEBUG=false` for a production deployment; the Cloudflare sidecar will exit without opening a tunnel, and no `trycloudflare.com` host will be trusted by Django.
+The URL changes whenever the tunnel container is recreated. Quick Tunnels are intended only for development and testing. Set `PRODUCTION=true` for a production deployment; this forces Django debug mode off and HTTPS redirects on, the Cloudflare sidecar exits without opening a tunnel, and no `trycloudflare.com` host is trusted by Django.
 
 ## Configure a company and VICIdial
 
@@ -76,7 +76,7 @@ The endpoint responds immediately after the call is stored. A Celery worker perf
 - Recording downloads require HTTPS, an explicit host allowlist, supported audio types, and a size cap.
 - Login, logout, failures, and password reset operations are audited.
 
-For public deployment, set `PRODUCTION=true` and `DJANGO_DEBUG=false`, configure trusted HTTPS origins/hosts, enable TLS at the load balancer, use managed secrets, configure SMTP, and rotate the bootstrap administrator password out of the environment after first use.
+For public deployment, set `PRODUCTION=true`, configure trusted HTTPS origins/hosts, terminate TLS at the load balancer, use managed secrets, configure SMTP, and rotate the bootstrap administrator password out of the environment after first use. Production mode forces debug off and HTTPS redirects on; the edge proxy must preserve `X-Forwarded-Proto: https`.
 
 ## Checks
 

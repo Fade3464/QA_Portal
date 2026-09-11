@@ -20,6 +20,15 @@ export interface CurrentUser {
   is_superuser: boolean;
 }
 
+export interface CallReservation {
+  review_id: string;
+  reviewer_id: string;
+  reviewer_name: string;
+  status: 'assigned' | 'in_progress' | 'completed' | 'disputed';
+  reserved_at: string;
+  is_mine: boolean;
+}
+
 export interface CallEvent {
   id: string;
   received_at: string;
@@ -39,6 +48,7 @@ export interface CallEvent {
   did_id: string;
   did_pattern: string;
   call_direction: 'INBOUND' | 'TRANSFER' | 'CLOSER' | 'OUTBOUND';
+  dial_method: 'AUTO' | 'MANUAL' | 'UNKNOWN' | 'N/A';
   phone_number: string;
   disposition: string;
   talk_time: number;
@@ -47,6 +57,7 @@ export interface CallEvent {
   recording_lookup_status: string;
   recording_download_status: string;
   recording_available: boolean;
+  reservation: CallReservation | null;
 }
 
 export interface PaginatedResponse<T> {
@@ -64,6 +75,7 @@ export interface CallFilterOptions {
   termination_reasons: string[];
   dialers: string[];
   event_types: Array<{ value: string; label: string }>;
+  dial_methods: Array<{ value: string; label: string }>;
   recording_statuses: Array<{ value: string; label: string }>;
 }
 
@@ -170,7 +182,6 @@ export interface DialerRecord {
     campaign: string;
     project_name: string;
   }>;
-  allowed_recording_hosts: string;
   request_timeout_seconds: number;
   is_active: boolean;
   created_at: string;

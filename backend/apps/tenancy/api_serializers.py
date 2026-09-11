@@ -203,7 +203,6 @@ class DialerAdminSerializer(serializers.ModelSerializer):
             "webhook_secret",
             "webhook_path",
             "campaigns",
-            "allowed_recording_hosts",
             "request_timeout_seconds",
             "is_active",
             "created_at",

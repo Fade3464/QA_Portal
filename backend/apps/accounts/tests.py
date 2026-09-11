@@ -1,4 +1,4 @@
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
 from apps.tenancy.models import Branch, Company
@@ -92,3 +92,11 @@ class AuthenticationTests(TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertNotIn("missing", str(response.json()).lower())
+
+    @override_settings(SECURE_SSL_REDIRECT=True)
+    def test_https_forwarded_by_the_edge_proxy_is_trusted(self):
+        response = self.client.get(
+            reverse("auth-session"), HTTP_X_FORWARDED_PROTO="https"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.wsgi_request.is_secure())

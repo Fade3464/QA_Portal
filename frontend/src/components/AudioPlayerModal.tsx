@@ -32,7 +32,7 @@ function formatTime(value: number) {
     : `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
-export function AudioPlayerModal({ call, onClose }: AudioPlayerModalProps) {
+export function AudioPlayer({ call }: { call: CallEvent }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
@@ -42,10 +42,7 @@ export function AudioPlayerModal({ call, onClose }: AudioPlayerModalProps) {
   const [muted, setMuted] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [error, setError] = useState('');
-  const recordingUrl = useMemo(
-    () => (call ? `/api/v1/calls/${call.id}/recording/` : ''),
-    [call],
-  );
+  const recordingUrl = useMemo(() => `/api/v1/calls/${call.id}/recording/`, [call]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -53,22 +50,6 @@ export function AudioPlayerModal({ call, onClose }: AudioPlayerModalProps) {
       audio?.pause();
     };
   }, [call]);
-
-  const resetPlayer = () => {
-    const audio = audioRef.current;
-    audio?.pause();
-    setIsPlaying(false);
-    setIsBuffering(false);
-    setCurrentTime(0);
-    setDuration(0);
-    setPlaybackRate(1);
-    setError('');
-  };
-
-  const close = () => {
-    resetPlayer();
-    onClose();
-  };
 
   const togglePlayback = async () => {
     const audio = audioRef.current;
@@ -124,24 +105,6 @@ export function AudioPlayerModal({ call, onClose }: AudioPlayerModalProps) {
   };
 
   return (
-    <Modal
-      open={Boolean(call)}
-      onCancel={close}
-      footer={null}
-      centered
-      width={640}
-      destroyOnHidden
-      title={(
-        <div className="audio-modal__title">
-          <span className="audio-modal__title-icon"><CustomerServiceOutlined /></span>
-          <span>
-            <Title level={4}>Call recording</Title>
-            <Text type="secondary">Call {call?.call_id || '—'} · Lead {call?.lead_id || '—'}</Text>
-          </span>
-        </div>
-      )}
-      classNames={{ container: 'audio-modal__content', header: 'audio-modal__header', body: 'audio-modal__body', close: 'audio-modal__close' }}
-    >
       <div className="audio-player">
         <audio
           ref={audioRef}
@@ -170,8 +133,8 @@ export function AudioPlayerModal({ call, onClose }: AudioPlayerModalProps) {
 
         <div className="audio-player__meta">
           <div>
-            <Text strong>{call?.phone_number || 'Unknown number'}</Text>
-            <Text type="secondary">{call?.agent_name || call?.agent_user || 'Unknown agent'} · {call?.project_name || 'Unmapped project'}</Text>
+            <Text strong>{call.phone_number || 'Unknown number'}</Text>
+            <Text type="secondary">{call.agent_name || call.agent_user || 'Unknown agent'} · {call.project_name || 'Unmapped project'}</Text>
           </div>
           <Tag color={isPlaying ? 'processing' : 'default'}>{isBuffering ? 'Buffering' : isPlaying ? 'Playing' : 'Ready'}</Tag>
         </div>
@@ -233,6 +196,30 @@ export function AudioPlayerModal({ call, onClose }: AudioPlayerModalProps) {
 
         {error && <Text className="audio-player__error" type="danger" role="alert">{error}</Text>}
       </div>
+  );
+}
+
+export function AudioPlayerModal({ call, onClose }: AudioPlayerModalProps) {
+  return (
+    <Modal
+      open={Boolean(call)}
+      onCancel={onClose}
+      footer={null}
+      centered
+      width={640}
+      destroyOnHidden
+      title={(
+        <div className="audio-modal__title">
+          <span className="audio-modal__title-icon"><CustomerServiceOutlined /></span>
+          <span>
+            <Title level={4}>Call recording</Title>
+            <Text type="secondary">Call {call?.call_id || '—'} · Lead {call?.lead_id || '—'}</Text>
+          </span>
+        </div>
+      )}
+      classNames={{ container: 'audio-modal__content', header: 'audio-modal__header', body: 'audio-modal__body', close: 'audio-modal__close' }}
+    >
+      {call && <AudioPlayer call={call} />}
     </Modal>
   );
 }

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import ipaddress
+import math
 import mimetypes
 from dataclasses import dataclass
 from datetime import datetime
@@ -9,6 +10,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
+from mutagen import File as MutagenFile
+from mutagen import MutagenError
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.utils import timezone
@@ -144,7 +147,7 @@ def lookup_recording(dialer: Dialer, event) -> RecordingResult | None:
     return choose_recording(parse_recordings(response.text), event)
 
 
-def validate_recording_url(dialer: Dialer, url: str) -> None:
+def validate_recording_url(url: str) -> None:
     parsed = urlparse(url)
     if (
         parsed.scheme not in {"http", "https"}
@@ -169,18 +172,12 @@ def validate_recording_url(dialer: Dialer, url: str) -> None:
             )
     except ValueError:
         pass
-    api_host = (urlparse(dialer.api_url).hostname or "").lower().rstrip(".")
-    allowed = dialer.recording_hosts | ({api_host} if api_host else set())
-    if hostname not in allowed:
-        raise ValidationError(
-            f"Recording host {hostname!r} is not in this dialer's allowlist."
-        )
 
 
 def download_recording(
     dialer: Dialer, url: str, recording_uuid
 ) -> tuple[str, int, str]:
-    validate_recording_url(dialer, url)
+    validate_recording_url(url)
     output_dir = settings.RECORDINGS_ROOT
     output_dir.mkdir(parents=True, exist_ok=True)
     digest = hashlib.sha256()
@@ -229,3 +226,19 @@ def download_recording(
                 temp_path.unlink(missing_ok=True)
                 raise
     return str(final_path), total, digest.hexdigest()
+
+
+def recording_duration_seconds(path: str | Path) -> int | None:
+    """Read the stored audio's authoritative duration, rounded to a whole second."""
+    try:
+        media = MutagenFile(str(path))
+        length = (
+            float(media.info.length)
+            if media is not None and media.info is not None
+            else float("nan")
+        )
+    except (AttributeError, MutagenError, OSError, TypeError, ValueError):
+        return None
+    if not math.isfinite(length) or length < 0:
+        return None
+    return int(length + 0.5)

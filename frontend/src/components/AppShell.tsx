@@ -19,7 +19,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { api } from '../lib/api';
-import type { NotificationResponse, SystemNotification } from '../types';
+import type { CallReservation, NotificationResponse, SystemNotification } from '../types';
 import { BrandMark } from './BrandMark';
 import { ThemeControls } from './ThemeControls';
 
@@ -72,7 +72,12 @@ export function AppShell() {
       };
       socket.onmessage = (event) => {
         try {
-          const payload = JSON.parse(event.data) as { type?: string; notification?: SystemNotification };
+          const payload = JSON.parse(event.data) as {
+            type?: string;
+            notification?: SystemNotification;
+            call_id?: string;
+            reservation?: CallReservation | null;
+          };
           if (payload.type === 'notification.updated' && payload.notification) {
             const incoming = { ...payload.notification, is_read: false };
             setNotifications((current) => {
@@ -84,6 +89,8 @@ export function AppShell() {
           } else if (payload.type === 'notification.resolved' && payload.notification) {
             setNotifications((current) => current.filter((item) => item.id !== payload.notification?.id));
             void loadNotifications();
+          } else if (payload.type === 'call.reservation' && payload.call_id) {
+            window.dispatchEvent(new CustomEvent('qa:call-reservation', { detail: payload }));
           }
         } catch {
           // Ignore malformed frames and keep the reconnect loop alive.
