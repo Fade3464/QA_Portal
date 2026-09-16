@@ -10,6 +10,7 @@ from unittest.mock import patch
 import httpx
 from cryptography.fernet import Fernet
 from django.core.exceptions import ValidationError
+from django.core import mail
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -27,6 +28,7 @@ from apps.tenancy.models import (
 from config.celery import app as celery_app
 
 from .models import CallEvent, Review
+from .scorecard import SCORECARD
 from .serializers import CallEventSerializer
 from .services import (
     RecordingResult,
@@ -38,6 +40,7 @@ from .services import (
 )
 from .tasks import fetch_recording, resolve_recording
 from .webhooks import infer_call_direction, infer_dial_method
+from apps.notifications.tasks import send_review_report_email
 
 
 class CallClassificationTests(SimpleTestCase):
@@ -780,6 +783,21 @@ class AnalysisReservationTests(TestCase):
             branch=self.branch,
             must_change_password=False,
         )
+        self.team_leader = User.objects.create_user(
+            email="analysis-leader@example.com",
+            password="a-very-strong-password",
+            first_name="Team",
+            last_name="Leader",
+            role=User.Role.TEAM_LEADER,
+            company=company,
+            branch=self.branch,
+            must_change_password=False,
+        )
+        self.team = Team.objects.create(
+            branch=self.branch,
+            name="Analysis Team",
+            team_leader=self.team_leader,
+        )
         for qa in (self.qa_one, self.qa_two):
             QAProjectAssignment.objects.create(qa=qa, dialer_campaign=campaign)
         self.call = CallEvent.objects.create(
@@ -788,12 +806,38 @@ class AnalysisReservationTests(TestCase):
             event_key="analysis-call".ljust(64, "0"),
             event_type=CallEvent.EventType.DISPOSITION,
             campaign="analysis",
+            agent_user="8014",
+            agent_name="Ayesha Agent",
+            phone_number="+923001234567",
+            team=self.team,
+            team_name=self.team.name,
+            talk_time=120,
             recording_download_status=CallEvent.Status.DOWNLOADED,
             recording_path="/recordings/analysis.wav",
         )
 
     def url(self, name):
         return reverse(name, kwargs={"pk": self.call.pk})
+
+    def full_scores(self):
+        return {
+            key: maximum
+            for category in SCORECARD
+            for key, _label, maximum in category["criteria"]
+        }
+
+    def submission(self, **overrides):
+        payload = {
+            "scores": self.full_scores(),
+            "critical_errors": [],
+            "feedback_summary": "The agent handled the conversation professionally.",
+            "strengths": "Clear communication and accurate disclosures.",
+            "improvement_areas": "Confirm the next step more explicitly.",
+            "expected_behavior": "Summarize the commitment before closing.",
+            "coaching_plan": "Review the closing checklist with the Team Leader.",
+        }
+        payload.update(overrides)
+        return payload
 
     def test_reservation_is_atomic_idempotent_and_owned_by_one_qa(self):
         self.client.force_login(self.qa_one)
@@ -843,7 +887,8 @@ class AnalysisReservationTests(TestCase):
         detail = self.client.get(self.url("call-analysis"))
         listing = self.client.get(reverse("call-list"))
         self.assertEqual(detail.status_code, 200)
-        self.assertFalse(detail.json()["reservation"]["is_mine"])
+        self.assertFalse(detail.json()["call"]["reservation"]["is_mine"])
+        self.assertEqual(detail.json()["scorecard"]["max_score"], 100)
         self.assertEqual(
             listing.json()["results"][0]["reservation"]["reviewer_name"],
             "Amina Khan",
@@ -868,6 +913,228 @@ class AnalysisReservationTests(TestCase):
         self.call.save(update_fields=["recording_download_status", "recording_path"])
         self.client.force_login(self.qa_one)
         self.assertEqual(self.client.post(self.url("call-reserve")).status_code, 409)
+
+    def test_draft_uses_server_calculated_score(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        response = self.client.patch(
+            self.url("call-review-draft"),
+            {"scores": {"professional_greeting": 1.5}, "strengths": "Warm tone."},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["score"], "1.50")
+        review = Review.objects.get(call=self.call)
+        self.assertEqual(review.scorecard_version, "outbound-sales-v1")
+        self.assertEqual(review.strengths, "Warm tone.")
+
+    def test_draft_saves_criterion_comments_and_multiple_timestamp_patches(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        first_patch_id = str(uuid.uuid4())
+        second_patch_id = str(uuid.uuid4())
+        evidence = {
+            "active_listening": {
+                "comment": "The agent acknowledged the customer's concern.",
+                "patches": [
+                    {
+                        "id": second_patch_id,
+                        "start_ms": 22000,
+                        "end_ms": 27500,
+                        "comment": "Effective confirmation.",
+                    },
+                    {
+                        "id": first_patch_id,
+                        "start_ms": 8000,
+                        "end_ms": 12250,
+                        "comment": "Customer states the core concern.",
+                    },
+                ],
+            }
+        }
+        response = self.client.patch(
+            self.url("call-review-draft"),
+            {"criterion_evidence": evidence},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        saved = response.json()["criterion_evidence"]["active_listening"]
+        self.assertEqual(saved["comment"], evidence["active_listening"]["comment"])
+        self.assertEqual(
+            [patch["id"] for patch in saved["patches"]],
+            [first_patch_id, second_patch_id],
+        )
+
+    def test_criterion_evidence_rejects_invalid_ranges_and_unknown_criteria(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        overlapping = self.client.patch(
+            self.url("call-review-draft"),
+            {
+                "criterion_evidence": {
+                    "active_listening": {
+                        "comment": "Evidence",
+                        "patches": [
+                            {
+                                "id": str(uuid.uuid4()),
+                                "start_ms": 1000,
+                                "end_ms": 5000,
+                                "comment": "",
+                            },
+                            {
+                                "id": str(uuid.uuid4()),
+                                "start_ms": 4000,
+                                "end_ms": 6000,
+                                "comment": "",
+                            },
+                        ],
+                    }
+                }
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(overlapping.status_code, 400)
+        self.assertIn("cannot overlap", str(overlapping.json()))
+
+        beyond_duration = self.client.patch(
+            self.url("call-review-draft"),
+            {
+                "criterion_evidence": {
+                    "active_listening": {
+                        "comment": "",
+                        "patches": [
+                            {
+                                "id": str(uuid.uuid4()),
+                                "start_ms": 119000,
+                                "end_ms": 125000,
+                                "comment": "",
+                            }
+                        ],
+                    }
+                }
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(beyond_duration.status_code, 400)
+        self.assertIn("recording duration", str(beyond_duration.json()))
+
+        unknown = self.client.patch(
+            self.url("call-review-draft"),
+            {"criterion_evidence": {"invented_criterion": {"comment": "No"}}},
+            content_type="application/json",
+        )
+        self.assertEqual(unknown.status_code, 400)
+        self.assertIn("Unknown criterion", str(unknown.json()))
+
+    def test_completed_report_is_owned_by_qa_and_delivered_to_team_leader(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        response = self.client.post(
+            self.url("call-review-submit"),
+            self.submission(),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["score"], "100.00")
+        self.assertEqual(response.json()["rating"], Review.Rating.EXCELLENT)
+        self.assertEqual(
+            response.json()["outcome"], Review.Outcome.EXCEEDS_EXPECTATIONS
+        )
+        review = Review.objects.get(call=self.call)
+        self.assertEqual(review.reviewer, self.qa_one)
+        self.assertEqual(review.team_leader, self.team_leader)
+        self.assertEqual(review.status, Review.Status.COMPLETED)
+        self.assertEqual(review.email_status, Review.EmailStatus.DISABLED)
+
+        notification = SystemNotification.objects.get(
+            category=SystemNotification.Category.QA_REPORT_READY
+        )
+        self.assertEqual(list(notification.recipients.all()), [self.team_leader])
+
+        self.client.force_login(self.team_leader)
+        reports = self.client.get(reverse("review-report-list")).json()
+        notifications = self.client.get(reverse("notification-list")).json()
+        self.assertEqual(reports["count"], 1)
+        self.assertEqual(reports["results"][0]["reviewer_name"], "Amina Khan")
+        self.assertEqual(notifications["unread_count"], 1)
+        self.assertEqual(len(notifications["results"]), 1)
+        self.assertEqual(
+            notifications["results"][0]["metadata"]["review_id"], str(review.pk)
+        )
+
+    def test_submission_allows_optional_narrative_fields_to_be_blank(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        response = self.client.post(
+            self.url("call-review-submit"),
+            self.submission(
+                feedback_summary="",
+                improvement_areas="",
+                expected_behavior="",
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["status"], Review.Status.COMPLETED)
+
+    def test_critical_error_overrides_perfect_score(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        response = self.client.post(
+            self.url("call-review-submit"),
+            self.submission(critical_errors=["misrepresentation"]),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["score"], "100.00")
+        self.assertEqual(response.json()["rating"], Review.Rating.AUTOMATIC_FAIL)
+        self.assertEqual(
+            response.json()["outcome"], Review.Outcome.IMMEDIATE_ESCALATION
+        )
+
+    def test_submission_rejects_incomplete_or_manipulated_scores(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        incomplete = self.client.post(
+            self.url("call-review-submit"),
+            self.submission(scores={"professional_greeting": 2}),
+            content_type="application/json",
+        )
+        self.assertEqual(incomplete.status_code, 400)
+        excessive = self.client.patch(
+            self.url("call-review-draft"),
+            {"scores": {"professional_greeting": 20}},
+            content_type="application/json",
+        )
+        self.assertEqual(excessive.status_code, 400)
+
+    @override_settings(
+        QA_REPORT_EMAIL_ENABLED=True,
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        DEFAULT_FROM_EMAIL="qa@example.com",
+        FRONTEND_URL="https://qa.example.com",
+    )
+    def test_completed_report_email_task_is_idempotent(self):
+        review = Review.objects.create(
+            call=self.call,
+            reviewer=self.qa_one,
+            team_leader=self.team_leader,
+            status=Review.Status.COMPLETED,
+            score=95,
+            rating=Review.Rating.EXCELLENT,
+            outcome=Review.Outcome.EXCEEDS_EXPECTATIONS,
+            feedback_summary="A strong call.",
+            improvement_areas="Ask one more discovery question.",
+            expected_behavior="Complete every discovery step.",
+            email_status=Review.EmailStatus.PENDING,
+            completed_at=timezone.now(),
+        )
+        first = send_review_report_email.apply(args=[str(review.pk)]).get()
+        second = send_review_report_email.apply(args=[str(review.pk)]).get()
+        self.assertEqual(first["status"], "sent")
+        self.assertEqual(second["status"], "already_sent")
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, [self.team_leader.email])
 
 
 class RecordingTaskConfigurationTests(TestCase):

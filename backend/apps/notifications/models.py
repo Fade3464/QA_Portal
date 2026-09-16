@@ -7,6 +7,7 @@ from django.db import models
 class SystemNotification(models.Model):
     class Category(models.TextChoices):
         UNKNOWN_TEAM = "unknown_team", "Unknown team"
+        QA_REPORT_READY = "qa_report_ready", "QA report ready"
 
     class Severity(models.TextChoices):
         INFO = "info", "Information"
@@ -39,6 +40,11 @@ class SystemNotification(models.Model):
     occurrences = models.PositiveIntegerField(default=1)
     read_by = models.ManyToManyField(
         settings.AUTH_USER_MODEL, related_name="read_system_notifications", blank=True
+    )
+    recipients = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        related_name="system_notifications",
+        blank=True,
     )
     resolved_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

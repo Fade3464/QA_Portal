@@ -1,6 +1,103 @@
 from rest_framework import serializers
 
 from .models import CallEvent, Review
+from .scorecard import CRITICAL_ERRORS, calculate_score, validate_criterion_evidence
+
+
+class ReviewSerializer(serializers.ModelSerializer):
+    reviewer_name = serializers.CharField(source="reviewer.full_name", read_only=True)
+    team_leader_name = serializers.CharField(
+        source="team_leader.full_name", read_only=True, allow_null=True
+    )
+    status_label = serializers.CharField(source="get_status_display", read_only=True)
+    rating_label = serializers.CharField(source="get_rating_display", read_only=True)
+    outcome_label = serializers.CharField(source="get_outcome_display", read_only=True)
+    scores = serializers.DictField(required=False)
+    criterion_evidence = serializers.DictField(required=False)
+    critical_errors = serializers.ListField(
+        child=serializers.ChoiceField(choices=CRITICAL_ERRORS), required=False
+    )
+
+    class Meta:
+        model = Review
+        fields = (
+            "id",
+            "status",
+            "status_label",
+            "score",
+            "scorecard_version",
+            "scorecard_snapshot",
+            "scores",
+            "criterion_evidence",
+            "critical_errors",
+            "rating",
+            "rating_label",
+            "outcome",
+            "outcome_label",
+            "feedback_summary",
+            "strengths",
+            "improvement_areas",
+            "expected_behavior",
+            "coaching_plan",
+            "reviewer",
+            "reviewer_name",
+            "team_leader",
+            "team_leader_name",
+            "assigned_at",
+            "completed_at",
+            "email_status",
+            "email_sent_at",
+        )
+        read_only_fields = (
+            "id",
+            "status",
+            "score",
+            "scorecard_version",
+            "scorecard_snapshot",
+            "rating",
+            "outcome",
+            "reviewer",
+            "team_leader",
+            "assigned_at",
+            "completed_at",
+            "email_status",
+            "email_sent_at",
+        )
+
+    def validate_scores(self, value):
+        calculate_score(value, require_complete=False)
+        return value
+
+    def validate_criterion_evidence(self, value):
+        duration = self.instance.call.talk_time if self.instance else None
+        return validate_criterion_evidence(value, duration_seconds=duration)
+
+
+class ReviewListSerializer(ReviewSerializer):
+    call_id = serializers.UUIDField(read_only=True)
+    phone_number = serializers.CharField(source="call.phone_number", read_only=True)
+    agent_name = serializers.SerializerMethodField()
+    agent_user = serializers.CharField(source="call.agent_user", read_only=True)
+    team_name = serializers.SerializerMethodField()
+    project_name = serializers.CharField(read_only=True, allow_null=True)
+    call_date = serializers.DateTimeField(source="call.call_date", read_only=True)
+
+    class Meta(ReviewSerializer.Meta):
+        fields = ReviewSerializer.Meta.fields + (
+            "call_id",
+            "phone_number",
+            "agent_name",
+            "agent_user",
+            "team_name",
+            "project_name",
+            "call_date",
+        )
+
+    def get_agent_name(self, obj):
+        return obj.call.agent_name or obj.call.agent_user
+
+    def get_team_name(self, obj):
+        return obj.call.team.name if obj.call.team_id else obj.call.team_name
 
 
 class CallEventSerializer(serializers.ModelSerializer):

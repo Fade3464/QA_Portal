@@ -39,7 +39,7 @@ export function AppShell() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   const loadNotifications = useCallback(async () => {
-    if (!user?.is_superuser) return;
+    if (!user) return;
     setNotificationsLoading(true);
     try {
       const result = await api<NotificationResponse>('/api/v1/notifications/');
@@ -50,7 +50,7 @@ export function AppShell() {
     } finally {
       setNotificationsLoading(false);
     }
-  }, [user?.is_superuser]);
+  }, [user]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadNotifications(), 0);
@@ -85,7 +85,10 @@ export function AppShell() {
               if (!alreadyUnread) setUnreadCount((count) => count + 1);
               return [incoming, ...current.filter((item) => item.id !== incoming.id)].slice(0, 50);
             });
-            toast.warning({ message: incoming.title, description: incoming.message, placement: 'topRight' });
+            const toastOptions = { message: incoming.title, description: incoming.message, placement: 'topRight' as const };
+            if (incoming.severity === 'error') toast.error(toastOptions);
+            else if (incoming.severity === 'warning') toast.warning(toastOptions);
+            else toast.info(toastOptions);
           } else if (payload.type === 'notification.resolved' && payload.notification) {
             setNotifications((current) => current.filter((item) => item.id !== payload.notification?.id));
             void loadNotifications();
@@ -128,7 +131,7 @@ export function AppShell() {
   const items = useMemo<MenuProps['items']>(() => {
     const all = [
       { key: '/', icon: <DashboardOutlined />, label: <Link to="/">Command center</Link> },
-      { key: '/queue', icon: <AuditOutlined />, label: <Link to="/queue">Review queue</Link> },
+      { key: '/queue', icon: <AuditOutlined />, label: <Link to="/queue">{user?.role === 'qa' ? 'My QA reports' : 'QA reports'}</Link> },
       { key: '/calls', icon: <CustomerServiceOutlined />, label: <Link to="/calls">Call library</Link> },
       { key: '/team', icon: <TeamOutlined />, label: <Link to="/team">Team performance</Link>, roles: ['team_leader', 'project_manager', 'supervisor', 'administrator'] },
       { key: '/insights', icon: <BarChartOutlined />, label: <Link to="/insights">Quality insights</Link>, roles: ['project_manager', 'supervisor', 'administrator'] },
@@ -151,7 +154,7 @@ export function AppShell() {
       </div>
       <div className={`notification-panel__list${notificationsLoading ? ' notification-panel__list--loading' : ''}`}>
         {notifications.length ? notifications.map((item) => (
-          <button key={item.id} type="button" className={`notification-item${item.is_read ? '' : ' notification-item--unread'}`} onClick={() => { void markRead(item); setNotificationsOpen(false); navigate('/admin'); }}>
+          <button key={item.id} type="button" className={`notification-item${item.is_read ? '' : ' notification-item--unread'}`} onClick={() => { void markRead(item); setNotificationsOpen(false); navigate(item.metadata.target_path || (user?.is_superuser ? '/admin' : '/queue')); }}>
             <span className={`notification-item__indicator notification-item__indicator--${item.severity}`} />
             <span className="notification-item__copy"><strong>{item.title}</strong><span>{item.message}</span><small>{item.occurrences > 1 ? `${item.occurrences} calls · ` : ''}{dayjs(item.updated_at).format('DD MMM, h:mm A')}</small></span>
           </button>
@@ -192,7 +195,7 @@ export function AppShell() {
           </div>
           <div className="header-actions">
             <Tag color={connection === 'live' ? 'success' : connection === 'offline' ? 'error' : 'default'} className="live-status"><span className={`live-dot ${connection === 'live' ? '' : 'live-dot--muted'}`} />{connection === 'live' ? 'Live' : connection === 'offline' ? 'Offline' : 'Connecting'}</Tag>
-            {user?.is_superuser ? <Popover content={notificationPanel} trigger="click" placement="bottomRight" open={notificationsOpen} onOpenChange={(open) => { setNotificationsOpen(open); if (open) void loadNotifications(); }} styles={{ content: { padding: 0 } }}><Badge count={unreadCount} size="small" overflowCount={99}><Button type="text" shape="circle" className="header-icon-button" icon={<BellOutlined />} aria-label={`${unreadCount} unread notifications`} /></Badge></Popover> : <Tooltip title="No new notifications"><Button type="text" shape="circle" className="header-icon-button" icon={<BellOutlined />} aria-label="Notifications" /></Tooltip>}
+            <Popover content={notificationPanel} trigger="click" placement="bottomRight" open={notificationsOpen} onOpenChange={(open) => { setNotificationsOpen(open); if (open) void loadNotifications(); }} styles={{ content: { padding: 0 } }}><Badge count={unreadCount} size="small" overflowCount={99}><Button type="text" shape="circle" className="header-icon-button" icon={<BellOutlined />} aria-label={`${unreadCount} unread notifications`} /></Badge></Popover>
             <ThemeControls />
             <Dropdown menu={{ items: accountMenu }} trigger={['click']} placement="bottomRight">
               <button className="account-button" type="button">

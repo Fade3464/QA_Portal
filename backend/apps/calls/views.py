@@ -5,6 +5,7 @@ from pathlib import Path
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q, Subquery
 from django.http import FileResponse, Http404, HttpResponse, StreamingHttpResponse
@@ -24,7 +25,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import CallEvent, Review
-from .serializers import CallEventSerializer
+from .scorecard import SCORECARD_VERSION, calculate_score, rating_for, scorecard_payload
+from .serializers import CallEventSerializer, ReviewListSerializer, ReviewSerializer
 from apps.accounts.models import User
 from apps.tenancy.models import DialerCampaign, QAProjectAssignment
 
@@ -98,6 +100,21 @@ def _reservation_data(review, user=None):
     }
 
 
+def _owned_review(user, pk, *, for_update=False):
+    call = _analysis_call(user, pk, for_update=for_update)
+    queryset = Review.objects.select_related("reviewer")
+    if for_update:
+        queryset = queryset.select_for_update()
+    review = queryset.filter(call=call).first()
+    if not review:
+        raise ReservationConflict("Reserve this call before entering QA findings.")
+    if review.reviewer_id != user.pk:
+        raise ReservationConflict(
+            f"This call is reserved by {review.reviewer.full_name}."
+        )
+    return call, review
+
+
 def _broadcast_reservation(call, review):
     payload = {
         "type": "call.reservation",
@@ -129,7 +146,17 @@ class CallAnalysisView(APIView):
 
     def get(self, request, pk):
         call = _analysis_call(request.user, pk)
-        return Response(CallEventSerializer(call, context={"request": request}).data)
+        try:
+            review = call.review
+        except Review.DoesNotExist:
+            review = None
+        return Response(
+            {
+                "call": CallEventSerializer(call, context={"request": request}).data,
+                "review": ReviewSerializer(review).data if review else None,
+                "scorecard": scorecard_payload(),
+            }
+        )
 
 
 class CallReserveView(APIView):
@@ -174,6 +201,131 @@ class CallReleaseView(APIView):
         review.delete()
         transaction.on_commit(lambda: _broadcast_reservation(call, None))
         return Response(status=204)
+
+
+class CallReviewDraftView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def patch(self, request, pk):
+        _call, review = _owned_review(request.user, pk, for_update=True)
+        if review.status != Review.Status.IN_PROGRESS:
+            raise ReservationConflict("A submitted report cannot be changed.")
+        serializer = ReviewSerializer(review, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(
+            score=calculate_score(
+                serializer.validated_data.get("scores", review.scores),
+                require_complete=False,
+            ),
+            scorecard_version=SCORECARD_VERSION,
+            scorecard_snapshot=scorecard_payload(),
+        )
+        return Response(ReviewSerializer(review).data)
+
+
+class CallReviewSubmitView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, pk):
+        call, review = _owned_review(request.user, pk, for_update=True)
+        if review.status == Review.Status.COMPLETED:
+            return Response(ReviewSerializer(review).data)
+        serializer = ReviewSerializer(review, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        merged = {
+            field: serializer.validated_data.get(field, getattr(review, field))
+            for field in (
+                "scores",
+                "criterion_evidence",
+                "critical_errors",
+                "feedback_summary",
+                "strengths",
+                "expected_behavior",
+                "coaching_plan",
+            )
+        }
+        if not call.team_id:
+            raise ValidationError(
+                {"team": "Assign this call to a team before submitting its report."}
+            )
+        team_leader = call.team.team_leader
+        if not team_leader.is_active:
+            raise ValidationError(
+                {"team_leader": "The assigned Team Leader account is inactive."}
+            )
+        score = calculate_score(merged["scores"], require_complete=True)
+        critical_errors = list(dict.fromkeys(merged["critical_errors"]))
+        rating, outcome = rating_for(score, bool(critical_errors))
+        now = timezone.now()
+        email_status = (
+            Review.EmailStatus.PENDING
+            if settings.QA_REPORT_EMAIL_ENABLED
+            else Review.EmailStatus.DISABLED
+        )
+        for field, value in merged.items():
+            setattr(review, field, value)
+        review.critical_errors = critical_errors
+        review.score = score
+        review.rating = rating
+        review.outcome = outcome
+        review.scorecard_version = SCORECARD_VERSION
+        review.scorecard_snapshot = scorecard_payload()
+        review.team_leader = team_leader
+        review.status = Review.Status.COMPLETED
+        review.completed_at = now
+        review.email_status = email_status
+        review.email_last_error = ""
+        review.save()
+
+        from apps.notifications.services import queue_review_report_notification
+
+        notification = queue_review_report_notification(review)
+        transaction.on_commit(lambda: _broadcast_reservation(call, review))
+        if settings.QA_REPORT_EMAIL_ENABLED:
+            from apps.notifications.tasks import send_review_report_email
+
+            transaction.on_commit(
+                lambda: send_review_report_email.delay(str(review.pk))
+            )
+        response = ReviewSerializer(review).data
+        response["notification_id"] = str(notification.pk)
+        return Response(response)
+
+
+class ReviewPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+
+class ReviewReportListView(ListAPIView):
+    serializer_class = ReviewListSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = ReviewPagination
+
+    def get_queryset(self):
+        project = DialerCampaign.objects.filter(
+            dialer_id=OuterRef("call__dialer_id"),
+            campaign__iexact=OuterRef("call__campaign"),
+        ).values("project_name")[:1]
+        queryset = Review.objects.select_related(
+            "call",
+            "call__team",
+            "reviewer",
+            "team_leader",
+        ).annotate(project_name=Subquery(project))
+        user = self.request.user
+        if user.is_superuser:
+            return queryset
+        if user.role == User.Role.QA:
+            return queryset.filter(reviewer=user)
+        if user.role == User.Role.TEAM_LEADER:
+            return queryset.filter(team_leader=user, status=Review.Status.COMPLETED)
+        return queryset.filter(
+            call__branch_id=user.branch_id, status=Review.Status.COMPLETED
+        )
 
 
 class CallListView(ListAPIView):

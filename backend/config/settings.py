@@ -199,7 +199,10 @@ CELERY_TASK_TIME_LIMIT = 300
 # Tasks use explicit public names (``calls.resolve_recording`` and
 # ``calls.fetch_recording``), so routing must match those names rather than the
 # Python module path.
-CELERY_TASK_ROUTES = {"calls.*": {"queue": "recordings"}}
+CELERY_TASK_ROUTES = {
+    "calls.*": {"queue": "recordings"},
+    "notifications.*": {"queue": "celery"},
+}
 
 AXES_ENABLED = True
 AXES_FAILURE_LIMIT = 5
@@ -236,6 +239,13 @@ EMAIL_BACKEND = os.getenv(
     "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
 )
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "QA Portal <noreply@example.com>")
+EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.gmail.com")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
+EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "20"))
+QA_REPORT_EMAIL_ENABLED = env_bool("QA_REPORT_EMAIL_ENABLED", False)
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 DIALER_CREDENTIAL_KEY = os.getenv("DIALER_CREDENTIAL_KEY", "")
 if not DIALER_CREDENTIAL_KEY:

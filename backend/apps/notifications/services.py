@@ -57,14 +57,58 @@ def announce_call(event) -> None:
 def _broadcast_notification(notification_id, event_type="notification.updated") -> None:
     notification = (
         SystemNotification.objects.select_related("branch", "call")
+        .prefetch_related("recipients")
         .filter(pk=notification_id)
         .first()
     )
     if notification:
-        _broadcast(
-            "system_admins",
-            {"type": event_type, "notification": serialize_notification(notification)},
-        )
+        payload = {
+            "type": event_type,
+            "notification": serialize_notification(notification),
+        }
+        recipient_ids = list(notification.recipients.values_list("pk", flat=True))
+        if recipient_ids:
+            for recipient_id in recipient_ids:
+                _broadcast(f"user_{recipient_id}", payload)
+        else:
+            _broadcast("system_admins", payload)
+
+
+@transaction.atomic
+def queue_review_report_notification(review) -> SystemNotification:
+    leader = review.team_leader
+    notification, _created = SystemNotification.objects.update_or_create(
+        dedupe_key=f"qa-report:{review.pk}",
+        defaults={
+            "category": SystemNotification.Category.QA_REPORT_READY,
+            "severity": SystemNotification.Severity.ERROR
+            if review.critical_errors
+            else SystemNotification.Severity.INFO,
+            "title": "QA report requires your attention"
+            if review.critical_errors
+            else "New QA report received",
+            "message": (
+                f"{review.reviewer.full_name} submitted a {review.score}% review "
+                f"for {review.call.agent_name or review.call.agent_user}."
+            ),
+            "branch": review.call.branch,
+            "call": review.call,
+            "metadata": {
+                "review_id": str(review.pk),
+                "score": str(review.score),
+                "rating": review.rating,
+                "outcome": review.outcome,
+                "agent_name": review.call.agent_name or review.call.agent_user,
+                "team_name": review.call.team.name if review.call.team_id else "",
+                "target_path": "/queue",
+            },
+            "resolved_at": None,
+        },
+    )
+    notification.recipients.set([leader])
+    notification.read_by.remove(leader)
+    transaction.on_commit(lambda: _broadcast_notification(notification.pk))
+    return notification
 
 
 @transaction.atomic

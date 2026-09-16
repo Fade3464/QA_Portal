@@ -1,5 +1,5 @@
 from django.utils import timezone
-from rest_framework.permissions import BasePermission
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -7,27 +7,21 @@ from .models import SystemNotification
 from .services import serialize_notification
 
 
-class IsSystemAdministrator(BasePermission):
-    message = "System administrator access is required."
-
-    def has_permission(self, request, view):
-        return bool(
-            request.user.is_authenticated
-            and request.user.is_active
-            and request.user.is_superuser
-        )
+def scoped_notifications(user):
+    queryset = SystemNotification.objects.filter(resolved_at__isnull=True)
+    return queryset if user.is_superuser else queryset.filter(recipients=user)
 
 
 class NotificationListView(APIView):
-    permission_classes = [IsSystemAdministrator]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         notifications = list(
-            SystemNotification.objects.filter(resolved_at__isnull=True)
-            .select_related("branch", "call")[:50]
+            scoped_notifications(request.user).select_related("branch", "call")[:50]
         )
         unread_ids = set(
-            SystemNotification.objects.filter(
+            scoped_notifications(request.user)
+            .filter(
                 pk__in=[item.pk for item in notifications], resolved_at__isnull=True
             )
             .exclude(read_by=request.user)
@@ -42,12 +36,10 @@ class NotificationListView(APIView):
 
 
 class NotificationReadView(APIView):
-    permission_classes = [IsSystemAdministrator]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request, pk):
-        notification = SystemNotification.objects.filter(
-            pk=pk, resolved_at__isnull=True
-        ).first()
+        notification = scoped_notifications(request.user).filter(pk=pk).first()
         if not notification:
             return Response(status=404)
         notification.read_by.add(request.user)
@@ -55,10 +47,10 @@ class NotificationReadView(APIView):
 
 
 class NotificationReadAllView(APIView):
-    permission_classes = [IsSystemAdministrator]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        notifications = SystemNotification.objects.filter(resolved_at__isnull=True)
+        notifications = scoped_notifications(request.user)
         for notification in notifications.iterator(chunk_size=200):
             notification.read_by.add(request.user)
         return Response({"status": "read"})

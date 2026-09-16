@@ -12,7 +12,7 @@ import { MaterialSymbol } from '../components/MaterialSymbol';
 import { api } from '../lib/api';
 import { useAuth } from '../auth/AuthContext';
 import { useThemeSettings } from '../theme/ThemeContext';
-import type { CallEvent, CallFilterOptions, CallReservation, PaginatedResponse } from '../types';
+import type { CallEvent, CallFilterOptions, CallReservation, PaginatedResponse, QAAnalysisResponse } from '../types';
 
 const { Title, Paragraph } = Typography;
 const PAGE_CACHE_TTL_MS = 30_000;
@@ -128,6 +128,8 @@ export function CallsPage() {
   const [total, setTotal] = useState(0);
   const [selectedCall, setSelectedCall] = useState<CallEvent | null>(null);
   const [analysisCall, setAnalysisCall] = useState<CallEvent | null>(null);
+  const [analysisTarget, setAnalysisTarget] = useState(() => searchParams.get('analysis'));
+  const [analysisOpenError, setAnalysisOpenError] = useState('');
   const [filters, setFilters] = useState(() => filtersFromParams(searchParams));
   const [options, setOptions] = useState<CallFilterOptions | null>(null);
   const [optionsLoading, setOptionsLoading] = useState(true);
@@ -166,8 +168,26 @@ export function CallsPage() {
     const params = new URLSearchParams(serializedFilters);
     if (currentPage > 1) params.set('page', String(currentPage));
     if (pageSize !== 20) params.set('page_size', String(pageSize));
+    if (analysisTarget) params.set('analysis', analysisTarget);
     setSearchParams(params, { replace: true });
-  }, [currentPage, pageSize, serializedFilters, setSearchParams]);
+  }, [analysisTarget, currentPage, pageSize, serializedFilters, setSearchParams]);
+
+  useEffect(() => {
+    if (!analysisTarget || !isQa) return;
+    const controller = new AbortController();
+    api<QAAnalysisResponse>(`/api/v1/calls/${encodeURIComponent(analysisTarget)}/analysis/`, { signal: controller.signal })
+      .then((result) => {
+        setAnalysisOpenError('');
+        setAnalysisCall(result.call);
+        updateReservation(result.call.id, result.call.reservation);
+      })
+      .catch((requestError: unknown) => {
+        if (requestError instanceof DOMException && requestError.name === 'AbortError') return;
+        setAnalysisOpenError(requestError instanceof Error ? requestError.message : 'This QA report could not be reopened.');
+      })
+      .finally(() => { if (!controller.signal.aborted) setAnalysisTarget(null); });
+    return () => controller.abort();
+  }, [analysisTarget, isQa, updateReservation]);
 
   const load = useCallback((signal?: AbortSignal, force = false) => {
     const cacheKey = `${pageSize}:${currentPage}:${serializedFilters}`;
@@ -261,6 +281,7 @@ export function CallsPage() {
     <>
     <div className="page-stack">
       <div className="page-heading"><div><Title level={2} className="page-title">Call library</Title><Paragraph className="page-subtitle">Explore every dialer call available to your branch.</Paragraph></div></div>
+      {analysisOpenError && <Alert type="error" showIcon closable={{ onClose: () => setAnalysisOpenError('') }} title="Unable to continue analysis" description={analysisOpenError} />}
       <Card className="call-filter-card" classNames={{ body: 'call-filter-card__body' }}>
         <CallLibraryFilters value={filters} options={options} optionsLoading={optionsLoading} loading={loading} onChange={changeFilters} onReset={resetFilters} onRefresh={reload} />
       </Card>

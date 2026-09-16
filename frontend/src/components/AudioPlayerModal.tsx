@@ -21,6 +21,23 @@ interface AudioPlayerModalProps {
   onClose: () => void;
 }
 
+export interface AudioPlaybackState {
+  currentTime: number;
+  duration: number;
+}
+
+export interface AudioRangeRequest {
+  startSeconds: number;
+  endSeconds: number;
+  requestId: number;
+}
+
+interface AudioPlayerProps {
+  call: CallEvent;
+  onPlaybackStateChange?: (state: AudioPlaybackState) => void;
+  rangeRequest?: AudioRangeRequest | null;
+}
+
 function formatTime(value: number) {
   if (!Number.isFinite(value) || value < 0) return '0:00';
   const totalSeconds = Math.floor(value);
@@ -32,8 +49,9 @@ function formatTime(value: number) {
     : `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
-export function AudioPlayer({ call }: { call: CallEvent }) {
+export function AudioPlayer({ call, onPlaybackStateChange, rangeRequest }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const rangeEndRef = useRef<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -50,6 +68,24 @@ export function AudioPlayer({ call }: { call: CallEvent }) {
       audio?.pause();
     };
   }, [call]);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !rangeRequest) return;
+    const start = Math.max(0, rangeRequest.startSeconds);
+    const end = Math.min(rangeRequest.endSeconds, audio.duration || rangeRequest.endSeconds);
+    if (end <= start) return;
+    rangeEndRef.current = end;
+    audio.currentTime = start;
+    setCurrentTime(start);
+    setError('');
+    onPlaybackStateChange?.({ currentTime: start, duration: audio.duration || duration });
+    void audio.play().catch(() => {
+      rangeEndRef.current = null;
+      setIsBuffering(false);
+      setError('This evidence patch could not be played.');
+    });
+  }, [duration, onPlaybackStateChange, rangeRequest]);
 
   const togglePlayback = async () => {
     const audio = audioRef.current;
@@ -70,8 +106,23 @@ export function AudioPlayer({ call }: { call: CallEvent }) {
   const seek = (value: number) => {
     const audio = audioRef.current;
     if (!audio) return;
+    rangeEndRef.current = null;
     audio.currentTime = value;
     setCurrentTime(value);
+  };
+
+  const updatePlaybackPosition = (audio: HTMLAudioElement) => {
+    const nextTime = audio.currentTime;
+    const nextDuration = audio.duration || duration;
+    setCurrentTime(nextTime);
+    onPlaybackStateChange?.({ currentTime: nextTime, duration: nextDuration });
+    if (rangeEndRef.current !== null && nextTime >= rangeEndRef.current - 0.03) {
+      audio.pause();
+      audio.currentTime = rangeEndRef.current;
+      setCurrentTime(rangeEndRef.current);
+      onPlaybackStateChange?.({ currentTime: rangeEndRef.current, duration: nextDuration });
+      rangeEndRef.current = null;
+    }
   };
 
   const skip = (seconds: number) => {
@@ -110,15 +161,21 @@ export function AudioPlayer({ call }: { call: CallEvent }) {
           ref={audioRef}
           src={recordingUrl}
           preload="metadata"
-          onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)}
-          onDurationChange={(event) => setDuration(event.currentTarget.duration)}
-          onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+          onLoadedMetadata={(event) => {
+            setDuration(event.currentTarget.duration);
+            onPlaybackStateChange?.({ currentTime: event.currentTarget.currentTime, duration: event.currentTarget.duration });
+          }}
+          onDurationChange={(event) => {
+            setDuration(event.currentTarget.duration);
+            onPlaybackStateChange?.({ currentTime: event.currentTarget.currentTime, duration: event.currentTarget.duration });
+          }}
+          onTimeUpdate={(event) => updatePlaybackPosition(event.currentTarget)}
           onPlay={() => setIsPlaying(true)}
           onPause={() => setIsPlaying(false)}
           onWaiting={() => setIsBuffering(true)}
           onPlaying={() => setIsBuffering(false)}
           onCanPlay={() => setIsBuffering(false)}
-          onEnded={() => setIsPlaying(false)}
+          onEnded={() => { rangeEndRef.current = null; setIsPlaying(false); }}
           onError={() => {
             setIsBuffering(false);
             setError('This recording could not be loaded. Try downloading it instead.');

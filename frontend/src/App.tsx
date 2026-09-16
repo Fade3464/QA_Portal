@@ -15,6 +15,7 @@ const ResetPasswordPage = lazy(() => import('./pages/PasswordPages').then((modul
 const ChangePasswordPage = lazy(() => import('./pages/PasswordPages').then((module) => ({ default: module.ChangePasswordPage })));
 const PlaceholderPage = lazy(() => import('./pages/PlaceholderPage').then((module) => ({ default: module.PlaceholderPage })));
 const AdministrationPage = lazy(() => import('./pages/AdministrationPage').then((module) => ({ default: module.AdministrationPage })));
+const ReportsPage = lazy(() => import('./pages/ReportsPage').then((module) => ({ default: module.ReportsPage })));
 
 function ProtectedLayout() {
   const { user, loading } = useAuth();
@@ -98,7 +99,7 @@ export default function App() {
             <Route element={<ProtectedLayout />}>
               <Route index element={<DashboardPage />} />
               <Route path="calls" element={<CallsPage />} />
-              <Route path="queue" element={<PlaceholderPage />} />
+              <Route path="queue" element={<ReportsPage />} />
               <Route path="team" element={<PlaceholderPage />} />
               <Route path="insights" element={<PlaceholderPage />} />
               <Route path="admin" element={<AdministratorRoute />} />

@@ -29,6 +29,84 @@ export interface CallReservation {
   is_mine: boolean;
 }
 
+export interface ScorecardCriterion {
+  key: string;
+  label: string;
+  max_score: number;
+}
+
+export interface ScorecardCategory {
+  key: string;
+  label: string;
+  max_score: number;
+  criteria: ScorecardCriterion[];
+}
+
+export interface QAScorecard {
+  version: string;
+  max_score: number;
+  benchmark: number;
+  categories: ScorecardCategory[];
+  critical_errors: Array<{ value: string; label: string }>;
+}
+
+export interface QAEvidencePatch {
+  id: string;
+  start_ms: number;
+  end_ms: number;
+  comment: string;
+}
+
+export interface QACriterionEvidence {
+  comment: string;
+  patches: QAEvidencePatch[];
+}
+
+export interface QAReview {
+  id: string;
+  status: 'assigned' | 'in_progress' | 'completed' | 'disputed';
+  status_label: string;
+  score: string | null;
+  scorecard_version: string;
+  scorecard_snapshot: QAScorecard | Record<string, never>;
+  scores: Record<string, number>;
+  criterion_evidence: Record<string, QACriterionEvidence>;
+  critical_errors: string[];
+  rating: string;
+  rating_label: string;
+  outcome: string;
+  outcome_label: string;
+  feedback_summary: string;
+  strengths: string;
+  improvement_areas: string;
+  expected_behavior: string;
+  coaching_plan: string;
+  reviewer: string;
+  reviewer_name: string;
+  team_leader: string | null;
+  team_leader_name: string | null;
+  assigned_at: string;
+  completed_at: string | null;
+  email_status: 'disabled' | 'pending' | 'sent' | 'failed';
+  email_sent_at: string | null;
+}
+
+export interface QAAnalysisResponse {
+  call: CallEvent;
+  review: QAReview | null;
+  scorecard: QAScorecard;
+}
+
+export interface QAReport extends QAReview {
+  call_id: string;
+  phone_number: string;
+  agent_name: string;
+  agent_user: string;
+  team_name: string;
+  project_name: string | null;
+  call_date: string | null;
+}
+
 export interface CallEvent {
   id: string;
   received_at: string;

@@ -72,19 +72,19 @@ class NotificationConsumer(AsyncJsonWebsocketConsumer):
         if not user.is_authenticated:
             await self.close(code=4401)
             return
+        self.group_names = [f"user_{user.pk}"]
         if user.is_superuser:
-            self.group_name = "system_admins"
-        elif user.role == "qa":
-            self.group_name = f"user_{user.pk}"
-        else:
-            self.group_name = f"branch_{user.branch_id}"
-        await self.channel_layer.group_add(self.group_name, self.channel_name)
+            self.group_names.append("system_admins")
+        elif user.branch_id:
+            self.group_names.append(f"branch_{user.branch_id}")
+        for group_name in self.group_names:
+            await self.channel_layer.group_add(group_name, self.channel_name)
         await self.accept()
         await self.send_json({"type": "connected", "message": "Live updates connected"})
 
     async def disconnect(self, close_code):
-        if hasattr(self, "group_name"):
-            await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        for group_name in getattr(self, "group_names", []):
+            await self.channel_layer.group_discard(group_name, self.channel_name)
 
     async def portal_notification(self, event):
         await self.send_json(event["payload"])

@@ -50,8 +50,11 @@ class ReviewAdmin(admin.ModelAdmin):
         "reviewer",
         "status",
         "score",
+        "rating",
+        "outcome",
+        "team_leader",
         "assigned_at",
         "completed_at",
     )
-    list_filter = ("status", "reviewer__branch")
+    list_filter = ("status", "rating", "outcome", "reviewer__branch")
     search_fields = ("call__call_id", "call__lead_id", "reviewer__email")

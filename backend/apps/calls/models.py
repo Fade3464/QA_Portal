@@ -338,6 +338,31 @@ class Review(models.Model):
         COMPLETED = "completed", "Completed"
         DISPUTED = "disputed", "Disputed"
 
+    class Rating(models.TextChoices):
+        EXCELLENT = "excellent", "Excellent"
+        VERY_GOOD = "very_good", "Very Good"
+        GOOD = "good", "Good"
+        NEEDS_IMPROVEMENT = "needs_improvement", "Needs Improvement"
+        UNSATISFACTORY = "unsatisfactory", "Unsatisfactory"
+        AUTOMATIC_FAIL = "automatic_fail", "Automatic Fail"
+
+    class Outcome(models.TextChoices):
+        EXCEEDS_EXPECTATIONS = "exceeds_expectations", "Exceeds Expectations"
+        MEETS_EXPECTATIONS = "meets_expectations", "Meets Expectations"
+        MEETS_MINIMUM_STANDARD = "meets_minimum_standard", "Meets Minimum Standard"
+        COACHING_REQUIRED = "coaching_required", "Coaching Required"
+        PERFORMANCE_ACTION_REQUIRED = (
+            "performance_action_required",
+            "Performance Action Required",
+        )
+        IMMEDIATE_ESCALATION = "immediate_escalation", "Immediate Escalation"
+
+    class EmailStatus(models.TextChoices):
+        DISABLED = "disabled", "Disabled"
+        PENDING = "pending", "Pending"
+        SENT = "sent", "Sent"
+        FAILED = "failed", "Failed"
+
     id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
@@ -369,6 +394,33 @@ class Review(models.Model):
         blank=True,
     )
 
+    scorecard_version = models.CharField(max_length=40, blank=True)
+    scorecard_snapshot = models.JSONField(default=dict, blank=True)
+    scores = models.JSONField(default=dict, blank=True)
+    criterion_evidence = models.JSONField(default=dict, blank=True)
+    critical_errors = models.JSONField(default=list, blank=True)
+    rating = models.CharField(max_length=32, choices=Rating.choices, blank=True)
+    outcome = models.CharField(max_length=40, choices=Outcome.choices, blank=True)
+    feedback_summary = models.TextField(blank=True)
+    strengths = models.TextField(blank=True)
+    improvement_areas = models.TextField(blank=True)
+    expected_behavior = models.TextField(blank=True)
+    coaching_plan = models.TextField(blank=True)
+    team_leader = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.PROTECT,
+        related_name="qa_reports_received",
+        null=True,
+        blank=True,
+    )
+    email_status = models.CharField(
+        max_length=16,
+        choices=EmailStatus.choices,
+        default=EmailStatus.DISABLED,
+    )
+    email_sent_at = models.DateTimeField(null=True, blank=True)
+    email_last_error = models.TextField(blank=True)
+
     assigned_at = models.DateTimeField(
         auto_now_add=True,
     )
@@ -385,6 +437,16 @@ class Review(models.Model):
     class Meta:
         ordering = [
             "-assigned_at",
+        ]
+        indexes = [
+            models.Index(
+                fields=["reviewer", "status", "-assigned_at"],
+                name="review_owner_status_idx",
+            ),
+            models.Index(
+                fields=["team_leader", "status", "-completed_at"],
+                name="review_leader_status_idx",
+            ),
         ]
 
 
