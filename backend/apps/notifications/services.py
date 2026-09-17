@@ -77,6 +77,11 @@ def _broadcast_notification(notification_id, event_type="notification.updated") 
 @transaction.atomic
 def queue_review_report_notification(review) -> SystemNotification:
     leader = review.team_leader
+    result = (
+        "an automatic-fail review"
+        if review.critical_errors
+        else f"a {review.score}% review"
+    )
     notification, _created = SystemNotification.objects.update_or_create(
         dedupe_key=f"qa-report:{review.pk}",
         defaults={
@@ -88,14 +93,14 @@ def queue_review_report_notification(review) -> SystemNotification:
             if review.critical_errors
             else "New QA report received",
             "message": (
-                f"{review.reviewer.full_name} submitted a {review.score}% review "
+                f"{review.reviewer.full_name} submitted {result} "
                 f"for {review.call.agent_name or review.call.agent_user}."
             ),
             "branch": review.call.branch,
             "call": review.call,
             "metadata": {
                 "review_id": str(review.pk),
-                "score": str(review.score),
+                "score": str(review.score) if review.score is not None else None,
                 "rating": review.rating,
                 "outcome": review.outcome,
                 "agent_name": review.call.agent_name or review.call.agent_user,
@@ -109,6 +114,24 @@ def queue_review_report_notification(review) -> SystemNotification:
     notification.read_by.remove(leader)
     transaction.on_commit(lambda: _broadcast_notification(notification.pk))
     return notification
+
+
+@transaction.atomic
+def resolve_review_report_notification(review, user) -> None:
+    notification = (
+        SystemNotification.objects.select_for_update()
+        .filter(dedupe_key=f"qa-report:{review.pk}", recipients=user)
+        .first()
+    )
+    if not notification:
+        return
+    notification.read_by.add(user)
+    if review.leader_status != review.LeaderStatus.PENDING:
+        notification.resolved_at = timezone.now()
+        notification.save(update_fields=["resolved_at", "updated_at"])
+        transaction.on_commit(
+            lambda: _broadcast_notification(notification.pk, "notification.resolved")
+        )
 
 
 @transaction.atomic

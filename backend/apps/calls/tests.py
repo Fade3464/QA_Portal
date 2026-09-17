@@ -27,7 +27,7 @@ from apps.tenancy.models import (
 )
 from config.celery import app as celery_app
 
-from .models import CallEvent, Review
+from .models import CallEvent, Review, ReviewWorkflowEvent
 from .scorecard import SCORECARD
 from .serializers import CallEventSerializer
 from .services import (
@@ -1077,6 +1077,96 @@ class AnalysisReservationTests(TestCase):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()["status"], Review.Status.COMPLETED)
 
+    def test_team_leader_report_summary_and_workflow_are_scoped_and_audited(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        submitted = self.client.post(
+            self.url("call-review-submit"),
+            self.submission(),
+            content_type="application/json",
+        )
+        review_id = submitted.json()["id"]
+
+        self.client.force_login(self.team_leader)
+        summary = self.client.get(reverse("review-report-summary"))
+        self.assertEqual(summary.status_code, 200, summary.content)
+        self.assertEqual(summary.json()["total"], 1)
+        self.assertEqual(summary.json()["pending"], 1)
+        self.assertEqual(summary.json()["average_score"], 100.0)
+        self.assertEqual(summary.json()["filters"]["projects"], ["Analysis Project"])
+
+        acknowledged = self.client.post(
+            reverse("review-report-action", kwargs={"pk": review_id}),
+            {"leader_status": Review.LeaderStatus.ACKNOWLEDGED},
+            content_type="application/json",
+        )
+        self.assertEqual(acknowledged.status_code, 200, acknowledged.content)
+        self.assertEqual(
+            acknowledged.json()["leader_status"],
+            Review.LeaderStatus.ACKNOWLEDGED,
+        )
+        self.assertEqual(len(acknowledged.json()["workflow_events"]), 1)
+        event = ReviewWorkflowEvent.objects.get(review_id=review_id)
+        self.assertEqual(event.actor, self.team_leader)
+        self.assertEqual(event.from_status, Review.LeaderStatus.PENDING)
+        self.assertEqual(event.to_status, Review.LeaderStatus.ACKNOWLEDGED)
+        self.assertIsNotNone(
+            SystemNotification.objects.get(
+                dedupe_key=f"qa-report:{review_id}"
+            ).resolved_at
+        )
+
+        due_at = timezone.now() + timedelta(days=2)
+        coaching = self.client.post(
+            reverse("review-report-action", kwargs={"pk": review_id}),
+            {
+                "leader_status": Review.LeaderStatus.COACHING_PLANNED,
+                "coaching_due_at": due_at.isoformat(),
+                "note": "Review the closing checklist in the next coaching session.",
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(coaching.status_code, 200, coaching.content)
+        self.assertEqual(
+            coaching.json()["leader_status"],
+            Review.LeaderStatus.COACHING_PLANNED,
+        )
+        self.assertEqual(len(coaching.json()["workflow_events"]), 2)
+
+    def test_team_leader_workflow_rejects_invalid_transition_and_qa_action(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        review_id = self.client.post(
+            self.url("call-review-submit"),
+            self.submission(),
+            content_type="application/json",
+        ).json()["id"]
+        action_url = reverse("review-report-action", kwargs={"pk": review_id})
+
+        denied = self.client.post(
+            action_url,
+            {"leader_status": Review.LeaderStatus.ACKNOWLEDGED},
+            content_type="application/json",
+        )
+        self.assertEqual(denied.status_code, 403)
+
+        self.client.force_login(self.team_leader)
+        invalid = self.client.post(
+            action_url,
+            {"leader_status": Review.LeaderStatus.CLOSED},
+            content_type="application/json",
+        )
+        self.assertEqual(invalid.status_code, 400)
+        missing_due_date = self.client.post(
+            action_url,
+            {
+                "leader_status": Review.LeaderStatus.COACHING_PLANNED,
+                "note": "Coaching is required.",
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(missing_due_date.status_code, 400)
+
     def test_critical_error_overrides_perfect_score(self):
         self.client.force_login(self.qa_one)
         self.client.post(self.url("call-reserve"))
@@ -1087,6 +1177,24 @@ class AnalysisReservationTests(TestCase):
         )
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()["score"], "100.00")
+        self.assertEqual(response.json()["rating"], Review.Rating.AUTOMATIC_FAIL)
+        self.assertEqual(
+            response.json()["outcome"], Review.Outcome.IMMEDIATE_ESCALATION
+        )
+
+    def test_critical_error_submission_does_not_require_scorecard(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        response = self.client.post(
+            self.url("call-review-submit"),
+            self.submission(
+                scores={},
+                critical_errors=["misrepresentation"],
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertIsNone(response.json()["score"])
         self.assertEqual(response.json()["rating"], Review.Rating.AUTOMATIC_FAIL)
         self.assertEqual(
             response.json()["outcome"], Review.Outcome.IMMEDIATE_ESCALATION

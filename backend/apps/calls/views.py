@@ -1,16 +1,18 @@
 import logging
 import mimetypes
 import re
+from datetime import timedelta
 from pathlib import Path
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Exists, OuterRef, Q, Subquery
+from django.db.models import Avg, Count, Exists, OuterRef, Q, Subquery
+from django.db.models.functions import TruncDate
 from django.http import FileResponse, Http404, HttpResponse, StreamingHttpResponse
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
+from django.utils.dateparse import parse_date, parse_datetime
 from django.utils.http import content_disposition_header
 from rest_framework.exceptions import (
     APIException,
@@ -24,9 +26,14 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import CallEvent, Review
+from .models import CallEvent, Review, ReviewWorkflowEvent
 from .scorecard import SCORECARD_VERSION, calculate_score, rating_for, scorecard_payload
-from .serializers import CallEventSerializer, ReviewListSerializer, ReviewSerializer
+from .serializers import (
+    CallEventSerializer,
+    ReviewDetailSerializer,
+    ReviewListSerializer,
+    ReviewSerializer,
+)
 from apps.accounts.models import User
 from apps.tenancy.models import DialerCampaign, QAProjectAssignment
 
@@ -255,8 +262,18 @@ class CallReviewSubmitView(APIView):
             raise ValidationError(
                 {"team_leader": "The assigned Team Leader account is inactive."}
             )
-        score = calculate_score(merged["scores"], require_complete=True)
         critical_errors = list(dict.fromkeys(merged["critical_errors"]))
+        if critical_errors:
+            # Critical errors determine the outcome independently. Validate any
+            # optional scoring that was entered, but only persist a comparable
+            # numeric score when the complete scorecard is present.
+            calculate_score(merged["scores"], require_complete=False)
+            try:
+                score = calculate_score(merged["scores"], require_complete=True)
+            except ValidationError:
+                score = None
+        else:
+            score = calculate_score(merged["scores"], require_complete=True)
         rating, outcome = rating_for(score, bool(critical_errors))
         now = timezone.now()
         email_status = (
@@ -300,31 +317,349 @@ class ReviewPagination(PageNumberPagination):
     max_page_size = 100
 
 
+def _report_queryset(user):
+    project = DialerCampaign.objects.filter(
+        dialer_id=OuterRef("call__dialer_id"),
+        campaign__iexact=OuterRef("call__campaign"),
+    ).values("project_name")[:1]
+    queryset = Review.objects.select_related(
+        "call",
+        "call__dialer",
+        "call__branch",
+        "call__team",
+        "reviewer",
+        "team_leader",
+    ).annotate(project_name=Subquery(project))
+    if user.is_superuser:
+        return queryset
+    if user.role == User.Role.QA:
+        return queryset.filter(reviewer=user)
+    completed = (Review.Status.COMPLETED, Review.Status.DISPUTED)
+    if user.role == User.Role.TEAM_LEADER:
+        return queryset.filter(team_leader=user, status__in=completed)
+    return queryset.filter(call__branch_id=user.branch_id, status__in=completed)
+
+
+def _report_filters(queryset, params):
+    search = params.get("search", "").strip()
+    if len(search) > 160:
+        raise ValidationError({"search": "Search must be 160 characters or fewer."})
+    if search:
+        queryset = queryset.filter(
+            Q(call__agent_name__icontains=search)
+            | Q(call__agent_user__icontains=search)
+            | Q(call__phone_number__icontains=search)
+            | Q(call__team__name__icontains=search)
+            | Q(reviewer__first_name__icontains=search)
+            | Q(reviewer__last_name__icontains=search)
+        )
+
+    workflow_status = params.get("workflow_status", "").strip()
+    if workflow_status:
+        valid = {choice for choice, _label in Review.LeaderStatus.choices}
+        if workflow_status not in valid:
+            raise ValidationError({"workflow_status": "Unsupported workflow status."})
+        queryset = queryset.filter(leader_status=workflow_status)
+
+    rating = params.get("rating", "").strip()
+    if rating:
+        valid = {choice for choice, _label in Review.Rating.choices}
+        if rating not in valid:
+            raise ValidationError({"rating": "Unsupported rating."})
+        queryset = queryset.filter(rating=rating)
+
+    segment = params.get("segment", "all").strip()
+    if segment == "attention":
+        queryset = queryset.filter(leader_status=Review.LeaderStatus.PENDING)
+    elif segment == "critical":
+        queryset = queryset.exclude(critical_errors=[]).exclude(
+            leader_status=Review.LeaderStatus.CLOSED
+        )
+    elif segment == "coaching":
+        queryset = queryset.filter(leader_status=Review.LeaderStatus.COACHING_PLANNED)
+    elif segment == "closed":
+        queryset = queryset.filter(leader_status=Review.LeaderStatus.CLOSED)
+    elif segment != "all":
+        raise ValidationError({"segment": "Unsupported report segment."})
+
+    project = params.get("project", "").strip()
+    if project:
+        queryset = queryset.filter(project_name=project)
+    reviewer = params.get("reviewer", "").strip()
+    if reviewer:
+        queryset = queryset.filter(reviewer_id=reviewer)
+
+    critical = params.get("critical", "").strip().lower()
+    if critical == "true":
+        queryset = queryset.exclude(critical_errors=[])
+    elif critical == "false":
+        queryset = queryset.filter(critical_errors=[])
+    elif critical:
+        raise ValidationError({"critical": "Use true or false."})
+
+    date_from = parse_date(params.get("date_from", ""))
+    date_to = parse_date(params.get("date_to", ""))
+    if params.get("date_from") and not date_from:
+        raise ValidationError({"date_from": "Enter a valid date."})
+    if params.get("date_to") and not date_to:
+        raise ValidationError({"date_to": "Enter a valid date."})
+    if date_from:
+        queryset = queryset.filter(completed_at__date__gte=date_from)
+    if date_to:
+        queryset = queryset.filter(completed_at__date__lte=date_to)
+
+    ordering = params.get("ordering", "-completed_at")
+    allowed_ordering = {
+        "-completed_at",
+        "completed_at",
+        "score",
+        "-score",
+        "coaching_due_at",
+        "-leader_updated_at",
+    }
+    if ordering not in allowed_ordering:
+        raise ValidationError({"ordering": "Unsupported report ordering."})
+    return queryset.order_by(ordering, "-assigned_at")
+
+
 class ReviewReportListView(ListAPIView):
     serializer_class = ReviewListSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = ReviewPagination
 
     def get_queryset(self):
-        project = DialerCampaign.objects.filter(
-            dialer_id=OuterRef("call__dialer_id"),
-            campaign__iexact=OuterRef("call__campaign"),
-        ).values("project_name")[:1]
-        queryset = Review.objects.select_related(
-            "call",
-            "call__team",
-            "reviewer",
-            "team_leader",
-        ).annotate(project_name=Subquery(project))
-        user = self.request.user
-        if user.is_superuser:
-            return queryset
-        if user.role == User.Role.QA:
-            return queryset.filter(reviewer=user)
-        if user.role == User.Role.TEAM_LEADER:
-            return queryset.filter(team_leader=user, status=Review.Status.COMPLETED)
-        return queryset.filter(
-            call__branch_id=user.branch_id, status=Review.Status.COMPLETED
+        return _report_filters(
+            _report_queryset(self.request.user), self.request.query_params
+        )
+
+
+class ReviewReportSummaryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        queryset = _report_queryset(request.user).filter(
+            status__in=(Review.Status.COMPLETED, Review.Status.DISPUTED)
+        )
+        now = timezone.now()
+        open_queryset = queryset.exclude(leader_status=Review.LeaderStatus.CLOSED)
+        totals = queryset.aggregate(total=Count("id"), average_score=Avg("score"))
+        start_date = timezone.localdate() - timedelta(days=13)
+        raw_trend = {
+            item["day"]: item
+            for item in queryset.filter(completed_at__date__gte=start_date)
+            .annotate(day=TruncDate("completed_at"))
+            .values("day")
+            .annotate(count=Count("id"), average_score=Avg("score"))
+            .order_by("day")
+        }
+        trend = []
+        for offset in range(14):
+            day = start_date + timedelta(days=offset)
+            item = raw_trend.get(day, {})
+            trend.append(
+                {
+                    "date": day.isoformat(),
+                    "count": item.get("count", 0),
+                    "average_score": round(float(item["average_score"]), 2)
+                    if item.get("average_score") is not None
+                    else None,
+                }
+            )
+        return Response(
+            {
+                "total": totals["total"],
+                "average_score": round(float(totals["average_score"]), 2)
+                if totals["average_score"] is not None
+                else None,
+                "pending": queryset.filter(
+                    leader_status=Review.LeaderStatus.PENDING
+                ).count(),
+                "critical_open": open_queryset.exclude(critical_errors=[]).count(),
+                "coaching_open": queryset.filter(
+                    leader_status=Review.LeaderStatus.COACHING_PLANNED
+                ).count(),
+                "overdue": queryset.filter(
+                    leader_status=Review.LeaderStatus.COACHING_PLANNED,
+                    coaching_due_at__lt=now,
+                ).count(),
+                "below_benchmark_open": open_queryset.filter(score__lt=85).count(),
+                "closed": queryset.filter(
+                    leader_status=Review.LeaderStatus.CLOSED
+                ).count(),
+                "trend": trend,
+                "filters": {
+                    "projects": list(
+                        queryset.exclude(project_name__isnull=True)
+                        .exclude(project_name="")
+                        .order_by("project_name")
+                        .values_list("project_name", flat=True)
+                        .distinct()
+                    ),
+                    "reviewers": list(
+                        queryset.order_by("reviewer__first_name", "reviewer__last_name")
+                        .values(
+                            "reviewer_id", "reviewer__first_name", "reviewer__last_name"
+                        )
+                        .distinct()
+                    ),
+                },
+                "generated_at": now,
+            }
+        )
+
+
+class ReviewReportDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        review = (
+            _report_queryset(request.user)
+            .prefetch_related("workflow_events__actor")
+            .filter(pk=pk)
+            .first()
+        )
+        if not review:
+            raise NotFound("QA report not found.")
+        return Response(
+            ReviewDetailSerializer(review, context={"request": request}).data
+        )
+
+
+class ReviewReportActionView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    transitions = {
+        Review.LeaderStatus.PENDING: {
+            Review.LeaderStatus.ACKNOWLEDGED,
+            Review.LeaderStatus.COACHING_PLANNED,
+            Review.LeaderStatus.ESCALATED,
+        },
+        Review.LeaderStatus.ACKNOWLEDGED: {
+            Review.LeaderStatus.COACHING_PLANNED,
+            Review.LeaderStatus.ESCALATED,
+            Review.LeaderStatus.CLOSED,
+        },
+        Review.LeaderStatus.COACHING_PLANNED: {
+            Review.LeaderStatus.COACHING_COMPLETED,
+            Review.LeaderStatus.ESCALATED,
+        },
+        Review.LeaderStatus.COACHING_COMPLETED: {
+            Review.LeaderStatus.COACHING_PLANNED,
+            Review.LeaderStatus.CLOSED,
+        },
+        Review.LeaderStatus.ESCALATED: {
+            Review.LeaderStatus.COACHING_PLANNED,
+            Review.LeaderStatus.CLOSED,
+        },
+        Review.LeaderStatus.CLOSED: {Review.LeaderStatus.ACKNOWLEDGED},
+    }
+
+    @transaction.atomic
+    def post(self, request, pk):
+        if request.user.role != User.Role.TEAM_LEADER and not request.user.is_superuser:
+            raise PermissionDenied(
+                "Only the assigned Team Leader can manage this report."
+            )
+        review = (
+            _report_queryset(request.user)
+            .select_for_update(of=("self",))
+            .filter(pk=pk)
+            .first()
+        )
+        if not review:
+            raise NotFound("QA report not found.")
+
+        note = str(request.data.get("note", "")).strip()
+        if len(note) > 4000:
+            raise ValidationError({"note": "Keep notes within 4,000 characters."})
+        target = str(request.data.get("leader_status", "")).strip()
+        if not target:
+            if not note:
+                raise ValidationError({"note": "Enter a note to add to the report."})
+            target = review.leader_status
+        valid_statuses = {choice for choice, _label in Review.LeaderStatus.choices}
+        if target not in valid_statuses:
+            raise ValidationError({"leader_status": "Unsupported workflow status."})
+        status_changed = target != review.leader_status
+        if status_changed and target not in self.transitions[review.leader_status]:
+            raise ValidationError(
+                {"leader_status": "That workflow transition is not available."}
+            )
+        if (
+            target
+            in {
+                Review.LeaderStatus.COACHING_PLANNED,
+                Review.LeaderStatus.COACHING_COMPLETED,
+                Review.LeaderStatus.ESCALATED,
+            }
+            and not note
+        ):
+            raise ValidationError({"note": "Document the reason for this action."})
+
+        due_at = None
+        raw_due_at = request.data.get("coaching_due_at")
+        if raw_due_at:
+            due_at = parse_datetime(str(raw_due_at))
+            if due_at is None:
+                raise ValidationError(
+                    {"coaching_due_at": "Enter a valid date and time."}
+                )
+            if timezone.is_naive(due_at):
+                due_at = timezone.make_aware(due_at)
+        if target == Review.LeaderStatus.COACHING_PLANNED:
+            if due_at is None:
+                raise ValidationError(
+                    {"coaching_due_at": "Choose when coaching should be completed."}
+                )
+            if due_at <= timezone.now():
+                raise ValidationError(
+                    {"coaching_due_at": "The coaching deadline must be in the future."}
+                )
+
+        previous = review.leader_status
+        now = timezone.now()
+        if review.leader_reviewed_at is None:
+            review.leader_reviewed_at = now
+        if status_changed:
+            review.leader_status = target
+            review.leader_closed_at = (
+                now if target == Review.LeaderStatus.CLOSED else None
+            )
+            if target == Review.LeaderStatus.COACHING_PLANNED:
+                review.coaching_due_at = due_at
+        review.leader_updated_at = now
+        review.save(
+            update_fields=[
+                "leader_status",
+                "coaching_due_at",
+                "leader_reviewed_at",
+                "leader_closed_at",
+                "leader_updated_at",
+            ]
+        )
+        ReviewWorkflowEvent.objects.create(
+            review=review,
+            actor=request.user,
+            event_type=(
+                ReviewWorkflowEvent.EventType.STATUS_CHANGED
+                if status_changed
+                else ReviewWorkflowEvent.EventType.NOTE_ADDED
+            ),
+            from_status=previous,
+            to_status=target,
+            note=note,
+            coaching_due_at=review.coaching_due_at,
+        )
+        from apps.notifications.services import resolve_review_report_notification
+
+        resolve_review_report_notification(review, request.user)
+        review = (
+            _report_queryset(request.user)
+            .prefetch_related("workflow_events__actor")
+            .get(pk=review.pk)
+        )
+        return Response(
+            ReviewDetailSerializer(review, context={"request": request}).data
         )
 
 

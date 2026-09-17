@@ -167,6 +167,14 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
   const score = useMemo(() => Object.values(watchedScores).reduce((total, value) => total + (Number(value) || 0), 0), [watchedScores]);
   const criticalFail = watchedCritical.length > 0;
 
+  useEffect(() => {
+    if (!criticalFail || !scorecard) return;
+    form.setFields(scorecard.categories.flatMap((category) => category.criteria.map((criterion) => ({
+      name: ['scores', criterion.key],
+      errors: [],
+    }))));
+  }, [criticalFail, form, scorecard]);
+
   const updateCriterionEvidence = useCallback((criterionKey: string, value: QACriterionEvidence) => {
     form.setFieldValue(['criterion_evidence', criterionKey], value);
   }, [form]);
@@ -238,11 +246,26 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
   }, [activeCall, editable, form, message, playback.duration]);
 
   const submit = useCallback(async () => {
-    if (!activeCall || !editable) return;
+    if (!activeCall || !editable || !scorecard) return;
     setSubmitting(true);
     setError('');
     try {
       const values = await form.validateFields();
+      const isAutomaticFail = (values.critical_errors ?? []).length > 0;
+      if (!isAutomaticFail) {
+        const missingCriteria = scorecard.categories.flatMap((category) => category.criteria).filter((criterion) => {
+          const value = values.scores?.[criterion.key];
+          return value === undefined || value === null;
+        });
+        if (missingCriteria.length > 0) {
+          form.setFields(missingCriteria.map((criterion) => ({
+            name: ['scores', criterion.key],
+            errors: ['Required unless a critical error is selected'],
+          })));
+          void message.warning('Complete all scorecard fields or select a critical error.');
+          return;
+        }
+      }
       const evidenceError = evidenceValidationError(values.criterion_evidence ?? {}, playback.duration || activeCall.talk_time);
       if (evidenceError) {
         void message.warning(evidenceError);
@@ -268,7 +291,7 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
     } finally {
       setSubmitting(false);
     }
-  }, [activeCall, editable, form, message, onReservationChange, playback.duration]);
+  }, [activeCall, editable, form, message, onReservationChange, playback.duration, scorecard]);
 
   const categoryItems = scorecard?.categories.map((category) => {
     const categoryScore = category.criteria.reduce((total, criterion) => total + (Number(watchedScores[criterion.key]) || 0), 0);
@@ -278,7 +301,7 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
       children: <div className="qa-criteria-list">{category.criteria.map((criterion) => (
         <div className="qa-criterion" key={criterion.key}>
           <span><strong>{criterion.label}</strong><small>Maximum {criterion.max_score} points</small></span>
-          <Form.Item name={['scores', criterion.key]} rules={[{ required: true, message: 'Required' }]} noStyle>
+          <Form.Item name={['scores', criterion.key]} noStyle>
             <InputNumber min={0} max={criterion.max_score} precision={1} step={0.5} controls disabled={!editable} aria-label={`${criterion.label} score`} />
           </Form.Item>
           <CriterionEvidenceEditor
@@ -307,7 +330,7 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
         <section className={`analysis-panel analysis-panel--form${editable || completed ? '' : ' is-locked'}`} aria-label="QA evaluation form">
           <div className="analysis-panel__heading"><span><FormOutlined /></span><div><strong>QA evaluation</strong><small>{completed ? `${review?.rating_label} · ${review?.outcome_label}` : editable ? 'Score all criteria, then document actionable feedback' : lockedByAnother ? `Locked by ${reservation?.reviewer_name}` : 'Reserve this call to begin'}</small></div></div>
           {!editable && !completed ? <div className="analysis-form-placeholder"><span className="analysis-form-placeholder__icon"><LockOutlined /></span><strong>{lockedByAnother ? 'This call is reserved' : 'Reserve to unlock the scorecard'}</strong><Text type="secondary">{lockedByAnother ? `${reservation?.reviewer_name} currently owns this analysis.` : 'Reservation prevents duplicate assessments while you work.'}</Text></div> : scorecard && <Form form={form} layout="vertical" className="qa-scorecard" disabled={!editable}>
-            <div className={`qa-score-summary${criticalFail ? ' qa-score-summary--critical' : ''}`}><Progress type="circle" percent={score} size={92} status={criticalFail ? 'exception' : score >= scorecard.benchmark ? 'success' : 'normal'} format={() => criticalFail ? 'FAIL' : `${score}%`} /><span><strong>{criticalFail ? 'Automatic failure' : score >= scorecard.benchmark ? 'Meets benchmark' : 'Below benchmark'}</strong><small>Numeric score {score}/100 · benchmark {scorecard.benchmark}%</small></span></div>
+            <div className={`qa-score-summary${criticalFail ? ' qa-score-summary--critical' : ''}`}><Progress type="circle" percent={score} size={92} status={criticalFail ? 'exception' : score >= scorecard.benchmark ? 'success' : 'normal'} format={() => criticalFail ? 'FAIL' : `${score}%`} /><span><strong>{criticalFail ? 'Automatic failure' : score >= scorecard.benchmark ? 'Meets benchmark' : 'Below benchmark'}</strong><small>{criticalFail ? 'Scorecard completion is optional for this escalation.' : `Numeric score ${score}/100 · benchmark ${scorecard.benchmark}%`}</small></span></div>
             <Collapse items={categoryItems} defaultActiveKey={[scorecard.categories[0]?.key]} size="small" />
             <div className="qa-critical-block"><div><WarningFilled /><span><strong>Critical error override</strong><small>Selecting any item results in an automatic fail and immediate escalation.</small></span></div><Form.Item name="critical_errors"><Checkbox.Group options={scorecard.critical_errors.map((item) => ({ label: item.label, value: item.value }))} className="qa-critical-options" /></Form.Item></div>
             <div className="qa-feedback-grid"><Form.Item name="feedback_summary" label="What happened and why it matters"><TextArea rows={3} maxLength={4000} showCount /></Form.Item><Form.Item name="strengths" label="Strengths observed"><TextArea rows={3} maxLength={4000} showCount /></Form.Item><Form.Item name="expected_behavior" label="Expected behavior"><TextArea rows={3} maxLength={4000} showCount /></Form.Item><Form.Item name="coaching_plan" label="Recommended coaching / follow-up"><TextArea rows={3} maxLength={4000} showCount /></Form.Item></div>

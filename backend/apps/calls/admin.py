@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import CallEvent, Review
+from .models import CallEvent, Review, ReviewWorkflowEvent
 
 
 @admin.register(CallEvent)
@@ -52,9 +52,34 @@ class ReviewAdmin(admin.ModelAdmin):
         "score",
         "rating",
         "outcome",
+        "leader_status",
         "team_leader",
         "assigned_at",
         "completed_at",
     )
-    list_filter = ("status", "rating", "outcome", "reviewer__branch")
+    list_filter = (
+        "status",
+        "leader_status",
+        "rating",
+        "outcome",
+        "reviewer__branch",
+    )
     search_fields = ("call__call_id", "call__lead_id", "reviewer__email")
+
+
+@admin.register(ReviewWorkflowEvent)
+class ReviewWorkflowEventAdmin(admin.ModelAdmin):
+    list_display = (
+        "review",
+        "event_type",
+        "actor",
+        "from_status",
+        "to_status",
+        "created_at",
+    )
+    list_filter = ("event_type", "to_status")
+    search_fields = ("review__call__call_id", "actor__email", "note")
+    readonly_fields = tuple(field.name for field in ReviewWorkflowEvent._meta.fields)
+
+    def has_add_permission(self, request):
+        return False

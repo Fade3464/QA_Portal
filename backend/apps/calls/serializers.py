@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import CallEvent, Review
+from .models import CallEvent, Review, ReviewWorkflowEvent
 from .scorecard import CRITICAL_ERRORS, calculate_score, validate_criterion_evidence
 
 
@@ -12,6 +12,9 @@ class ReviewSerializer(serializers.ModelSerializer):
     status_label = serializers.CharField(source="get_status_display", read_only=True)
     rating_label = serializers.CharField(source="get_rating_display", read_only=True)
     outcome_label = serializers.CharField(source="get_outcome_display", read_only=True)
+    leader_status_label = serializers.CharField(
+        source="get_leader_status_display", read_only=True
+    )
     scores = serializers.DictField(required=False)
     criterion_evidence = serializers.DictField(required=False)
     critical_errors = serializers.ListField(
@@ -47,6 +50,12 @@ class ReviewSerializer(serializers.ModelSerializer):
             "completed_at",
             "email_status",
             "email_sent_at",
+            "leader_status",
+            "leader_status_label",
+            "coaching_due_at",
+            "leader_reviewed_at",
+            "leader_closed_at",
+            "leader_updated_at",
         )
         read_only_fields = (
             "id",
@@ -62,6 +71,11 @@ class ReviewSerializer(serializers.ModelSerializer):
             "completed_at",
             "email_status",
             "email_sent_at",
+            "leader_status",
+            "coaching_due_at",
+            "leader_reviewed_at",
+            "leader_closed_at",
+            "leader_updated_at",
         )
 
     def validate_scores(self, value):
@@ -98,6 +112,42 @@ class ReviewListSerializer(ReviewSerializer):
 
     def get_team_name(self, obj):
         return obj.call.team.name if obj.call.team_id else obj.call.team_name
+
+
+class ReviewWorkflowEventSerializer(serializers.ModelSerializer):
+    actor_name = serializers.CharField(source="actor.full_name", read_only=True)
+    event_type_label = serializers.CharField(
+        source="get_event_type_display", read_only=True
+    )
+    from_status_label = serializers.SerializerMethodField()
+    to_status_label = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ReviewWorkflowEvent
+        fields = (
+            "id",
+            "event_type",
+            "event_type_label",
+            "actor",
+            "actor_name",
+            "from_status",
+            "from_status_label",
+            "to_status",
+            "to_status_label",
+            "note",
+            "coaching_due_at",
+            "created_at",
+        )
+
+    @staticmethod
+    def _status_label(value):
+        return dict(Review.LeaderStatus.choices).get(value, value)
+
+    def get_from_status_label(self, obj):
+        return self._status_label(obj.from_status)
+
+    def get_to_status_label(self, obj):
+        return self._status_label(obj.to_status)
 
 
 class CallEventSerializer(serializers.ModelSerializer):
@@ -170,3 +220,11 @@ class CallEventSerializer(serializers.ModelSerializer):
             "reserved_at": review.assigned_at,
             "is_mine": bool(request and request.user.pk == review.reviewer_id),
         }
+
+
+class ReviewDetailSerializer(ReviewListSerializer):
+    call = CallEventSerializer(read_only=True)
+    workflow_events = ReviewWorkflowEventSerializer(many=True, read_only=True)
+
+    class Meta(ReviewListSerializer.Meta):
+        fields = ReviewListSerializer.Meta.fields + ("call", "workflow_events")

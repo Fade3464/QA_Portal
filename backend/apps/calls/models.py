@@ -363,6 +363,14 @@ class Review(models.Model):
         SENT = "sent", "Sent"
         FAILED = "failed", "Failed"
 
+    class LeaderStatus(models.TextChoices):
+        PENDING = "pending", "Needs review"
+        ACKNOWLEDGED = "acknowledged", "Reviewed"
+        COACHING_PLANNED = "coaching_planned", "Coaching planned"
+        COACHING_COMPLETED = "coaching_completed", "Coaching completed"
+        ESCALATED = "escalated", "Escalated"
+        CLOSED = "closed", "Closed"
+
     id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
@@ -420,6 +428,15 @@ class Review(models.Model):
     )
     email_sent_at = models.DateTimeField(null=True, blank=True)
     email_last_error = models.TextField(blank=True)
+    leader_status = models.CharField(
+        max_length=24,
+        choices=LeaderStatus.choices,
+        default=LeaderStatus.PENDING,
+    )
+    coaching_due_at = models.DateTimeField(null=True, blank=True)
+    leader_reviewed_at = models.DateTimeField(null=True, blank=True)
+    leader_closed_at = models.DateTimeField(null=True, blank=True)
+    leader_updated_at = models.DateTimeField(null=True, blank=True)
 
     assigned_at = models.DateTimeField(
         auto_now_add=True,
@@ -447,6 +464,43 @@ class Review(models.Model):
                 fields=["team_leader", "status", "-completed_at"],
                 name="review_leader_status_idx",
             ),
+            models.Index(
+                fields=["team_leader", "leader_status", "-completed_at"],
+                name="review_leader_work_idx",
+            ),
+        ]
+
+
+class ReviewWorkflowEvent(models.Model):
+    class EventType(models.TextChoices):
+        STATUS_CHANGED = "status_changed", "Status changed"
+        NOTE_ADDED = "note_added", "Note added"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    review = models.ForeignKey(
+        Review,
+        on_delete=models.CASCADE,
+        related_name="workflow_events",
+    )
+    actor = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.PROTECT,
+        related_name="review_workflow_events",
+    )
+    event_type = models.CharField(max_length=24, choices=EventType.choices)
+    from_status = models.CharField(max_length=24, blank=True)
+    to_status = models.CharField(max_length=24, blank=True)
+    note = models.TextField(blank=True)
+    coaching_due_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(
+                fields=["review", "-created_at"],
+                name="review_workflow_event_idx",
+            )
         ]
 
 

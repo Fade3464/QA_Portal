@@ -62,6 +62,29 @@ export interface QACriterionEvidence {
   patches: QAEvidencePatch[];
 }
 
+export type TeamLeaderReportStatus =
+  | 'pending'
+  | 'acknowledged'
+  | 'coaching_planned'
+  | 'coaching_completed'
+  | 'escalated'
+  | 'closed';
+
+export interface ReviewWorkflowEvent {
+  id: string;
+  event_type: 'status_changed' | 'note_added';
+  event_type_label: string;
+  actor: string;
+  actor_name: string;
+  from_status: TeamLeaderReportStatus;
+  from_status_label: string;
+  to_status: TeamLeaderReportStatus;
+  to_status_label: string;
+  note: string;
+  coaching_due_at: string | null;
+  created_at: string;
+}
+
 export interface QAReview {
   id: string;
   status: 'assigned' | 'in_progress' | 'completed' | 'disputed';
@@ -89,6 +112,12 @@ export interface QAReview {
   completed_at: string | null;
   email_status: 'disabled' | 'pending' | 'sent' | 'failed';
   email_sent_at: string | null;
+  leader_status: TeamLeaderReportStatus;
+  leader_status_label: string;
+  coaching_due_at: string | null;
+  leader_reviewed_at: string | null;
+  leader_closed_at: string | null;
+  leader_updated_at: string | null;
 }
 
 export interface QAAnalysisResponse {
@@ -105,6 +134,32 @@ export interface QAReport extends QAReview {
   team_name: string;
   project_name: string | null;
   call_date: string | null;
+}
+
+export interface QAReportDetail extends QAReport {
+  call: CallEvent;
+  workflow_events: ReviewWorkflowEvent[];
+}
+
+export interface QAReportSummary {
+  total: number;
+  average_score: number | null;
+  pending: number;
+  critical_open: number;
+  coaching_open: number;
+  overdue: number;
+  below_benchmark_open: number;
+  closed: number;
+  trend: Array<{ date: string; count: number; average_score: number | null }>;
+  filters: {
+    projects: string[];
+    reviewers: Array<{
+      reviewer_id: string;
+      reviewer__first_name: string;
+      reviewer__last_name: string;
+    }>;
+  };
+  generated_at: string;
 }
 
 export interface CallEvent {

@@ -16,13 +16,18 @@ logger = logging.getLogger(__name__)
 def _report_body(review) -> tuple[str, str]:
     agent = review.call.agent_name or review.call.agent_user or "Unknown agent"
     critical = ", ".join(review.critical_errors) or "None"
+    score_display = (
+        "Not required — automatic fail"
+        if review.critical_errors and review.score is None
+        else f"{review.score}%"
+    )
     lines = [
         "QA report submitted",
         "",
         f"Agent: {agent}",
         f"Team: {review.call.team.name if review.call.team_id else 'Unassigned'}",
         f"QA analyst: {review.reviewer.full_name}",
-        f"Score: {review.score}%",
+        f"Score: {score_display}",
         f"Rating: {review.get_rating_display()}",
         f"Status: {review.get_outcome_display()}",
         f"Critical errors: {critical}",
@@ -41,7 +46,7 @@ def _report_body(review) -> tuple[str, str]:
             ("Agent", agent),
             ("Team", review.call.team.name if review.call.team_id else "Unassigned"),
             ("QA analyst", review.reviewer.full_name),
-            ("Score", f"{review.score}%"),
+            ("Score", score_display),
             ("Rating", review.get_rating_display()),
             ("Status", review.get_outcome_display()),
             ("Critical errors", critical),
