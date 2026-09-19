@@ -3,6 +3,8 @@ from rest_framework import serializers
 from .models import CallEvent, Review, ReviewWorkflowEvent
 from .scorecard import (
     CRITICAL_ERRORS,
+    CATEGORY_REASON_VALUES,
+    calculate_evaluation,
     calculate_score,
     validate_criterion_evidence,
     validate_critical_error_evidence,
@@ -21,6 +23,8 @@ class ReviewSerializer(serializers.ModelSerializer):
         source="get_leader_status_display", read_only=True
     )
     scores = serializers.DictField(required=False)
+    category_applicability = serializers.DictField(required=False)
+    category_applicability_reasons = serializers.DictField(required=False)
     criterion_evidence = serializers.DictField(required=False)
     critical_error_evidence = serializers.DictField(required=False)
     critical_errors = serializers.ListField(
@@ -34,6 +38,14 @@ class ReviewSerializer(serializers.ModelSerializer):
             "status",
             "status_label",
             "score",
+            "evaluation_type",
+            "evaluation_reason",
+            "category_applicability",
+            "category_applicability_reasons",
+            "earned_points",
+            "applicable_points",
+            "coverage",
+            "coverage_tier",
             "scorecard_version",
             "scorecard_snapshot",
             "scores",
@@ -71,6 +83,10 @@ class ReviewSerializer(serializers.ModelSerializer):
             "id",
             "status",
             "score",
+            "earned_points",
+            "applicable_points",
+            "coverage",
+            "coverage_tier",
             "scorecard_version",
             "scorecard_snapshot",
             "rating",
@@ -94,6 +110,32 @@ class ReviewSerializer(serializers.ModelSerializer):
     def validate_scores(self, value):
         calculate_score(value, require_complete=False)
         return value
+
+    def validate_evaluation_reason(self, value):
+        if value and value not in CATEGORY_REASON_VALUES:
+            raise serializers.ValidationError("Select a supported call outcome reason.")
+        return value
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        instance = self.instance
+        calculate_evaluation(
+            attrs.get("scores", instance.scores if instance else {}),
+            evaluation_type=attrs.get(
+                "evaluation_type",
+                instance.evaluation_type if instance else Review.EvaluationType.FULL,
+            ),
+            category_applicability=attrs.get(
+                "category_applicability",
+                instance.category_applicability if instance else {},
+            ),
+            category_applicability_reasons=attrs.get(
+                "category_applicability_reasons",
+                instance.category_applicability_reasons if instance else {},
+            ),
+            require_complete=False,
+        )
+        return attrs
 
     def validate_criterion_evidence(self, value):
         duration = self.instance.call.talk_time if self.instance else None

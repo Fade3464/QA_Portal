@@ -81,6 +81,8 @@ def queue_review_report_notification(review) -> SystemNotification:
         "an automatic-fail review"
         if review.critical_errors
         else f"a {review.score}% review"
+        if review.score is not None
+        else "a non-evaluable call report"
     )
     notification, _created = SystemNotification.objects.update_or_create(
         dedupe_key=f"qa-report:{review.pk}",

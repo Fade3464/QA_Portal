@@ -61,6 +61,7 @@ const OPERATORS: Array<{ value: ScoreRuleOperator; label: string }> = [
 ];
 
 const RATINGS = [
+  ['not_evaluable', 'Not Evaluable'],
   ['excellent', 'Excellent'], ['very_good', 'Very Good'], ['good', 'Good'],
   ['needs_improvement', 'Needs Improvement'], ['unsatisfactory', 'Unsatisfactory'], ['automatic_fail', 'Automatic Fail'],
 ].map(([value, label]) => ({ value, label }));

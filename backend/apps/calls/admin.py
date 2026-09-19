@@ -49,7 +49,9 @@ class ReviewAdmin(admin.ModelAdmin):
         "call",
         "reviewer",
         "status",
+        "evaluation_type",
         "score",
+        "coverage",
         "rating",
         "outcome",
         "leader_status",
@@ -60,6 +62,8 @@ class ReviewAdmin(admin.ModelAdmin):
     )
     list_filter = (
         "status",
+        "evaluation_type",
+        "coverage_tier",
         "leader_status",
         "rating",
         "outcome",

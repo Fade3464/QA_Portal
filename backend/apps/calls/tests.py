@@ -1022,6 +1022,126 @@ class AnalysisReservationTests(TestCase):
         self.assertEqual(review.scorecard_version, "outbound-sales-v1")
         self.assertEqual(review.strengths, "Warm tone.")
 
+    def test_partial_call_normalizes_quality_against_applicable_headings(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        applicable = {category["key"]: "not_reached" for category in SCORECARD}
+        applicable.update({"opening": "applicable", "communication": "applicable"})
+        reasons = {
+            key: "caller_ended"
+            for key, state in applicable.items()
+            if state == "not_reached"
+        }
+        scores = {
+            key: maximum
+            for category in SCORECARD[:2]
+            for key, _label, maximum in category["criteria"]
+        }
+
+        response = self.client.post(
+            self.url("call-review-submit"),
+            self.submission(
+                scores=scores,
+                evaluation_type="partial",
+                category_applicability=applicable,
+                category_applicability_reasons=reasons,
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["score"], "100.00")
+        self.assertEqual(response.json()["coverage"], "25.00")
+        self.assertEqual(response.json()["coverage_tier"], "limited")
+        self.assertEqual(response.json()["applicable_points"], "25.00")
+
+    def test_insufficient_short_call_is_recorded_without_numeric_score(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        applicable = {category["key"]: "not_reached" for category in SCORECARD}
+        applicable["opening"] = "applicable"
+        reasons = {
+            key: "caller_ended"
+            for key, state in applicable.items()
+            if state == "not_reached"
+        }
+        opening_scores = {
+            key: maximum for key, _label, maximum in SCORECARD[0]["criteria"]
+        }
+
+        response = self.client.post(
+            self.url("call-review-submit"),
+            self.submission(
+                scores=opening_scores,
+                evaluation_type="partial",
+                category_applicability=applicable,
+                category_applicability_reasons=reasons,
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertIsNone(response.json()["score"])
+        self.assertEqual(response.json()["coverage"], "10.00")
+        self.assertEqual(response.json()["rating"], "not_evaluable")
+
+    def test_agent_ended_call_scores_missed_heading_as_zero(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        applicable = {category["key"]: "not_reached" for category in SCORECARD}
+        applicable.update(
+            {"opening": "applicable", "communication": "missed_opportunity"}
+        )
+        reasons = {
+            key: "agent_failed_to_progress"
+            for key, state in applicable.items()
+            if state != "applicable"
+        }
+        opening_scores = {
+            key: maximum for key, _label, maximum in SCORECARD[0]["criteria"]
+        }
+
+        response = self.client.post(
+            self.url("call-review-submit"),
+            self.submission(
+                scores=opening_scores,
+                evaluation_type="agent_premature",
+                category_applicability=applicable,
+                category_applicability_reasons=reasons,
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["score"], "40.00")
+        self.assertEqual(response.json()["coverage"], "25.00")
+        communication_keys = {
+            key for key, _label, _maximum in SCORECARD[1]["criteria"]
+        }
+        self.assertTrue(communication_keys <= response.json()["scores"].keys())
+        self.assertTrue(
+            all(response.json()["scores"][key] == 0 for key in communication_keys)
+        )
+
+    def test_non_evaluable_call_is_submitted_without_scorecard(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+
+        response = self.client.post(
+            self.url("call-review-submit"),
+            self.submission(
+                scores={},
+                evaluation_type="not_evaluable",
+                evaluation_reason="voicemail",
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertIsNone(response.json()["score"])
+        self.assertEqual(response.json()["coverage"], "0.00")
+        self.assertEqual(response.json()["rating"], "not_evaluable")
+
     def test_draft_saves_criterion_comments_and_multiple_timestamp_patches(self):
         self.client.force_login(self.qa_one)
         self.client.post(self.url("call-reserve"))

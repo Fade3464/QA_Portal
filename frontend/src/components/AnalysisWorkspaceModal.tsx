@@ -21,6 +21,7 @@ import {
   Modal,
   Popconfirm,
   Progress,
+  Select,
   Space,
   Tag,
   Typography,
@@ -28,7 +29,15 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { api, ApiError } from '../lib/api';
-import type { CallEvent, CallReservation, QAAnalysisResponse, QAReview, QAScorecard } from '../types';
+import type {
+  CallEvent,
+  CallReservation,
+  QAAnalysisResponse,
+  QACategoryApplicability,
+  QAEvaluationType,
+  QAReview,
+  QAScorecard,
+} from '../types';
 import type { QACriterionEvidence, QAEvidencePatch } from '../types';
 import { AudioPlayer, type AudioPlaybackState, type AudioRangeRequest } from './AudioPlayerModal';
 import { CriterionEvidenceEditor, evidenceValidationError } from './CriterionEvidenceEditor';
@@ -40,6 +49,10 @@ const { TextArea } = Input;
 interface Viewer { id: string; name: string }
 interface EvaluationValues {
   scores: Record<string, number>;
+  evaluation_type: QAEvaluationType;
+  evaluation_reason: string;
+  category_applicability: Record<string, QACategoryApplicability>;
+  category_applicability_reasons: Record<string, string>;
   criterion_evidence: Record<string, QACriterionEvidence>;
   critical_errors: string[];
   critical_error_evidence: Record<string, QACriterionEvidence>;
@@ -64,6 +77,10 @@ function presenceMessage(viewers: Viewer[]) {
 function reviewValues(review: QAReview | null): Partial<EvaluationValues> {
   return {
     scores: review?.scores ?? {},
+    evaluation_type: review?.evaluation_type ?? 'full',
+    evaluation_reason: review?.evaluation_reason ?? '',
+    category_applicability: review?.category_applicability ?? {},
+    category_applicability_reasons: review?.category_applicability_reasons ?? {},
     criterion_evidence: review?.criterion_evidence ?? {},
     critical_errors: review?.critical_errors ?? [],
     critical_error_evidence: review?.critical_error_evidence ?? {},
@@ -79,10 +96,16 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
   const { user } = useAuth();
   const [form] = Form.useForm<EvaluationValues>();
   const watchedScoresValue = Form.useWatch('scores', form);
+  const watchedEvaluationTypeValue = Form.useWatch('evaluation_type', form);
+  const watchedApplicabilityValue = Form.useWatch('category_applicability', { form, preserve: true });
+  const watchedApplicabilityReasonsValue = Form.useWatch('category_applicability_reasons', { form, preserve: true });
   const watchedCriticalValue = Form.useWatch('critical_errors', form);
   const watchedEvidenceValue = Form.useWatch('criterion_evidence', { form, preserve: true });
   const watchedCriticalEvidenceValue = Form.useWatch('critical_error_evidence', { form, preserve: true });
   const watchedScores = useMemo(() => watchedScoresValue ?? {}, [watchedScoresValue]);
+  const watchedEvaluationType = watchedEvaluationTypeValue ?? 'full';
+  const watchedApplicability = useMemo(() => watchedApplicabilityValue ?? {}, [watchedApplicabilityValue]);
+  const watchedApplicabilityReasons = useMemo(() => watchedApplicabilityReasonsValue ?? {}, [watchedApplicabilityReasonsValue]);
   const watchedCritical = useMemo(() => watchedCriticalValue ?? [], [watchedCriticalValue]);
   const watchedEvidence = useMemo(() => watchedEvidenceValue ?? {}, [watchedEvidenceValue]);
   const watchedCriticalEvidence = useMemo(() => watchedCriticalEvidenceValue ?? {}, [watchedCriticalEvidenceValue]);
@@ -169,8 +192,58 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
   const editable = mine && !completed;
   const lockedByAnother = Boolean(reservation && !mine);
   const visibleViewers = useMemo(() => viewers.filter((viewer) => viewer.id !== user?.id), [user?.id, viewers]);
-  const score = useMemo(() => Object.values(watchedScores).reduce((total, value) => total + (Number(value) || 0), 0), [watchedScores]);
+  const categoryState = useCallback((categoryKey: string): QACategoryApplicability => {
+    if (watchedEvaluationType === 'not_evaluable') return 'not_reached';
+    if (watchedEvaluationType === 'full') return 'applicable';
+    return watchedApplicability[categoryKey] ?? 'applicable';
+  }, [watchedApplicability, watchedEvaluationType]);
+  const scoreMetrics = useMemo(() => {
+    if (!scorecard || watchedEvaluationType === 'not_evaluable') {
+      return { earned: 0, applicable: 0, coverage: 0, score: null as number | null, tier: 'insufficient' };
+    }
+    let earned = 0;
+    let applicable = 0;
+    scorecard.categories.forEach((category) => {
+      const state = categoryState(category.key);
+      if (state === 'not_reached') return;
+      applicable += category.max_score;
+      if (state === 'applicable') {
+        earned += category.criteria.reduce((total, criterion) => total + (Number(watchedScores[criterion.key]) || 0), 0);
+      }
+    });
+    const coverage = applicable;
+    const score = coverage >= (scorecard.minimum_scored_coverage ?? 20) && applicable > 0
+      ? Math.round((earned / applicable) * 10_000) / 100
+      : null;
+    const tier = coverage < 20 ? 'insufficient' : coverage < 60 ? 'limited' : coverage < 85 ? 'partial' : 'full';
+    return { earned, applicable, coverage, score, tier };
+  }, [categoryState, scorecard, watchedEvaluationType, watchedScores]);
   const criticalFail = watchedCritical.length > 0;
+
+  const changeEvaluationType = useCallback((value: QAEvaluationType) => {
+    form.setFieldValue('evaluation_type', value);
+    form.setFieldValue('evaluation_reason', '');
+    if (!scorecard) return;
+    const nextState: QACategoryApplicability = value === 'not_evaluable' ? 'not_reached' : 'applicable';
+    form.setFieldValue(
+      'category_applicability',
+      Object.fromEntries(scorecard.categories.map((category) => [category.key, nextState])),
+    );
+    form.setFieldValue('category_applicability_reasons', {});
+  }, [form, scorecard]);
+
+  const changeCategoryState = useCallback((categoryKey: string, value: QACategoryApplicability) => {
+    form.setFieldValue(['category_applicability', categoryKey], value);
+    if (value === 'applicable') {
+      form.setFieldValue(['category_applicability_reasons', categoryKey], undefined);
+    }
+    const category = scorecard?.categories.find((item) => item.key === categoryKey);
+    if (category && value !== 'applicable') {
+      const scores = { ...form.getFieldValue('scores') };
+      category.criteria.forEach((criterion) => { delete scores[criterion.key]; });
+      form.setFieldValue('scores', scores);
+    }
+  }, [form, scorecard]);
 
   useEffect(() => {
     if (!criticalFail || !scorecard) return;
@@ -276,7 +349,16 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
       const values = evaluationValues();
       const isAutomaticFail = (values.critical_errors ?? []).length > 0;
       if (!isAutomaticFail) {
-        const missingCriteria = scorecard.categories.flatMap((category) => category.criteria).filter((criterion) => {
+        const missingCriteria = scorecard.categories
+          .filter((category) => {
+            const state = values.evaluation_type === 'not_evaluable'
+              ? 'not_reached'
+              : values.evaluation_type === 'full'
+                ? 'applicable'
+                : values.category_applicability?.[category.key] ?? 'applicable';
+            return state === 'applicable';
+          })
+          .flatMap((category) => category.criteria).filter((criterion) => {
           const value = values.scores?.[criterion.key];
           return value === undefined || value === null;
         });
@@ -288,6 +370,11 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
           void message.warning('Complete all scorecard fields or select a critical error.');
           return;
         }
+      }
+      if (values.evaluation_type === 'agent_premature'
+        && !Object.values(values.category_applicability ?? {}).includes('missed_opportunity')) {
+        void message.warning('Mark the heading the agent had an opportunity to complete.');
+        return;
       }
       const duration = playback.duration || activeCall.talk_time;
       const evidenceError = evidenceValidationError(values.criterion_evidence ?? {}, duration)
@@ -319,15 +406,71 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
   }, [activeCall, editable, evaluationValues, form, message, onReservationChange, playback.duration, revisionRequired, scorecard]);
 
   const categoryItems = scorecard?.categories.map((category) => {
-    const categoryScore = category.criteria.reduce((total, criterion) => total + (Number(watchedScores[criterion.key]) || 0), 0);
+    const state = categoryState(category.key);
+    const categoryScore = state === 'applicable'
+      ? category.criteria.reduce((total, criterion) => total + (Number(watchedScores[criterion.key]) || 0), 0)
+      : 0;
+    const statusLabel = state === 'not_reached'
+      ? 'Not reached'
+      : state === 'missed_opportunity'
+        ? 'Missed · 0'
+        : `${categoryScore}/${category.max_score}`;
     return {
       key: category.key,
-      label: <span className="qa-category-label"><strong>{category.label}</strong><span>{categoryScore}/{category.max_score}</span></span>,
-      children: <div className="qa-criteria-list">{category.criteria.map((criterion) => (
+      label: <span className="qa-category-label"><strong>{category.label}</strong><span>{statusLabel}</span></span>,
+      extra: watchedEvaluationType !== 'full' && watchedEvaluationType !== 'not_evaluable' ? (
+        <div className="qa-category-state" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+          <Select
+            size="small"
+            value={state}
+            options={scorecard.applicability_states}
+            onChange={(value) => changeCategoryState(category.key, value as QACategoryApplicability)}
+          />
+        </div>
+      ) : undefined,
+      children: state === 'not_reached' ? (
+        <div className="qa-heading-exclusion">
+          <Text type="secondary">Excluded from the quality score and coverage denominator.</Text>
+          <Form.Item
+            name={['category_applicability_reasons', category.key]}
+            label="Why was this heading not reached?"
+            rules={[{ required: true, message: 'Select a reason' }]}
+          >
+            <Select options={scorecard.applicability_reasons} placeholder="Select reason" />
+          </Form.Item>
+        </div>
+      ) : <div className="qa-criteria-list">
+        {state === 'missed_opportunity' && <div className="qa-heading-exclusion qa-heading-exclusion--missed">
+          <Text>The agent had the opportunity to complete this stage, so the heading scores zero.</Text>
+          <Form.Item
+            name={['category_applicability_reasons', category.key]}
+            label="Why was this a missed opportunity?"
+            rules={[{ required: true, message: 'Select a reason' }]}
+          >
+            <Select options={scorecard.applicability_reasons} placeholder="Select reason" />
+          </Form.Item>
+        </div>}
+        {category.criteria.map((criterion) => (
         <div className="qa-criterion" key={criterion.key}>
           <span><strong>{criterion.label}</strong><small>Maximum {criterion.max_score} points</small></span>
           <Form.Item name={['scores', criterion.key]} noStyle>
-            <InputNumber min={0} max={criterion.max_score} precision={1} step={0.5} controls disabled={!editable} aria-label={`${criterion.label} score`} />
+            <InputNumber
+              min={0}
+              max={criterion.max_score}
+              precision={1}
+              step={0.5}
+              controls
+              disabled={!editable || state === 'missed_opportunity'}
+              placeholder={state === 'missed_opportunity' ? '0' : undefined}
+              aria-label={`${criterion.label} score. Press Alt to enter the maximum score.`}
+              aria-keyshortcuts="Alt"
+              onKeyDown={(event) => {
+                if (event.key !== 'Alt' || event.repeat || !editable || state !== 'applicable') return;
+                event.preventDefault();
+                form.setFieldValue(['scores', criterion.key], criterion.max_score);
+                form.setFields([{ name: ['scores', criterion.key], errors: [] }]);
+              }}
+            />
           </Form.Item>
           <CriterionEvidenceEditor
             criterionLabel={criterion.label}
@@ -356,8 +499,36 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
         <section className={`analysis-panel analysis-panel--form${editable || completed ? '' : ' is-locked'}`} aria-label="QA evaluation form">
           <div className="analysis-panel__heading"><span><FormOutlined /></span><div><strong>QA evaluation</strong><small>{completed ? `${review?.rating_label} · ${review?.outcome_label}` : revisionRequired ? 'Reassessment in progress · review the return reason above' : editable ? 'Score all criteria, then document actionable feedback' : lockedByAnother ? `Locked by ${reservation?.reviewer_name}` : 'Reserve this call to begin'}</small></div></div>
           {!editable && !completed ? <div className="analysis-form-placeholder"><span className="analysis-form-placeholder__icon"><LockOutlined /></span><strong>{lockedByAnother ? 'This call is reserved' : 'Reserve to unlock the scorecard'}</strong><Text type="secondary">{lockedByAnother ? `${reservation?.reviewer_name} currently owns this analysis.` : 'Reservation prevents duplicate assessments while you work.'}</Text></div> : scorecard && <Form form={form} layout="vertical" className="qa-scorecard" disabled={!editable}>
-            <div className={`qa-score-summary${criticalFail ? ' qa-score-summary--critical' : ''}`}><Progress type="circle" percent={score} size={92} status={criticalFail ? 'exception' : score >= scorecard.benchmark ? 'success' : 'normal'} format={() => criticalFail ? 'FAIL' : `${score}%`} /><span><strong>{criticalFail ? 'Automatic failure' : score >= scorecard.benchmark ? 'Meets benchmark' : 'Below benchmark'}</strong><small>{criticalFail ? 'Scorecard completion is optional for this escalation.' : `Numeric score ${score}/100 · benchmark ${scorecard.benchmark}%`}</small></span></div>
-            <Collapse items={categoryItems} defaultActiveKey={[scorecard.categories[0]?.key]} size="small" />
+            <div className="qa-call-classification">
+              <div><strong>How much of the call could be evaluated?</strong><Text type="secondary">Choose the call outcome first. Only applicable headings affect quality.</Text></div>
+              <Form.Item name="evaluation_type" noStyle>
+                <Select
+                  className="qa-call-classification__select"
+                  options={scorecard.evaluation_types}
+                  onChange={(value) => changeEvaluationType(value as QAEvaluationType)}
+                />
+              </Form.Item>
+            </div>
+            {watchedEvaluationType === 'not_evaluable' && <div className="qa-not-evaluable">
+              <Alert type="info" showIcon title="No numeric score will be created" description="This report remains visible for operational tracking but is excluded from quality averages." />
+              <Form.Item name="evaluation_reason" label="Why is this call not evaluable?" rules={[{ required: true, message: 'Select a reason' }]}>
+                <Select options={scorecard.applicability_reasons} placeholder="Select reason" />
+              </Form.Item>
+            </div>}
+            <div className={`qa-score-summary${criticalFail ? ' qa-score-summary--critical' : ''}`}>
+              <Progress
+                type="circle"
+                percent={criticalFail ? 0 : scoreMetrics.score ?? 0}
+                size={92}
+                status={criticalFail ? 'exception' : scoreMetrics.score !== null && scoreMetrics.score >= scorecard.benchmark ? 'success' : 'normal'}
+                format={() => criticalFail ? 'FAIL' : scoreMetrics.score === null ? 'N/A' : `${scoreMetrics.score}%`}
+              />
+              <span>
+                <strong>{criticalFail ? 'Automatic failure' : scoreMetrics.score === null ? 'Not enough interaction to score' : scoreMetrics.score >= scorecard.benchmark ? 'Meets benchmark' : 'Below benchmark'}</strong>
+                <small>{criticalFail ? 'Scorecard completion is optional for this escalation.' : `Quality ${scoreMetrics.score === null ? 'not scored' : `${scoreMetrics.score}/100`} · coverage ${scoreMetrics.coverage}% (${scoreMetrics.tier})`}</small>
+              </span>
+            </div>
+            {watchedEvaluationType !== 'not_evaluable' && <Collapse items={categoryItems} defaultActiveKey={[scorecard.categories[0]?.key]} size="small" />}
             <div className="qa-critical-block"><div><WarningFilled /><span><strong>Critical error override</strong><small>Selecting any item results in an automatic fail and immediate escalation.</small></span></div><Form.Item name="critical_errors"><Checkbox.Group options={scorecard.critical_errors.map((item) => ({ label: item.label, value: item.value }))} className="qa-critical-options" /></Form.Item>{watchedCritical.length > 0 && <div className="qa-critical-evidence"><Text type="secondary">Document each selected violation and attach the exact recording segments that support it.</Text>{watchedCritical.map((criticalKey) => { const critical = scorecard.critical_errors.find((item) => item.value === criticalKey); return <div className="qa-critical-evidence__item" key={criticalKey}><strong>{critical?.label ?? criticalKey}</strong><CriterionEvidenceEditor criterionLabel={critical?.label ?? criticalKey} value={watchedCriticalEvidence[criticalKey]} editable={editable} currentTimeSeconds={playback.currentTime} durationSeconds={playback.duration || activeCall?.talk_time || 0} onChange={(value) => updateCriticalEvidence(criticalKey, value)} onPlayRange={playEvidencePatch} /></div>; })}</div>}</div>
             <div className="qa-feedback-grid"><Form.Item name="feedback_summary" label="What happened and why it matters"><TextArea rows={3} maxLength={4000} showCount /></Form.Item><Form.Item name="strengths" label="Strengths observed"><TextArea rows={3} maxLength={4000} showCount /></Form.Item><Form.Item name="expected_behavior" label="Expected behavior"><TextArea rows={3} maxLength={4000} showCount /></Form.Item><Form.Item name="coaching_plan" label="Recommended coaching / follow-up"><TextArea rows={3} maxLength={4000} showCount /></Form.Item></div>
             {editable && <div className="qa-form-actions"><Button icon={<SaveOutlined />} loading={saving} onClick={() => void saveDraft()}>Save draft</Button><Popconfirm title={revisionRequired ? 'Resubmit this QA report?' : 'Submit this QA report?'} description={revisionRequired ? 'The revised evaluation will be locked and returned to the Team Leader’s queue.' : 'The report will be locked and sent to the agent’s Team Leader.'} okText={revisionRequired ? 'Resubmit report' : 'Submit report'} onConfirm={submit}><Button type="primary" icon={<SendOutlined />} loading={submitting}>{revisionRequired ? 'Resubmit report' : 'Submit report'}</Button></Popconfirm></div>}

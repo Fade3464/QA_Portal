@@ -39,7 +39,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import CallEvent, Review, ReviewWorkflowEvent
-from .scorecard import SCORECARD, SCORECARD_VERSION, calculate_score, rating_for, scorecard_payload
+from .scorecard import (
+    SCORECARD,
+    SCORECARD_VERSION,
+    calculate_evaluation,
+    rating_for,
+    scorecard_payload,
+)
 from .serializers import (
     CallEventSerializer,
     ReviewDetailSerializer,
@@ -244,11 +250,29 @@ class CallReviewDraftView(APIView):
             raise ReservationConflict("A submitted report cannot be changed.")
         serializer = ReviewSerializer(review, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        serializer.save(
-            score=calculate_score(
-                serializer.validated_data.get("scores", review.scores),
-                require_complete=False,
+        evaluation = calculate_evaluation(
+            serializer.validated_data.get("scores", review.scores),
+            evaluation_type=serializer.validated_data.get(
+                "evaluation_type", review.evaluation_type
             ),
+            category_applicability=serializer.validated_data.get(
+                "category_applicability", review.category_applicability
+            ),
+            category_applicability_reasons=serializer.validated_data.get(
+                "category_applicability_reasons",
+                review.category_applicability_reasons,
+            ),
+            require_complete=False,
+        )
+        serializer.save(
+            score=evaluation.score,
+            scores=evaluation.scores,
+            category_applicability=evaluation.category_applicability,
+            category_applicability_reasons=evaluation.category_applicability_reasons,
+            earned_points=evaluation.earned_points,
+            applicable_points=evaluation.applicable_points,
+            coverage=evaluation.coverage,
+            coverage_tier=evaluation.coverage_tier,
             scorecard_version=SCORECARD_VERSION,
             scorecard_snapshot=scorecard_payload(),
         )
@@ -270,6 +294,10 @@ class CallReviewSubmitView(APIView):
             field: serializer.validated_data.get(field, getattr(review, field))
             for field in (
                 "scores",
+                "evaluation_type",
+                "evaluation_reason",
+                "category_applicability",
+                "category_applicability_reasons",
                 "criterion_evidence",
                 "critical_errors",
                 "critical_error_evidence",
@@ -300,17 +328,36 @@ class CallReviewSubmitView(APIView):
                     )
                 }
             )
+        if (
+            merged["evaluation_type"] == Review.EvaluationType.NOT_EVALUABLE
+            and not merged["evaluation_reason"]
+        ):
+            raise ValidationError(
+                {"evaluation_reason": "Select why this call cannot be evaluated."}
+            )
+        evaluation_kwargs = {
+            "evaluation_type": merged["evaluation_type"],
+            "category_applicability": merged["category_applicability"],
+            "category_applicability_reasons": merged[
+                "category_applicability_reasons"
+            ],
+        }
         if critical_errors:
-            # Critical errors determine the outcome independently. Validate any
-            # optional scoring that was entered, but only persist a comparable
-            # numeric score when the complete scorecard is present.
-            calculate_score(merged["scores"], require_complete=False)
+            evaluation = calculate_evaluation(
+                merged["scores"], require_complete=False, **evaluation_kwargs
+            )
             try:
-                score = calculate_score(merged["scores"], require_complete=True)
+                complete_evaluation = calculate_evaluation(
+                    merged["scores"], require_complete=True, **evaluation_kwargs
+                )
+                score = complete_evaluation.score
             except ValidationError:
                 score = None
         else:
-            score = calculate_score(merged["scores"], require_complete=True)
+            evaluation = calculate_evaluation(
+                merged["scores"], require_complete=True, **evaluation_kwargs
+            )
+            score = evaluation.score
         rating, outcome = rating_for(score, bool(critical_errors))
         now = timezone.now()
         email_status = (
@@ -321,7 +368,16 @@ class CallReviewSubmitView(APIView):
         for field, value in merged.items():
             setattr(review, field, value)
         review.critical_errors = critical_errors
+        review.scores = evaluation.scores
+        review.category_applicability = evaluation.category_applicability
+        review.category_applicability_reasons = (
+            evaluation.category_applicability_reasons
+        )
         review.score = score
+        review.earned_points = evaluation.earned_points
+        review.applicable_points = evaluation.applicable_points
+        review.coverage = evaluation.coverage
+        review.coverage_tier = evaluation.coverage_tier
         review.rating = rating
         review.outcome = outcome
         review.scorecard_version = SCORECARD_VERSION

@@ -13,14 +13,18 @@ from apps.calls.models import Review, ReviewWorkflowEvent
 logger = logging.getLogger(__name__)
 
 
+def _score_display(review) -> str:
+    if review.critical_errors and review.score is None:
+        return "Not required — automatic fail"
+    if review.score is None:
+        return "Not evaluable"
+    return f"{review.score}%"
+
+
 def _report_body(review) -> tuple[str, str]:
     agent = review.call.agent_name or review.call.agent_user or "Unknown agent"
     critical = ", ".join(review.critical_errors) or "None"
-    score_display = (
-        "Not required — automatic fail"
-        if review.critical_errors and review.score is None
-        else f"{review.score}%"
-    )
+    score_display = _score_display(review)
     lines = [
         "QA report submitted",
         "",
@@ -95,7 +99,10 @@ def send_review_report_email(self, review_id: str):
     text, html_body = _report_body(review)
     try:
         message = EmailMultiAlternatives(
-            subject=f"QA report: {review.call.agent_name or review.call.agent_user} — {review.score}%",
+            subject=(
+                f"QA report: {review.call.agent_name or review.call.agent_user} — "
+                f"{_score_display(review)}"
+            ),
             body=text,
             from_email=settings.DEFAULT_FROM_EMAIL,
             to=[review.team_leader.email],

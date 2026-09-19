@@ -46,9 +46,16 @@ export interface QAScorecard {
   version: string;
   max_score: number;
   benchmark: number;
+  minimum_scored_coverage: number;
+  evaluation_types: Array<{ value: QAEvaluationType; label: string }>;
+  applicability_states: Array<{ value: QACategoryApplicability; label: string }>;
+  applicability_reasons: Array<{ value: string; label: string }>;
   categories: ScorecardCategory[];
   critical_errors: Array<{ value: string; label: string }>;
 }
+
+export type QAEvaluationType = 'full' | 'partial' | 'not_evaluable' | 'agent_premature';
+export type QACategoryApplicability = 'applicable' | 'not_reached' | 'missed_opportunity';
 
 export interface QAEvidencePatch {
   id: string;
@@ -93,6 +100,14 @@ export interface QAReview {
   status: 'assigned' | 'in_progress' | 'revision_required' | 'completed' | 'disputed';
   status_label: string;
   score: string | null;
+  evaluation_type: QAEvaluationType;
+  evaluation_reason: string;
+  category_applicability: Record<string, QACategoryApplicability>;
+  category_applicability_reasons: Record<string, string>;
+  earned_points: string | null;
+  applicable_points: string | null;
+  coverage: string | null;
+  coverage_tier: 'insufficient' | 'limited' | 'partial' | 'full' | '';
   scorecard_version: string;
   scorecard_snapshot: QAScorecard | Record<string, never>;
   scores: Record<string, number>;

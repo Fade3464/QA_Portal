@@ -340,6 +340,7 @@ class Review(models.Model):
         DISPUTED = "disputed", "Disputed"
 
     class Rating(models.TextChoices):
+        NOT_EVALUABLE = "not_evaluable", "Not Evaluable"
         EXCELLENT = "excellent", "Excellent"
         VERY_GOOD = "very_good", "Very Good"
         GOOD = "good", "Good"
@@ -348,6 +349,7 @@ class Review(models.Model):
         AUTOMATIC_FAIL = "automatic_fail", "Automatic Fail"
 
     class Outcome(models.TextChoices):
+        NOT_EVALUABLE = "not_evaluable", "Not Evaluable"
         EXCEEDS_EXPECTATIONS = "exceeds_expectations", "Exceeds Expectations"
         MEETS_EXPECTATIONS = "meets_expectations", "Meets Expectations"
         MEETS_MINIMUM_STANDARD = "meets_minimum_standard", "Meets Minimum Standard"
@@ -401,6 +403,41 @@ class Review(models.Model):
         max_digits=5,
         decimal_places=2,
         null=True,
+        blank=True,
+    )
+
+    class EvaluationType(models.TextChoices):
+        FULL = "full", "Full call"
+        PARTIAL = "partial", "Partial call"
+        NOT_EVALUABLE = "not_evaluable", "Not evaluable"
+        AGENT_PREMATURE = "agent_premature", "Agent ended early"
+
+    class CoverageTier(models.TextChoices):
+        INSUFFICIENT = "insufficient", "Insufficient interaction"
+        LIMITED = "limited", "Limited coverage"
+        PARTIAL = "partial", "Partial coverage"
+        FULL = "full", "Full coverage"
+
+    evaluation_type = models.CharField(
+        max_length=24,
+        choices=EvaluationType.choices,
+        default=EvaluationType.FULL,
+    )
+    evaluation_reason = models.CharField(max_length=40, blank=True)
+    category_applicability = models.JSONField(default=dict, blank=True)
+    category_applicability_reasons = models.JSONField(default=dict, blank=True)
+    earned_points = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True
+    )
+    applicable_points = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True
+    )
+    coverage = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True
+    )
+    coverage_tier = models.CharField(
+        max_length=20,
+        choices=CoverageTier.choices,
         blank=True,
     )
 
