@@ -103,7 +103,7 @@ class AdministrationApiTests(TestCase):
                 "company": company_response.json()["id"],
                 "name": "Lahore",
                 "code": "lhe",
-                "timezone": "Asia/Karachi",
+                "timezone": "America/New_York",
                 "is_active": True,
             },
             content_type="application/json",
@@ -160,6 +160,23 @@ class AdministrationApiTests(TestCase):
             "Customer Retention",
         )
         self.assertEqual(len(dialer_response.json()["campaigns"]), 2)
+
+    def test_branch_timezone_is_restricted_to_new_york(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse("administration-branch-list"),
+            {
+                "company": str(self.company.id),
+                "name": "Wrong timezone",
+                "code": "wrong-timezone",
+                "timezone": "Asia/Karachi",
+                "is_active": True,
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Branch.objects.filter(code="wrong-timezone").exists())
 
     def test_dialer_rejects_duplicate_campaign_codes_case_insensitively(self):
         self.client.force_login(self.admin)
@@ -262,6 +279,66 @@ class AdministrationApiTests(TestCase):
             ).exists()
         )
         self.assertEqual(response.json()["assigned_projects"][0]["id"], str(project.pk))
+
+    def test_administrator_assigns_project_manager_to_projects(self):
+        dialer = Dialer(
+            branch=self.branch,
+            name="Management dialer",
+            api_url="https://dialer.example.com/non_agent_api.php",
+            api_username="api",
+        )
+        dialer.set_api_password("secret")
+        dialer.set_webhook_secret("a-long-private-webhook-secret")
+        dialer.save()
+        project = DialerCampaign.objects.create(
+            dialer=dialer,
+            campaign="MANAGED",
+            project_name="Managed Project",
+        )
+        replacement_project = DialerCampaign.objects.create(
+            dialer=dialer,
+            campaign="MANAGED-TWO",
+            project_name="Second Managed Project",
+        )
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse("administration-user-list"),
+            {
+                "email": "project-manager@example.com",
+                "first_name": "Project",
+                "last_name": "Manager",
+                "role": User.Role.PROJECT_MANAGER,
+                "company": str(self.company.pk),
+                "branch": str(self.branch.pk),
+                "password": "temporary-strong-password",
+                "project_assignment_ids": [str(project.pk)],
+                "is_active": True,
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        manager = User.objects.get(email="project-manager@example.com")
+        self.assertTrue(
+            QAProjectAssignment.objects.filter(
+                qa=manager, dialer_campaign=project
+            ).exists()
+        )
+        update_response = self.client.patch(
+            reverse("administration-user-detail", kwargs={"pk": manager.pk}),
+            {"project_assignment_ids": [str(replacement_project.pk)]},
+            content_type="application/json",
+        )
+        self.assertEqual(update_response.status_code, 200, update_response.content)
+        self.assertEqual(
+            update_response.json()["assigned_projects"][0]["id"],
+            str(replacement_project.pk),
+        )
+        self.assertFalse(
+            QAProjectAssignment.objects.filter(
+                qa=manager, dialer_campaign=project
+            ).exists()
+        )
 
     def test_qa_project_assignment_rejects_another_branch(self):
         other_branch = Branch.objects.create(

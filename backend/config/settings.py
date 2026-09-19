@@ -141,7 +141,14 @@ PASSWORD_HASHERS = [
 ]
 
 LANGUAGE_CODE = "en-us"
-TIME_ZONE = os.getenv("TIME_ZONE", "Asia/Karachi")
+# Persist datetimes as UTC (USE_TZ=True), but interpret and present calendar
+# values in New York. The IANA zone handles EST/EDT transitions automatically.
+TIME_ZONE = os.getenv("TIME_ZONE", "America/New_York")
+if TIME_ZONE != "America/New_York":
+    raise ImproperlyConfigured(
+        "TIME_ZONE must be America/New_York so backend and frontend calendar "
+        "boundaries cannot diverge."
+    )
 USE_I18N = True
 USE_TZ = True
 
@@ -187,7 +194,7 @@ CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:63
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
-CELERY_TIMEZONE = "UTC"
+CELERY_TIMEZONE = TIME_ZONE
 CELERY_ENABLE_UTC = True
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 CELERY_TASK_ACKS_LATE = True

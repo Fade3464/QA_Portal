@@ -3,7 +3,7 @@ import secrets
 import tempfile
 import uuid
 import wave
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -35,6 +35,7 @@ from .services import (
     RecordingResult,
     download_recording,
     lookup_recording,
+    parse_call_date,
     parse_recordings,
     recording_duration_seconds,
     validate_recording_url,
@@ -73,6 +74,37 @@ class CallClassificationTests(SimpleTestCase):
         for arguments, expected in cases:
             with self.subTest(arguments=arguments):
                 self.assertEqual(infer_dial_method(*arguments), expected)
+
+
+@override_settings(TIME_ZONE="America/New_York")
+class CallDateTimezoneTests(SimpleTestCase):
+    def test_sql_date_uses_est_in_winter_and_edt_in_summer(self):
+        winter = parse_call_date("2026-01-15 12:00:00")
+        summer = parse_call_date("2026-07-15 12:00:00")
+
+        self.assertEqual(winter.utcoffset(), timedelta(hours=-5))
+        self.assertEqual(summer.utcoffset(), timedelta(hours=-4))
+
+    def test_offset_bearing_timestamp_preserves_its_instant(self):
+        parsed = parse_call_date("2026-07-15T12:00:00-04:00")
+
+        self.assertEqual(parsed.astimezone(UTC), datetime(2026, 7, 15, 16, tzinfo=UTC))
+
+    def test_nonexistent_spring_forward_time_is_rejected(self):
+        self.assertIsNone(parse_call_date("2026-03-08 02:30:00"))
+
+    def test_ambiguous_fall_back_time_uses_nearest_receipt_instant(self):
+        daylight = parse_call_date(
+            "2026-11-01 01:30:00",
+            reference=datetime(2026, 11, 1, 5, 35, tzinfo=UTC),
+        )
+        standard = parse_call_date(
+            "2026-11-01 01:30:00",
+            reference=datetime(2026, 11, 1, 6, 35, tzinfo=UTC),
+        )
+
+        self.assertEqual(daylight.astimezone(UTC).hour, 5)
+        self.assertEqual(standard.astimezone(UTC).hour, 6)
 
 
 @override_settings(DIALER_CREDENTIAL_KEY=Fernet.generate_key().decode())
@@ -251,6 +283,133 @@ class WebhookTests(TestCase):
             [row["id"] for row in dashboard.json()["recent_calls"]],
             [str(own_call.pk)],
         )
+
+    def test_project_manager_calls_reports_and_analytics_are_project_scoped(self):
+        manager = User.objects.create_user(
+            email="manager@example.com",
+            password="a-very-strong-password",
+            first_name="Priya",
+            last_name="Manager",
+            role=User.Role.PROJECT_MANAGER,
+            company=self.branch.company,
+            branch=self.branch,
+            must_change_password=False,
+        )
+        reviewer = User.objects.create_user(
+            email="project-qa@example.com",
+            password="a-very-strong-password",
+            first_name="Quality",
+            last_name="Analyst",
+            role=User.Role.QA,
+            company=self.branch.company,
+            branch=self.branch,
+            must_change_password=False,
+        )
+        allowed_project = DialerCampaign.objects.create(
+            dialer=self.dialer,
+            campaign="PM-ALLOWED",
+            project_name="Managed Project",
+        )
+        DialerCampaign.objects.create(
+            dialer=self.dialer,
+            campaign="PM-HIDDEN",
+            project_name="Hidden Project",
+        )
+        QAProjectAssignment.objects.create(
+            qa=manager, dialer_campaign=allowed_project
+        )
+        visible_call = CallEvent.objects.create(
+            dialer=self.dialer,
+            branch=self.branch,
+            event_key="pm-visible".ljust(64, "0"),
+            event_type=CallEvent.EventType.DISPOSITION,
+            campaign="pm-allowed",
+            agent_name="Visible Agent",
+        )
+        active_call = CallEvent.objects.create(
+            dialer=self.dialer,
+            branch=self.branch,
+            event_key="pm-active".ljust(64, "0"),
+            event_type=CallEvent.EventType.DISPOSITION,
+            campaign="PM-ALLOWED",
+            agent_name="Active Agent",
+        )
+        hidden_call = CallEvent.objects.create(
+            dialer=self.dialer,
+            branch=self.branch,
+            event_key="pm-hidden".ljust(64, "0"),
+            event_type=CallEvent.EventType.DISPOSITION,
+            campaign="PM-HIDDEN",
+            agent_name="Hidden Agent",
+        )
+        visible_review = Review.objects.create(
+            call=visible_call,
+            reviewer=reviewer,
+            status=Review.Status.COMPLETED,
+            score=92,
+            completed_at=timezone.now(),
+        )
+        active_review = Review.objects.create(
+            call=active_call,
+            reviewer=reviewer,
+            status=Review.Status.IN_PROGRESS,
+        )
+        hidden_review = Review.objects.create(
+            call=hidden_call,
+            reviewer=reviewer,
+            status=Review.Status.COMPLETED,
+            score=40,
+            critical_errors=["privacy_violation"],
+            completed_at=timezone.now(),
+        )
+
+        self.client.force_login(manager)
+        calls = self.client.get(reverse("call-list"))
+        self.assertEqual(calls.status_code, 200)
+        self.assertEqual(
+            {row["id"] for row in calls.json()["results"]},
+            {str(visible_call.pk), str(active_call.pk)},
+        )
+
+        reports = self.client.get(reverse("review-report-list"))
+        self.assertEqual(reports.status_code, 200)
+        self.assertEqual(
+            {row["id"] for row in reports.json()["results"]},
+            {str(visible_review.pk), str(active_review.pk)},
+        )
+        active_reports = self.client.get(
+            reverse("review-report-list"), {"segment": "qa_active"}
+        )
+        self.assertEqual(active_reports.status_code, 200)
+        self.assertEqual(
+            [row["id"] for row in active_reports.json()["results"]],
+            [str(active_review.pk)],
+        )
+        summary = self.client.get(reverse("review-report-summary"))
+        self.assertEqual(summary.status_code, 200)
+        self.assertEqual(summary.json()["total"], 2)
+        self.assertEqual(summary.json()["qa_active"], 1)
+        self.assertEqual(summary.json()["pending"], 1)
+        self.assertEqual(
+            self.client.get(
+                reverse("review-report-detail", kwargs={"pk": hidden_review.pk})
+            ).status_code,
+            404,
+        )
+
+        performance = self.client.get(reverse("project-performance"))
+        self.assertEqual(performance.status_code, 200, performance.content)
+        self.assertEqual(performance.json()["projects"], ["Managed Project"])
+        self.assertEqual(performance.json()["metrics"]["evaluated"], 1)
+        self.assertEqual(performance.json()["metrics"]["average_score"], 92.0)
+        self.assertEqual(performance.json()["metrics"]["critical"], 0)
+
+        action = self.client.post(
+            reverse("review-report-action", kwargs={"pk": visible_review.pk}),
+            {"leader_status": Review.LeaderStatus.ACKNOWLEDGED},
+            content_type="application/json",
+        )
+        self.assertEqual(action.status_code, 403)
 
     def test_call_library_uses_server_side_pagination(self):
         user = User.objects.create_superuser(

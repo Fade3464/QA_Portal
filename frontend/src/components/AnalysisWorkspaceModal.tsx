@@ -98,14 +98,12 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
   const watchedScoresValue = Form.useWatch('scores', form);
   const watchedEvaluationTypeValue = Form.useWatch('evaluation_type', form);
   const watchedApplicabilityValue = Form.useWatch('category_applicability', { form, preserve: true });
-  const watchedApplicabilityReasonsValue = Form.useWatch('category_applicability_reasons', { form, preserve: true });
   const watchedCriticalValue = Form.useWatch('critical_errors', form);
   const watchedEvidenceValue = Form.useWatch('criterion_evidence', { form, preserve: true });
   const watchedCriticalEvidenceValue = Form.useWatch('critical_error_evidence', { form, preserve: true });
   const watchedScores = useMemo(() => watchedScoresValue ?? {}, [watchedScoresValue]);
   const watchedEvaluationType = watchedEvaluationTypeValue ?? 'full';
   const watchedApplicability = useMemo(() => watchedApplicabilityValue ?? {}, [watchedApplicabilityValue]);
-  const watchedApplicabilityReasons = useMemo(() => watchedApplicabilityReasonsValue ?? {}, [watchedApplicabilityReasonsValue]);
   const watchedCritical = useMemo(() => watchedCriticalValue ?? [], [watchedCriticalValue]);
   const watchedEvidence = useMemo(() => watchedEvidenceValue ?? {}, [watchedEvidenceValue]);
   const watchedCriticalEvidence = useMemo(() => watchedCriticalEvidenceValue ?? {}, [watchedCriticalEvidenceValue]);

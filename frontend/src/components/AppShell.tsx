@@ -11,14 +11,14 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   SettingOutlined,
-  TeamOutlined,
 } from '@ant-design/icons';
 import { App as AntApp, Avatar, Badge, Button, Dropdown, Empty, Layout, Menu, Popover, Tag, Tooltip, Typography, type MenuProps } from 'antd';
-import dayjs from 'dayjs';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { api } from '../lib/api';
+import { browserNotificationPermission, requestBrowserNotificationPermission, showBrowserNotification } from '../lib/browserNotifications';
+import { appDate } from '../lib/datetime';
 import type { CallReservation, NotificationResponse, SystemNotification } from '../types';
 import { BrandMark } from './BrandMark';
 import { ThemeControls } from './ThemeControls';
@@ -37,7 +37,22 @@ export function AppShell() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [browserPermission, setBrowserPermission] = useState<NotificationPermission | 'unsupported'>(() => browserNotificationPermission());
   const isQa = user?.role === 'qa' && !user.is_superuser;
+
+  const enableBrowserNotifications = useCallback(async () => {
+    try {
+      setBrowserPermission(await requestBrowserNotificationPermission());
+    } catch {
+      setBrowserPermission(browserNotificationPermission());
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!user || browserNotificationPermission() !== 'default') return;
+    const timer = window.setTimeout(() => void enableBrowserNotifications(), 500);
+    return () => window.clearTimeout(timer);
+  }, [enableBrowserNotifications, user]);
 
   const loadNotifications = useCallback(async () => {
     if (!user) return;
@@ -90,6 +105,18 @@ export function AppShell() {
             if (incoming.severity === 'error') toast.error(toastOptions);
             else if (incoming.severity === 'warning') toast.warning(toastOptions);
             else toast.info(toastOptions);
+            showBrowserNotification(incoming, () => {
+              const target = incoming.metadata.target_path;
+              navigate(target?.startsWith('/') && !target.startsWith('//') ? target : (user?.is_superuser ? '/admin' : '/queue'));
+              setNotificationsOpen(false);
+              setNotifications((current) => {
+                if (current.some((item) => item.id === incoming.id && !item.is_read)) {
+                  setUnreadCount((count) => Math.max(0, count - 1));
+                }
+                return current.map((item) => item.id === incoming.id ? { ...item, is_read: true } : item);
+              });
+              void api(`/api/v1/notifications/${incoming.id}/read/`, { method: 'POST' }).catch(() => void loadNotifications());
+            });
           } else if (payload.type === 'notification.resolved' && payload.notification) {
             setNotifications((current) => current.filter((item) => item.id !== payload.notification?.id));
             void loadNotifications();
@@ -113,7 +140,7 @@ export function AppShell() {
       window.clearTimeout(retryTimer);
       socket?.close();
     };
-  }, [loadNotifications, toast]);
+  }, [loadNotifications, navigate, toast, user?.is_superuser]);
 
   const markRead = async (item: SystemNotification) => {
     if (!item.is_read) {
@@ -134,8 +161,7 @@ export function AppShell() {
       { key: '/', icon: <DashboardOutlined />, label: <Link to="/">{isQa ? 'QA overview' : 'Command center'}</Link> },
       { key: '/queue', icon: <AuditOutlined />, label: <Link to="/queue">{isQa ? 'My reports' : user?.role === 'team_leader' ? 'QA inbox' : 'QA reports'}</Link> },
       { key: '/calls', icon: <CustomerServiceOutlined />, label: <Link to="/calls">{isQa ? 'Calls for review' : 'Call library'}</Link> },
-      { key: '/team', icon: <TeamOutlined />, label: <Link to="/team">Team performance</Link>, roles: ['project_manager', 'supervisor', 'administrator'] },
-      { key: '/insights', icon: <BarChartOutlined />, label: <Link to="/insights">Quality insights</Link>, roles: ['project_manager', 'supervisor', 'administrator'] },
+      { key: '/insights', icon: <BarChartOutlined />, label: <Link to="/insights">Quality insights</Link>, roles: ['supervisor', 'administrator'] },
       { key: '/admin', icon: <SettingOutlined />, label: <Link to="/admin">Administration</Link>, roles: ['administrator'] },
     ];
     return all.filter((item) => !item.roles || item.roles.includes(user?.role ?? ''));
@@ -159,10 +185,11 @@ export function AppShell() {
         {notifications.length ? notifications.map((item) => (
           <button key={item.id} type="button" className={`notification-item${item.is_read ? '' : ' notification-item--unread'}`} onClick={() => { void markRead(item); setNotificationsOpen(false); navigate(item.metadata.target_path || (user?.is_superuser ? '/admin' : '/queue')); }}>
             <span className={`notification-item__indicator notification-item__indicator--${item.severity}`} />
-            <span className="notification-item__copy"><strong>{item.title}</strong><span>{item.message}</span><small>{item.occurrences > 1 ? `${item.occurrences} calls · ` : ''}{dayjs(item.updated_at).format('DD MMM, h:mm A')}</small></span>
+            <span className="notification-item__copy"><strong>{item.title}</strong><span>{item.message}</span><small>{item.occurrences > 1 ? `${item.occurrences} calls · ` : ''}{appDate(item.updated_at).format('DD MMM, h:mm A')} ET</small></span>
           </button>
         )) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No active notifications" />}
       </div>
+      {browserPermission === 'default' && <div className="notification-panel__permission"><span><strong>Desktop alerts are off</strong><small>Enable them to receive updates while working in another tab.</small></span><Button size="small" type="primary" onClick={() => void enableBrowserNotifications()}>Enable</Button></div>}
     </div>
   );
 

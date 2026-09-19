@@ -166,6 +166,8 @@ export interface QAReportDetail extends QAReport {
 export interface QAReportSummary {
   total: number;
   average_score: number | null;
+  qa_active: number;
+  revision_required: number;
   pending: number;
   critical_open: number;
   coaching_open: number;
@@ -184,6 +186,11 @@ export interface QAReportSummary {
       reviewer_id: string;
       reviewer__first_name: string;
       reviewer__last_name: string;
+    }>;
+    team_leaders: Array<{
+      team_leader_id: string;
+      team_leader__first_name: string;
+      team_leader__last_name: string;
     }>;
   };
   generated_at: string;
@@ -249,6 +256,40 @@ export interface DashboardSummary {
     review_completion: number;
   };
   recent_calls: CallEvent[];
+  generated_at: string;
+}
+
+export interface ProjectPerformance {
+  window: { days: number; from: string; to: string };
+  selected_project: string | null;
+  projects: string[];
+  metrics: {
+    evaluated: number;
+    scored: number;
+    average_score: number | null;
+    critical: number;
+    critical_rate: number;
+    below_benchmark: number;
+    below_benchmark_rate: number;
+  };
+  trend: Array<{
+    date: string;
+    evaluated: number;
+    average_score: number | null;
+    critical: number;
+  }>;
+  teams: Array<{
+    id: string;
+    name: string;
+    avatar: string;
+    team_leader: string;
+    evaluated: number;
+    scored: number;
+    average_score: number | null;
+    critical: number;
+    critical_rate: number;
+    below_benchmark: number;
+  }>;
   generated_at: string;
 }
 

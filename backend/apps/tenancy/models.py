@@ -26,13 +26,19 @@ class Company(models.Model):
 
 
 class Branch(models.Model):
+    TIMEZONE_CHOICES = (("America/New_York", "Eastern Time (New York)"),)
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     company = models.ForeignKey(
         Company, on_delete=models.PROTECT, related_name="branches"
     )
     name = models.CharField(max_length=160)
     code = models.SlugField(max_length=50)
-    timezone = models.CharField(max_length=64, default="Asia/Karachi")
+    timezone = models.CharField(
+        max_length=64,
+        choices=TIMEZONE_CHOICES,
+        default="America/New_York",
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -219,9 +225,18 @@ class QAProjectAssignment(models.Model):
         super().clean()
         if not self.qa_id or not self.dialer_campaign_id:
             return
-        if self.qa.role not in {self.qa.Role.QA, self.qa.Role.TEAM_LEADER}:
+        if self.qa.role not in {
+            self.qa.Role.QA,
+            self.qa.Role.TEAM_LEADER,
+            self.qa.Role.PROJECT_MANAGER,
+        }:
             raise ValidationError(
-                {"qa": "Project access can only be assigned to QA or Team Leader users."}
+                {
+                    "qa": (
+                        "Project access can only be assigned to QA, Team Leader, "
+                        "or Project Manager users."
+                    )
+                }
             )
         if self.qa.branch_id != self.dialer_campaign.dialer.branch_id:
             raise ValidationError(

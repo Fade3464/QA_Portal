@@ -13,18 +13,19 @@ import {
   WarningFilled,
 } from '@ant-design/icons';
 import { Alert, Button, Card, Col, Progress, Row, Statistic, Table, Tag, Tooltip, Typography, type TableProps } from 'antd';
-import dayjs from 'dayjs';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { ContentLoader } from '../components/LoadingStates';
 import { api } from '../lib/api';
+import { appDate } from '../lib/datetime';
 import type { CallEvent, DashboardSummary, PaginatedResponse, QAReport, QAReportSummary } from '../types';
+import { ProjectPerformancePage } from './ProjectPerformancePage';
 
 const { Title, Paragraph, Text } = Typography;
 
 function greeting() {
-  return dayjs().hour() < 12 ? 'morning' : dayjs().hour() < 18 ? 'afternoon' : 'evening';
+  return appDate().hour() < 12 ? 'morning' : appDate().hour() < 18 ? 'afternoon' : 'evening';
 }
 
 function formatDuration(seconds: number | null) {
@@ -38,6 +39,7 @@ export function DashboardPage() {
   const { user } = useAuth();
   if (user?.role === 'qa' && !user.is_superuser) return <QAAnalystCommandCenter />;
   if (user?.role === 'team_leader' && !user.is_superuser) return <TeamLeaderCommandCenter />;
+  if (user?.role === 'project_manager' && !user.is_superuser) return <ProjectPerformancePage overview />;
   return <OperationsDashboard />;
 }
 
@@ -76,14 +78,14 @@ function QAAnalystCommandCenter() {
     { title: 'Agent', key: 'agent', render: (_, row) => <div className="table-primary"><strong>{row.agent_name || row.agent_user || 'Unassigned'}</strong><small>{row.project_name || 'Unmapped project'}</small></div> },
     { title: 'Status', key: 'status', width: 142, render: (_, row) => row.status === 'revision_required' ? <Tag color="warning">Needs revision</Tag> : ['completed', 'disputed'].includes(row.status) ? <Tag color="success">Submitted</Tag> : <Tag color="processing">In progress</Tag> },
     { title: 'Result', key: 'result', width: 125, render: (_, row) => ['completed', 'disputed'].includes(row.status) ? row.critical_errors.length ? <Tag color="error">Critical fail</Tag> : <strong>{row.score}%</strong> : <Text type="secondary">—</Text> },
-    { title: 'Updated', key: 'updated', width: 140, render: (_, row) => <div className="leader-date"><strong>{dayjs(row.revision_requested_at || row.completed_at || row.assigned_at).format('DD MMM')}</strong><small>{dayjs(row.revision_requested_at || row.completed_at || row.assigned_at).format('h:mm A')}</small></div> },
+    { title: 'Updated', key: 'updated', width: 140, render: (_, row) => <div className="leader-date"><strong>{appDate(row.revision_requested_at || row.completed_at || row.assigned_at).format('DD MMM')}</strong><small>{appDate(row.revision_requested_at || row.completed_at || row.assigned_at).format('h:mm A')} ET</small></div> },
     { title: '', key: 'action', width: 128, align: 'right', render: (_, row) => ['assigned', 'in_progress', 'revision_required'].includes(row.status) ? <Button type="link" icon={<ArrowRightOutlined />} iconPlacement="end" onClick={() => navigate(`/calls?analysis=${encodeURIComponent(row.call_id)}`)}>{row.status === 'revision_required' ? 'Reassess' : 'Continue'}</Button> : <Button type="link" onClick={() => navigate('/queue')}>View report</Button> },
   ];
   const callColumns: TableProps<CallEvent>['columns'] = [
     { title: 'Agent', key: 'agent', render: (_, row) => <div className="table-primary"><strong>{row.agent_name || row.agent_user || 'Unassigned'}</strong><small>{row.project_name || 'Unmapped project'}</small></div> },
     { title: 'Phone', dataIndex: 'phone_number', key: 'phone', width: 150, render: (value) => <strong>{value || '—'}</strong> },
     { title: 'Talk time', dataIndex: 'talk_time', key: 'duration', width: 100, render: formatDuration },
-    { title: 'Received', dataIndex: 'received_at', key: 'received', width: 125, render: (value) => dayjs(value).format('h:mm A') },
+    { title: 'Received', dataIndex: 'received_at', key: 'received', width: 125, render: (value) => `${appDate(value).format('h:mm A')} ET` },
     { title: '', key: 'action', width: 112, align: 'right', render: (_, row) => <Button type="link" icon={<SearchOutlined />} onClick={() => navigate(`/calls?analysis=${encodeURIComponent(row.id)}`)}>{row.reservation?.is_mine ? 'Continue' : 'Analyze'}</Button> },
   ];
 
@@ -150,7 +152,7 @@ function TeamLeaderCommandCenter() {
     { title: 'Project', dataIndex: 'project_name', key: 'project', render: (value) => value || 'Unmapped' },
     { title: 'Result', key: 'result', width: 140, render: (_, row) => row.critical_errors.length ? <Tag color="error" icon={<WarningFilled />}>Critical fail</Tag> : <div className="leader-score"><strong>{row.score ?? 0}%</strong><small>{row.rating_label}</small></div> },
     { title: 'QA analyst', dataIndex: 'reviewer_name', key: 'reviewer', width: 150 },
-    { title: 'Submitted', key: 'submitted', width: 142, render: (_, row) => row.completed_at ? <div className="leader-date"><strong>{dayjs(row.completed_at).format('DD MMM')}</strong><small>{dayjs(row.completed_at).format('h:mm A')}</small></div> : '—' },
+    { title: 'Submitted', key: 'submitted', width: 142, render: (_, row) => row.completed_at ? <div className="leader-date"><strong>{appDate(row.completed_at).format('DD MMM')}</strong><small>{appDate(row.completed_at).format('h:mm A')} ET</small></div> : '—' },
     { title: '', key: 'action', width: 48, align: 'center', render: () => <ArrowRightOutlined className="leader-row-arrow" /> },
   ];
   const callColumns: TableProps<CallEvent>['columns'] = [
@@ -158,7 +160,7 @@ function TeamLeaderCommandCenter() {
     { title: 'Agent', key: 'agent', render: (_, row) => <div className="table-primary"><strong>{row.agent_name || row.agent_user || 'Unassigned'}</strong><small>{row.team_name || 'Unassigned team'}</small></div> },
     { title: 'Project', dataIndex: 'project_name', key: 'project', render: (value) => value || 'Unmapped' },
     { title: 'Talk time', dataIndex: 'talk_time', key: 'duration', width: 100, render: formatDuration },
-    { title: 'Received', dataIndex: 'received_at', key: 'received', width: 120, render: (value) => <Tooltip title={dayjs(value).format('DD MMM YYYY, h:mm A')}>{dayjs(value).format('h:mm A')}</Tooltip> },
+    { title: 'Received', dataIndex: 'received_at', key: 'received', width: 120, render: (value) => <Tooltip title={`${appDate(value).format('DD MMM YYYY, h:mm A')} ET`}>{appDate(value).format('h:mm A')} ET</Tooltip> },
   ];
 
   return <div className="page-stack leader-command">
@@ -217,7 +219,7 @@ function OperationsDashboard() {
     { title: 'Campaign', dataIndex: 'campaign', key: 'campaign', render: (value) => <Tag>{value || '—'}</Tag> },
     { title: 'Duration', dataIndex: 'talk_time', key: 'talk_time', render: formatDuration },
     { title: 'Recording', dataIndex: 'recording_download_status', key: 'recording', render: (value) => <Tag color={statusColor[value]}>{value.replace('_', ' ')}</Tag> },
-    { title: 'Received', dataIndex: 'received_at', key: 'received_at', render: (value) => dayjs(value).format('h:mm A') },
+    { title: 'Received', dataIndex: 'received_at', key: 'received_at', render: (value) => `${appDate(value).format('h:mm A')} ET` },
   ];
 
   return <div className="page-stack"><div className="page-heading"><div><Text className="eyebrow">OPERATIONS OVERVIEW</Text><Title level={2} className="page-title">Good {greeting()}, {user?.first_name}.</Title><Paragraph className="page-subtitle">Here’s the quality pulse for your branch over the last 24 hours.</Paragraph></div><Button type="primary" className="page-heading__action" icon={<AuditOutlined />} onClick={() => navigate('/queue')}>Start reviewing</Button></div>

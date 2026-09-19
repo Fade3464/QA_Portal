@@ -69,7 +69,11 @@ def scoped_calls(user):
     if user.is_superuser:
         return queryset
     queryset = queryset.filter(branch_id=user.branch_id)
-    if user.role not in {User.Role.QA, User.Role.TEAM_LEADER}:
+    if user.role not in {
+        User.Role.QA,
+        User.Role.TEAM_LEADER,
+        User.Role.PROJECT_MANAGER,
+    }:
         return queryset
     if user.role == User.Role.TEAM_LEADER:
         # Team Leaders may share a branch and project, so branch/project scope
@@ -447,7 +451,7 @@ def _report_base_queryset():
     return queryset
 
 
-def _report_queryset(user):
+def scoped_reports(user):
     queryset = _report_base_queryset()
     if user.is_superuser:
         return queryset
@@ -462,6 +466,17 @@ def _report_queryset(user):
         )
         return (
             queryset.filter(team_leader=user, status__in=completed)
+            .annotate(_project_allowed=Exists(allowed_project))
+            .filter(_project_allowed=True)
+        )
+    if user.role == User.Role.PROJECT_MANAGER:
+        allowed_project = QAProjectAssignment.objects.filter(
+            qa=user,
+            dialer_campaign__dialer_id=OuterRef("call__dialer_id"),
+            dialer_campaign__campaign__iexact=OuterRef("call__campaign"),
+        )
+        return (
+            queryset.filter(call__branch_id=user.branch_id)
             .annotate(_project_allowed=Exists(allowed_project))
             .filter(_project_allowed=True)
         )
@@ -616,6 +631,35 @@ def _report_filters(queryset, params):
             raise ValidationError({"workflow_status": "Unsupported workflow status."})
         queryset = queryset.filter(leader_status__in=workflow_statuses)
 
+    qa_statuses = _report_param_list(params, "qa_status")
+    if qa_statuses:
+        valid = {choice for choice, _label in Review.Status.choices}
+        if not set(qa_statuses) <= valid:
+            raise ValidationError({"qa_status": "Unsupported QA report status."})
+        queryset = queryset.filter(status__in=qa_statuses)
+
+    evaluation_types = _report_param_list(params, "evaluation_type")
+    if evaluation_types:
+        valid = {choice for choice, _label in Review.EvaluationType.choices}
+        if not set(evaluation_types) <= valid:
+            raise ValidationError({"evaluation_type": "Unsupported evaluation type."})
+        queryset = queryset.filter(evaluation_type__in=evaluation_types)
+
+    coverage_tiers = _report_param_list(params, "coverage_tier")
+    if coverage_tiers:
+        valid = {choice for choice, _label in Review.CoverageTier.choices}
+        if not set(coverage_tiers) <= valid:
+            raise ValidationError({"coverage_tier": "Unsupported coverage tier."})
+        queryset = queryset.filter(coverage_tier__in=coverage_tiers)
+
+    team_leaders = _report_param_list(params, "team_leader")
+    if team_leaders:
+        try:
+            [UUID(value) for value in team_leaders]
+        except ValueError as exc:
+            raise ValidationError({"team_leader": "Select valid Team Leaders."}) from exc
+        queryset = queryset.filter(team_leader_id__in=team_leaders)
+
     ratings = _report_param_list(params, "rating")
     if ratings:
         valid = {choice for choice, _label in Review.Rating.choices}
@@ -624,16 +668,34 @@ def _report_filters(queryset, params):
         queryset = queryset.filter(rating__in=ratings)
 
     segment = params.get("segment", "all").strip()
-    if segment == "attention":
-        queryset = queryset.filter(leader_status=Review.LeaderStatus.PENDING)
+    completed = (Review.Status.COMPLETED, Review.Status.DISPUTED)
+    if segment == "qa_active":
+        queryset = queryset.filter(
+            status__in=(
+                Review.Status.ASSIGNED,
+                Review.Status.IN_PROGRESS,
+                Review.Status.REVISION_REQUIRED,
+            )
+        )
+    elif segment == "attention":
+        queryset = queryset.filter(
+            status__in=completed, leader_status=Review.LeaderStatus.PENDING
+        )
     elif segment == "critical":
-        queryset = queryset.exclude(critical_errors=[]).exclude(
-            leader_status=Review.LeaderStatus.CLOSED
+        queryset = (
+            queryset.filter(status__in=completed)
+            .exclude(critical_errors=[])
+            .exclude(leader_status=Review.LeaderStatus.CLOSED)
         )
     elif segment == "coaching":
-        queryset = queryset.filter(leader_status=Review.LeaderStatus.COACHING_PLANNED)
+        queryset = queryset.filter(
+            status__in=completed,
+            leader_status=Review.LeaderStatus.COACHING_PLANNED,
+        )
     elif segment == "closed":
-        queryset = queryset.filter(leader_status=Review.LeaderStatus.CLOSED)
+        queryset = queryset.filter(
+            status__in=completed, leader_status=Review.LeaderStatus.CLOSED
+        )
     elif segment != "all":
         raise ValidationError({"segment": "Unsupported report segment."})
 
@@ -673,6 +735,31 @@ def _report_filters(queryset, params):
     elif score_state != "all":
         raise ValidationError({"score_state": "Use all, scored, or unscored."})
 
+    overdue = params.get("overdue", "any").strip().lower()
+    if overdue == "true":
+        queryset = queryset.filter(
+            leader_status=Review.LeaderStatus.COACHING_PLANNED,
+            coaching_due_at__lt=timezone.now(),
+        )
+    elif overdue == "false":
+        queryset = queryset.exclude(
+            leader_status=Review.LeaderStatus.COACHING_PLANNED,
+            coaching_due_at__lt=timezone.now(),
+        )
+    elif overdue != "any":
+        raise ValidationError({"overdue": "Use any, true, or false."})
+
+    leader_activity = params.get("leader_activity", "all").strip()
+    if leader_activity in {"with_activity", "without_activity"}:
+        activity = ReviewWorkflowEvent.objects.filter(review_id=OuterRef("pk"))
+        queryset = queryset.annotate(_has_leader_activity=Exists(activity)).filter(
+            _has_leader_activity=leader_activity == "with_activity"
+        )
+    elif leader_activity != "all":
+        raise ValidationError(
+            {"leader_activity": "Use all, with_activity, or without_activity."}
+        )
+
     date_from = parse_date(params.get("date_from", ""))
     date_to = parse_date(params.get("date_to", ""))
     if params.get("date_from") and not date_from:
@@ -682,9 +769,17 @@ def _report_filters(queryset, params):
     if date_from and date_to and date_from > date_to:
         raise ValidationError({"date_to": "The end date must be on or after the start date."})
     date_field = params.get("date_field", "completed_at")
-    if date_field not in {"completed_at", "call_date"}:
-        raise ValidationError({"date_field": "Use completed_at or call_date."})
-    date_lookup = "completed_at__date" if date_field == "completed_at" else "call__call_date__date"
+    date_lookups = {
+        "assigned_at": "assigned_at__date",
+        "completed_at": "completed_at__date",
+        "call_date": "call__call_date__date",
+        "leader_updated_at": "leader_updated_at__date",
+    }
+    if date_field not in date_lookups:
+        raise ValidationError(
+            {"date_field": "Use assigned_at, completed_at, call_date, or leader_updated_at."}
+        )
+    date_lookup = date_lookups[date_field]
     if date_from:
         queryset = queryset.filter(**{f"{date_lookup}__gte": date_from})
     if date_to:
@@ -696,6 +791,8 @@ def _report_filters(queryset, params):
     allowed_ordering = {
         "-completed_at",
         "completed_at",
+        "-assigned_at",
+        "assigned_at",
         "score",
         "-score",
         "coaching_due_at",
@@ -713,7 +810,7 @@ class ReviewReportListView(ListAPIView):
 
     def get_queryset(self):
         return _report_filters(
-            _report_queryset(self.request.user), self.request.query_params
+            scoped_reports(self.request.user), self.request.query_params
         )
 
 
@@ -721,16 +818,25 @@ class ReviewReportSummaryView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        queryset = _report_queryset(request.user).filter(
+        scope = scoped_reports(request.user)
+        completed_queryset = scope.filter(
             status__in=(Review.Status.COMPLETED, Review.Status.DISPUTED)
         )
+        is_project_manager = (
+            request.user.role == User.Role.PROJECT_MANAGER
+            and not request.user.is_superuser
+        )
+        queryset = scope if is_project_manager else completed_queryset
         now = timezone.now()
-        open_queryset = queryset.exclude(leader_status=Review.LeaderStatus.CLOSED)
-        totals = queryset.aggregate(total=Count("id"), average_score=Avg("score"))
+        open_queryset = completed_queryset.exclude(
+            leader_status=Review.LeaderStatus.CLOSED
+        )
+        totals = queryset.aggregate(total=Count("id"))
+        average_score = completed_queryset.aggregate(value=Avg("score"))["value"]
         start_date = timezone.localdate() - timedelta(days=13)
         raw_trend = {
             item["day"]: item
-            for item in queryset.filter(completed_at__date__gte=start_date)
+            for item in completed_queryset.filter(completed_at__date__gte=start_date)
             .annotate(day=TruncDate("completed_at"))
             .values("day")
             .annotate(count=Count("id"), average_score=Avg("score"))
@@ -752,22 +858,32 @@ class ReviewReportSummaryView(APIView):
         return Response(
             {
                 "total": totals["total"],
-                "average_score": round(float(totals["average_score"]), 2)
-                if totals["average_score"] is not None
+                "average_score": round(float(average_score), 2)
+                if average_score is not None
                 else None,
-                "pending": queryset.filter(
+                "qa_active": scope.filter(
+                    status__in=(
+                        Review.Status.ASSIGNED,
+                        Review.Status.IN_PROGRESS,
+                        Review.Status.REVISION_REQUIRED,
+                    )
+                ).count(),
+                "revision_required": scope.filter(
+                    status=Review.Status.REVISION_REQUIRED
+                ).count(),
+                "pending": completed_queryset.filter(
                     leader_status=Review.LeaderStatus.PENDING
                 ).count(),
                 "critical_open": open_queryset.exclude(critical_errors=[]).count(),
-                "coaching_open": queryset.filter(
+                "coaching_open": completed_queryset.filter(
                     leader_status=Review.LeaderStatus.COACHING_PLANNED
                 ).count(),
-                "overdue": queryset.filter(
+                "overdue": completed_queryset.filter(
                     leader_status=Review.LeaderStatus.COACHING_PLANNED,
                     coaching_due_at__lt=now,
                 ).count(),
                 "below_benchmark_open": open_queryset.filter(score__lt=85).count(),
-                "closed": queryset.filter(
+                "closed": completed_queryset.filter(
                     leader_status=Review.LeaderStatus.CLOSED
                 ).count(),
                 "trend": trend,
@@ -783,6 +899,16 @@ class ReviewReportSummaryView(APIView):
                         queryset.order_by("reviewer__first_name", "reviewer__last_name")
                         .values(
                             "reviewer_id", "reviewer__first_name", "reviewer__last_name"
+                        )
+                        .distinct()
+                    ),
+                    "team_leaders": list(
+                        queryset.exclude(team_leader__isnull=True)
+                        .order_by("team_leader__first_name", "team_leader__last_name")
+                        .values(
+                            "team_leader_id",
+                            "team_leader__first_name",
+                            "team_leader__last_name",
                         )
                         .distinct()
                     ),
@@ -822,7 +948,7 @@ class ReviewReportDetailView(APIView):
 
     def get(self, request, pk):
         review = (
-            _report_queryset(request.user)
+            scoped_reports(request.user)
             .prefetch_related("workflow_events__actor")
             .filter(pk=pk)
             .first()
@@ -879,7 +1005,7 @@ class ReviewReportActionView(APIView):
                 "Only the assigned Team Leader can manage this report."
             )
         review = (
-            _report_queryset(request.user)
+            scoped_reports(request.user)
             .select_for_update(of=("self",))
             .filter(pk=pk)
             .first()

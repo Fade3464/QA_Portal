@@ -41,6 +41,8 @@ services:
       CACHE_URL: redis://redis:6379/2
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
+      TIME_ZONE: ${TIME_ZONE:-America/New_York}
+      TZ: ${TIME_ZONE:-America/New_York}
       RECORDINGS_ROOT: /recordings
       RECORDING_DOWNLOAD_VERIFY_TLS: ${RECORDING_DOWNLOAD_VERIFY_TLS:-false}
     volumes:
@@ -77,6 +79,8 @@ services:
       CACHE_URL: redis://redis:6379/2
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
+      TIME_ZONE: ${TIME_ZONE:-America/New_York}
+      TZ: ${TIME_ZONE:-America/New_York}
       RECORDINGS_ROOT: /recordings
       RECORDING_DOWNLOAD_VERIFY_TLS: ${RECORDING_DOWNLOAD_VERIFY_TLS:-false}
     volumes:
@@ -91,8 +95,13 @@ services:
     networks: [internal]
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        VITE_APP_TIME_ZONE: ${TIME_ZONE:-America/New_York}
     restart: unless-stopped
+    environment:
+      TZ: ${TIME_ZONE:-America/New_York}
     ports:
       - "${PORTAL_PORT:-8080}:80"
     depends_on:

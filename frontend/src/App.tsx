@@ -16,6 +16,7 @@ const ChangePasswordPage = lazy(() => import('./pages/PasswordPages').then((modu
 const PlaceholderPage = lazy(() => import('./pages/PlaceholderPage').then((module) => ({ default: module.PlaceholderPage })));
 const AdministrationPage = lazy(() => import('./pages/AdministrationPage').then((module) => ({ default: module.AdministrationPage })));
 const ReportsPage = lazy(() => import('./pages/ReportsPage').then((module) => ({ default: module.ReportsPage })));
+const ProjectPerformancePage = lazy(() => import('./pages/ProjectPerformancePage').then((module) => ({ default: module.ProjectPerformancePage })));
 
 function ProtectedLayout() {
   const { user, loading } = useAuth();
@@ -31,9 +32,15 @@ function AdministratorRoute() {
   return user?.is_superuser ? <AdministrationPage /> : <Navigate to="/" replace />;
 }
 
+function TeamPerformanceRoute() {
+  const { user } = useAuth();
+  if (user?.role === 'project_manager') return <ProjectPerformancePage />;
+  return user && ['supervisor', 'administrator'].includes(user.role) ? <PlaceholderPage /> : <Navigate to="/" replace />;
+}
+
 function ManagementRoute() {
   const { user } = useAuth();
-  return user && ['project_manager', 'supervisor', 'administrator'].includes(user.role) ? <PlaceholderPage /> : <Navigate to="/" replace />;
+  return user && ['supervisor', 'administrator'].includes(user.role) ? <PlaceholderPage /> : <Navigate to="/" replace />;
 }
 
 export default function App() {
@@ -105,7 +112,7 @@ export default function App() {
               <Route index element={<DashboardPage />} />
               <Route path="calls" element={<CallsPage />} />
               <Route path="queue" element={<ReportsPage />} />
-              <Route path="team" element={<ManagementRoute />} />
+              <Route path="team" element={<TeamPerformanceRoute />} />
               <Route path="insights" element={<ManagementRoute />} />
               <Route path="admin" element={<AdministratorRoute />} />
               <Route path="administration" element={<AdministratorRoute />} />

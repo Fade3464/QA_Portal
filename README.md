@@ -32,6 +32,12 @@ docker compose logs -f backend worker
 
 Open <http://localhost:8080>. The initial administrator comes from `ADMIN_EMAIL` and `ADMIN_PASSWORD`; it is created once and is not overwritten on later boots.
 
+## Timezone policy
+
+CallLens uses `America/New_York` for all business dates and user-facing times. This IANA timezone automatically applies EST/EDT daylight-saving transitions. Datetimes remain timezone-aware and are stored as UTC instants in PostgreSQL; the API sends offset-bearing ISO 8601 values, and the frontend converts them to Eastern Time instead of using the browser's local timezone.
+
+Keep `TIME_ZONE=America/New_York` in every deployment. Rebuild the frontend when changing this value because its timezone is compiled into the browser bundle.
+
 ## Development tunnel
 
 When `PRODUCTION=false`, Docker Compose starts a Cloudflare Quick Tunnel for testing VICIdial callbacks against a development machine. After the tunnel connects, its temporary public URL is written to:

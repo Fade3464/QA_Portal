@@ -4,6 +4,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
+ARG VITE_APP_TIME_ZONE=America/New_York
+ENV VITE_APP_TIME_ZONE=$VITE_APP_TIME_ZONE
 RUN npm run build
 
 FROM nginx:1.29-alpine

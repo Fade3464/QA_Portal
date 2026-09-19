@@ -1,7 +1,6 @@
 import { ArrowDownOutlined, ArrowUpOutlined, CustomerServiceOutlined, PlayCircleOutlined, SearchOutlined } from '@ant-design/icons';
 import { RiArrowDownLongLine, RiArrowRightUpLongLine, RiFlagFill, RiPhoneFill } from '@remixicon/react';
 import { Alert, Button, Card, FloatButton, Table, Tooltip, Typography, type TableProps } from 'antd';
-import dayjs from 'dayjs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AudioPlayerModal } from '../components/AudioPlayerModal';
@@ -10,6 +9,7 @@ import { CallLibraryFilters, type CallLibraryFilterValue } from '../components/C
 import { TableSkeleton } from '../components/LoadingStates';
 import { MaterialSymbol } from '../components/MaterialSymbol';
 import { api } from '../lib/api';
+import { appDate } from '../lib/datetime';
 import { useAuth } from '../auth/AuthContext';
 import { useThemeSettings } from '../theme/ThemeContext';
 import type { CallEvent, CallFilterOptions, CallReservation, PaginatedResponse, QAAnalysisResponse } from '../types';
@@ -23,10 +23,15 @@ const COLUMN_SORT_FIELDS: Record<string, string> = {
   talk_time: 'talk_time', received_at: 'received_at',
 };
 
-const DEFAULT_FILTERS: CallLibraryFilterValue = {
-  search: '', agents: [], teams: [], projects: [], dispositions: [], terminationReasons: [], dialers: [], eventTypes: [], recordingStatuses: [],
-  dateField: 'received_at', dateFrom: '', dateTo: '', relativeRange: '', talkTimeMin: undefined, talkTimeMax: undefined, ordering: '-received_at',
-};
+const DEFAULT_ORDERING = '-received_at';
+
+function defaultFilters(): CallLibraryFilterValue {
+  return {
+    search: '', agents: [], teams: [], projects: [], dispositions: [], terminationReasons: [], dialers: [], eventTypes: [], recordingStatuses: [],
+    dateField: 'received_at', dateFrom: appDate().subtract(24, 'hour').toISOString(), dateTo: '', relativeRange: '24h',
+    talkTimeMin: undefined, talkTimeMax: undefined, ordering: DEFAULT_ORDERING,
+  };
+}
 
 type CachedCallPage = { cachedAt: number; response: PaginatedResponse<CallEvent> };
 
@@ -75,15 +80,18 @@ function numberParameter(params: URLSearchParams, name: string) {
 }
 
 function filtersFromParams(params: URLSearchParams): CallLibraryFilterValue {
+  const defaults = defaultFilters();
+  const hasTimeFilter = params.has('date_from') || params.has('date_to') || params.has('time_range');
   return {
     search: params.get('search') ?? '',
     agents: listParameter(params, 'agent'), teams: listParameter(params, 'team'), projects: listParameter(params, 'project'),
     dispositions: listParameter(params, 'disposition'), terminationReasons: listParameter(params, 'termination_reason'), dialers: listParameter(params, 'dialer'),
     eventTypes: listParameter(params, 'event_type'), recordingStatuses: listParameter(params, 'recording_status'),
     dateField: params.get('date_field') === 'call_date' ? 'call_date' : 'received_at',
-    dateFrom: params.get('date_from') ?? '', dateTo: params.get('date_to') ?? '', relativeRange: params.get('time_range') ?? '',
+    dateFrom: hasTimeFilter ? params.get('date_from') ?? '' : defaults.dateFrom,
+    dateTo: params.get('date_to') ?? '', relativeRange: hasTimeFilter ? params.get('time_range') ?? '' : defaults.relativeRange,
     talkTimeMin: numberParameter(params, 'talk_time_min'), talkTimeMax: numberParameter(params, 'talk_time_max'),
-    ordering: params.get('ordering') ?? '-received_at',
+    ordering: params.get('ordering') ?? DEFAULT_ORDERING,
   };
 }
 
@@ -93,7 +101,7 @@ function filterQuery(filters: CallLibraryFilterValue) {
     ['search', filters.search.trim()],
     ['date_field', filters.dateField === 'received_at' ? '' : filters.dateField], ['date_from', filters.dateFrom],
     ['date_to', filters.dateTo], ['time_range', filters.relativeRange], ['talk_time_min', filters.talkTimeMin], ['talk_time_max', filters.talkTimeMax],
-    ['ordering', filters.ordering === '-received_at' ? '' : filters.ordering],
+    ['ordering', filters.ordering === DEFAULT_ORDERING ? '' : filters.ordering],
   ];
   values.forEach(([name, value]) => { if (value !== '' && value !== undefined) query.set(name, String(value)); });
   const multipleValues: Array<[string, string[]]> = [
@@ -235,7 +243,7 @@ export function CallsPage() {
       const terminationReason = row.termination_reason?.trim().toUpperCase() ?? '';
       return <span className="library-talk-time"><span className="library-duration">{Math.floor(value / 60)}<small>m </small>{value % 60}<small>s</small></span>{terminationReason === 'AGENT' ? <RiFlagFill className="library-termination library-termination--agent" aria-label="Agent terminated the call" /> : terminationReason === 'CALLER' ? <span className="library-termination library-termination--caller" role="img" aria-label="Caller terminated the call"><RiPhoneFill /></span> : null}</span>;
     } },
-    { title: 'Received', dataIndex: 'received_at', key: 'received_at', width: 145, render: (value) => <Tooltip title={dayjs(value).format('DD MMM YYYY, h:mm:ss A')}><span className="library-date">{dayjs(value).format('DD MMM YYYY')}<small>{dayjs(value).format('h:mm A')}</small></span></Tooltip> },
+    { title: 'Received', dataIndex: 'received_at', key: 'received_at', width: 145, render: (value) => <Tooltip title={`${appDate(value).format('DD MMM YYYY, h:mm:ss A')} ET`}><span className="library-date">{appDate(value).format('DD MMM YYYY')}<small>{appDate(value).format('h:mm A')} ET</small></span></Tooltip> },
     { title: 'Options', key: 'options', width: 84, fixed: 'right', align: 'center', render: (_, row) => {
       if (isQa) {
         const lockedByAnother = Boolean(row.reservation && !row.reservation.is_mine);
@@ -249,7 +257,7 @@ export function CallsPage() {
 
   const reload = () => { pageCache.current.clear(); setLoading(true); setError(''); void load(undefined, true); };
   const changeFilters = (nextFilters: CallLibraryFilterValue) => { setLoading(true); setFilters(nextFilters); setCurrentPage(1); setError(''); };
-  const resetFilters = () => { setLoading(true); setFilters(DEFAULT_FILTERS); setCurrentPage(1); setError(''); };
+  const resetFilters = () => { setLoading(true); setFilters(defaultFilters()); setCurrentPage(1); setError(''); };
   const sortableColumns: TableProps<CallEvent>['columns'] = columns.map((column) => {
     const field = COLUMN_SORT_FIELDS[String(column.key)];
     if (!field) return { ...column, align: 'center' };
@@ -268,7 +276,7 @@ export function CallsPage() {
       const field = COLUMN_SORT_FIELDS[String(selectedSort?.columnKey)];
       const ordering = field && selectedSort.order
         ? `${selectedSort.order === 'descend' ? '-' : ''}${field}`
-        : DEFAULT_FILTERS.ordering;
+        : DEFAULT_ORDERING;
       if (ordering === filters.ordering && currentPage === 1) return;
       changeFilters({ ...filters, ordering });
     } else if (extra.action === 'paginate') {

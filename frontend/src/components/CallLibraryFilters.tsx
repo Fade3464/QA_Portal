@@ -16,8 +16,8 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import dayjs from 'dayjs';
 import { useState } from 'react';
+import { appDate, appWallTimeToIso } from '../lib/datetime';
 import type { CallFilterOptions } from '../types';
 
 const { Text, Title } = Typography;
@@ -110,7 +110,7 @@ export function CallLibraryFilters({
     const preset = TIME_RANGES.find((item) => item.value === range);
     if (!preset) return;
     patch({
-      dateFrom: dayjs().subtract(preset.amount, preset.unit).toISOString(),
+      dateFrom: appDate().subtract(preset.amount, preset.unit).toISOString(),
       dateTo: '',
       dateField: 'received_at',
       relativeRange: range,
@@ -190,15 +190,15 @@ export function CallLibraryFilters({
             />
             <RangePicker
               showTime
-              value={value.dateFrom ? [dayjs(value.dateFrom), value.dateTo ? dayjs(value.dateTo) : dayjs()] : null}
+              value={value.dateFrom ? [appDate(value.dateFrom), value.dateTo ? appDate(value.dateTo) : appDate()] : null}
               onChange={(dates) => patch({
-                dateFrom: dates?.[0]?.toISOString() ?? '',
-                dateTo: dates?.[1]?.toISOString() ?? '',
+                dateFrom: dates?.[0] ? appWallTimeToIso(dates[0]) : '',
+                dateTo: dates?.[1] ? appWallTimeToIso(dates[1]) : '',
                 relativeRange: dates ? 'custom' : '',
               })}
               presets={TIME_RANGES.map((preset) => ({
                 label: preset.label,
-                value: [dayjs().subtract(preset.amount, preset.unit), dayjs()],
+                value: [appDate().subtract(preset.amount, preset.unit), appDate()],
               }))}
             />
           </section>

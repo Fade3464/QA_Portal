@@ -5,7 +5,7 @@ import ipaddress
 import math
 import mimetypes
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -15,6 +15,7 @@ from mutagen import MutagenError
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from apps.tenancy.models import Dialer
 
@@ -55,13 +56,50 @@ def safe_int(value, default: int = 0) -> int:
         return default
 
 
-def parse_call_date(value: str | None):
+def localize_wall_time(value: datetime, *, reference: datetime | None = None):
+    """Attach the app timezone without inventing DST transition times.
+
+    A fall-back wall time occurs twice. VICIdial's SQLdate has no offset, so use
+    the instant closest to receipt (or to the call being matched). Spring-forward
+    gap values do not exist and are rejected instead of being silently shifted.
+    """
+    if timezone.is_aware(value):
+        return value
+
+    zone = timezone.get_current_timezone()
+    reference = reference or timezone.now()
+    candidates: list[datetime] = []
+    seen_offsets = set()
+    for fold in (0, 1):
+        candidate = value.replace(tzinfo=zone, fold=fold)
+        if candidate.utcoffset() in seen_offsets:
+            continue
+        seen_offsets.add(candidate.utcoffset())
+        round_trip = candidate.astimezone(UTC).astimezone(zone).replace(tzinfo=None)
+        if round_trip == value:
+            candidates.append(candidate)
+
+    if not candidates:
+        return None
+    reference_utc = reference.astimezone(UTC)
+    return min(
+        candidates,
+        key=lambda candidate: abs(
+            (candidate.astimezone(UTC) - reference_utc).total_seconds()
+        ),
+    )
+
+
+def parse_call_date(value: str | None, *, reference: datetime | None = None):
     if not value:
         return None
+    parsed = parse_datetime(value.strip())
+    if parsed is not None:
+        return localize_wall_time(parsed, reference=reference)
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
         try:
-            parsed = datetime.strptime(value[:19], fmt)
-            return timezone.make_aware(parsed, timezone.get_current_timezone())
+            parsed = datetime.strptime(value.strip()[:19], fmt)
+            return localize_wall_time(parsed, reference=reference)
         except ValueError:
             continue
     return None
@@ -105,10 +143,12 @@ def choose_recording(rows: list[RecordingResult], event) -> RecordingResult | No
 
         def distance(row):
             try:
-                candidate = timezone.make_aware(
+                candidate = localize_wall_time(
                     datetime.strptime(row.start_time[:19], "%Y-%m-%d %H:%M:%S"),
-                    timezone.get_current_timezone(),
+                    reference=event.call_date,
                 )
+                if candidate is None:
+                    return float("inf")
                 return abs((candidate - event.call_date).total_seconds())
             except ValueError:
                 return float("inf")
@@ -122,7 +162,7 @@ def choose_recording(rows: list[RecordingResult], event) -> RecordingResult | No
 
 def lookup_recording(dialer: Dialer, event) -> RecordingResult | None:
     date = (
-        event.call_date.strftime("%Y-%m-%d")
+        timezone.localtime(event.call_date).strftime("%Y-%m-%d")
         if event.call_date
         else timezone.localdate().isoformat()
     )

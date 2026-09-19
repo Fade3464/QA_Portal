@@ -1,7 +1,7 @@
 import { DeleteOutlined, FilterOutlined, PlusOutlined } from '@ant-design/icons';
 import { Button, Collapse, DatePicker, Drawer, InputNumber, Segmented, Select, Space, Typography } from 'antd';
-import dayjs from 'dayjs';
 import { useEffect, useMemo, useState } from 'react';
+import { appCalendarDate, appDate } from '../lib/datetime';
 import type { QAReportSummary, QAScorecard } from '../types';
 
 const { Text, Title } = Typography;
@@ -23,29 +23,38 @@ export interface TeamLeaderScoreRule {
 export interface TeamLeaderReportFilterValue {
   projects: string[];
   reviewers: string[];
+  teamLeaders: string[];
   teams: string[];
   agents: string[];
   dispositions: string[];
   directions: string[];
   ratings: string[];
+  qaStatuses: string[];
   workflowStatuses: string[];
+  evaluationTypes: string[];
+  coverageTiers: string[];
   critical: 'any' | 'true' | 'false';
   scoreState: 'all' | 'scored' | 'unscored';
-  dateField: 'completed_at' | 'call_date';
+  overdue: 'any' | 'true' | 'false';
+  leaderActivity: 'all' | 'with_activity' | 'without_activity';
+  dateField: 'assigned_at' | 'completed_at' | 'call_date' | 'leader_updated_at';
   dateRange: [string, string] | null;
   scoreMatch: 'all' | 'any';
   scoreRules: TeamLeaderScoreRule[];
 }
 
 export const EMPTY_TEAM_LEADER_FILTERS: TeamLeaderReportFilterValue = {
-  projects: [], reviewers: [], teams: [], agents: [], dispositions: [], directions: [], ratings: [], workflowStatuses: [],
-  critical: 'any', scoreState: 'all', dateField: 'completed_at', dateRange: null, scoreMatch: 'all', scoreRules: [],
+  projects: [], reviewers: [], teamLeaders: [], teams: [], agents: [], dispositions: [], directions: [], ratings: [],
+  qaStatuses: [], workflowStatuses: [], evaluationTypes: [], coverageTiers: [], critical: 'any', scoreState: 'all',
+  overdue: 'any', leaderActivity: 'all', dateField: 'completed_at', dateRange: null, scoreMatch: 'all', scoreRules: [],
 };
 
 export function teamLeaderFilterCount(value: TeamLeaderReportFilterValue) {
-  return value.projects.length + value.reviewers.length + value.teams.length + value.agents.length
-    + value.dispositions.length + value.directions.length + value.ratings.length + value.workflowStatuses.length
+  return value.projects.length + value.reviewers.length + value.teamLeaders.length + value.teams.length + value.agents.length
+    + value.dispositions.length + value.directions.length + value.ratings.length + value.qaStatuses.length
+    + value.workflowStatuses.length + value.evaluationTypes.length + value.coverageTiers.length
     + (value.critical === 'any' ? 0 : 1) + (value.scoreState === 'all' ? 0 : 1)
+    + (value.overdue === 'any' ? 0 : 1) + (value.leaderActivity === 'all' ? 0 : 1)
     + (value.dateRange ? 1 : 0) + value.scoreRules.length;
 }
 
@@ -68,7 +77,20 @@ const RATINGS = [
 
 const WORKFLOWS = [
   ['pending', 'Needs review'], ['acknowledged', 'Reviewed'], ['coaching_planned', 'Coaching planned'],
-  ['coaching_completed', 'Coaching completed'], ['escalated', 'Escalated'], ['closed', 'Closed'],
+  ['coaching_completed', 'Coaching completed'], ['escalated', 'Escalated'], ['returned_to_qa', 'Returned to QA'], ['closed', 'Closed'],
+].map(([value, label]) => ({ value, label }));
+
+const QA_STATUSES = [
+  ['assigned', 'Assigned'], ['in_progress', 'In progress'], ['revision_required', 'Revision required'],
+  ['completed', 'Completed'], ['disputed', 'Disputed'],
+].map(([value, label]) => ({ value, label }));
+
+const EVALUATION_TYPES = [
+  ['full', 'Full call'], ['partial', 'Partial call'], ['not_evaluable', 'Not evaluable'], ['agent_premature', 'Agent ended early'],
+].map(([value, label]) => ({ value, label }));
+
+const COVERAGE_TIERS = [
+  ['insufficient', 'Insufficient'], ['limited', 'Limited'], ['partial', 'Partial'], ['full', 'Full'],
 ].map(([value, label]) => ({ value, label }));
 
 function newRule(): TeamLeaderScoreRule {
@@ -93,14 +115,22 @@ interface Props {
   open: boolean;
   value: TeamLeaderReportFilterValue;
   options?: QAReportSummary['filters'];
+  oversight?: boolean;
   onClose: () => void;
   onApply: (value: TeamLeaderReportFilterValue) => void;
 }
 
-export function TeamLeaderReportFilters({ open, value, options, onClose, onApply }: Props) {
+export function TeamLeaderReportFilters({ open, value, options, oversight = false, onClose, onApply }: Props) {
   const [draft, setDraft] = useState(() => cloneFilters(value));
   const [panel, setPanel] = useState<'filters' | 'scores'>('filters');
-  useEffect(() => { if (open) { setDraft(cloneFilters(value)); setPanel('filters'); } }, [open, value]);
+  useEffect(() => {
+    if (!open) return undefined;
+    const timer = window.setTimeout(() => {
+      setDraft(cloneFilters(value));
+      setPanel('filters');
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [open, value]);
   const targets = useMemo(() => scoreTargets(options?.scorecard), [options?.scorecard]);
   const rawTargetMaximum = (rule: TeamLeaderScoreRule) => targets.flatMap((group) => group.options).find((item) => item.value === `${rule.scope}:${rule.key}`)?.maxScore ?? 100;
   const targetMaximum = (rule: TeamLeaderScoreRule) => rule.unit === 'percent' ? 100 : rawTargetMaximum(rule);
@@ -112,10 +142,12 @@ export function TeamLeaderReportFilters({ open, value, options, onClose, onApply
   const mainFilters = <div className="tl-filter-grid">
     <label><span>Project</span><Select mode="multiple" maxTagCount="responsive" allowClear placeholder="Any project" value={draft.projects} onChange={(next) => update('projects', next)} options={multiOptions(options?.projects ?? [])} /></label>
     <label><span>QA analyst</span><Select mode="multiple" maxTagCount="responsive" allowClear placeholder="Any analyst" value={draft.reviewers} onChange={(next) => update('reviewers', next)} options={(options?.reviewers ?? []).map((item) => ({ value: item.reviewer_id, label: `${item.reviewer__first_name} ${item.reviewer__last_name}`.trim() }))} /></label>
+    {oversight && <label><span>QA stage</span><Select mode="multiple" maxTagCount="responsive" allowClear placeholder="Any stage" value={draft.qaStatuses} onChange={(next) => update('qaStatuses', next)} options={QA_STATUSES} /></label>}
+    {oversight && <label><span>Team Leader</span><Select mode="multiple" maxTagCount="responsive" allowClear placeholder="Any leader" value={draft.teamLeaders} onChange={(next) => update('teamLeaders', next)} options={(options?.team_leaders ?? []).map((item) => ({ value: item.team_leader_id, label: `${item.team_leader__first_name} ${item.team_leader__last_name}`.trim() }))} /></label>}
     <label><span>Agent</span><Select mode="multiple" showSearch={{ optionFilterProp: 'label' }} maxTagCount="responsive" allowClear placeholder="Any agent" value={draft.agents} onChange={(next) => update('agents', next)} options={multiOptions(options?.agents ?? [])} /></label>
     <label><span>Result</span><Select mode="multiple" maxTagCount="responsive" allowClear placeholder="Any result" value={draft.ratings} onChange={(next) => update('ratings', next)} options={RATINGS} /></label>
     <label><span>Workflow</span><Select mode="multiple" maxTagCount="responsive" allowClear placeholder="Any status" value={draft.workflowStatuses} onChange={(next) => update('workflowStatuses', next)} options={WORKFLOWS} /></label>
-    <label><span>Date</span><RangePicker value={draft.dateRange ? [dayjs(draft.dateRange[0]), dayjs(draft.dateRange[1])] : null} presets={[{ label: 'Last 7 days', value: [dayjs().subtract(6, 'day'), dayjs()] }, { label: 'Last 30 days', value: [dayjs().subtract(29, 'day'), dayjs()] }, { label: 'This month', value: [dayjs().startOf('month'), dayjs()] }]} onChange={(dates) => update('dateRange', dates ? [dates[0]!.format('YYYY-MM-DD'), dates[1]!.format('YYYY-MM-DD')] : null)} /></label>
+    <label><span>Date</span><RangePicker value={draft.dateRange ? [appCalendarDate(draft.dateRange[0]), appCalendarDate(draft.dateRange[1])] : null} presets={[{ label: 'Last 7 days', value: [appDate().subtract(6, 'day'), appDate()] }, { label: 'Last 30 days', value: [appDate().subtract(29, 'day'), appDate()] }, { label: 'This month', value: [appDate().startOf('month'), appDate()] }]} onChange={(dates) => update('dateRange', dates ? [dates[0]!.format('YYYY-MM-DD'), dates[1]!.format('YYYY-MM-DD')] : null)} /></label>
   </div>;
 
   const moreFilters = <div className="tl-filter-grid">
@@ -124,7 +156,11 @@ export function TeamLeaderReportFilters({ open, value, options, onClose, onApply
     <label><span>Disposition</span><Select mode="multiple" showSearch={{ optionFilterProp: 'label' }} maxTagCount="responsive" allowClear placeholder="Any disposition" value={draft.dispositions} onChange={(next) => update('dispositions', next)} options={multiOptions(options?.dispositions ?? [])} /></label>
     <label><span>Critical violation</span><Segmented block value={draft.critical} onChange={(next) => update('critical', next as TeamLeaderReportFilterValue['critical'])} options={[{ value: 'any', label: 'Any' }, { value: 'true', label: 'Yes' }, { value: 'false', label: 'No' }]} /></label>
     <label><span>Score status</span><Select value={draft.scoreState} onChange={(next) => update('scoreState', next)} options={[{ value: 'all', label: 'Any' }, { value: 'scored', label: 'Scored' }, { value: 'unscored', label: 'Scorecard waived' }]} /></label>
-    <label><span>Date uses</span><Select value={draft.dateField} onChange={(next) => update('dateField', next)} options={[{ value: 'completed_at', label: 'Report date' }, { value: 'call_date', label: 'Call date' }]} /></label>
+    <label><span>Evaluation type</span><Select mode="multiple" maxTagCount="responsive" allowClear placeholder="Any type" value={draft.evaluationTypes} onChange={(next) => update('evaluationTypes', next)} options={EVALUATION_TYPES} /></label>
+    <label><span>Coverage tier</span><Select mode="multiple" maxTagCount="responsive" allowClear placeholder="Any coverage" value={draft.coverageTiers} onChange={(next) => update('coverageTiers', next)} options={COVERAGE_TIERS} /></label>
+    <label><span>Coaching overdue</span><Segmented block value={draft.overdue} onChange={(next) => update('overdue', next as TeamLeaderReportFilterValue['overdue'])} options={[{ value: 'any', label: 'Any' }, { value: 'true', label: 'Yes' }, { value: 'false', label: 'No' }]} /></label>
+    <label><span>Team Leader activity</span><Select value={draft.leaderActivity} onChange={(next) => update('leaderActivity', next)} options={[{ value: 'all', label: 'Any' }, { value: 'with_activity', label: 'Has activity' }, { value: 'without_activity', label: 'No activity' }]} /></label>
+    <label><span>Date uses</span><Select value={draft.dateField} onChange={(next) => update('dateField', next)} options={[{ value: 'assigned_at', label: 'QA assignment date' }, { value: 'completed_at', label: 'QA submission date' }, { value: 'leader_updated_at', label: 'Team Leader activity date' }, { value: 'call_date', label: 'Call date' }]} /></label>
   </div>;
 
   const scoreFilters = draft.scoreRules.length === 0
