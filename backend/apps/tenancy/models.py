@@ -219,15 +219,15 @@ class QAProjectAssignment(models.Model):
         super().clean()
         if not self.qa_id or not self.dialer_campaign_id:
             return
-        if self.qa.role != self.qa.Role.QA:
+        if self.qa.role not in {self.qa.Role.QA, self.qa.Role.TEAM_LEADER}:
             raise ValidationError(
-                {"qa": "Project access can only be assigned to QA users."}
+                {"qa": "Project access can only be assigned to QA or Team Leader users."}
             )
         if self.qa.branch_id != self.dialer_campaign.dialer.branch_id:
             raise ValidationError(
                 {
                     "dialer_campaign": (
-                        "The project must belong to a dialer in the QA user's branch."
+                        "The project must belong to a dialer in the user's branch."
                     )
                 }
             )

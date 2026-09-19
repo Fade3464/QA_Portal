@@ -43,7 +43,7 @@ export function LoginPage() {
       <section className="auth-story" aria-label="Product overview">
         <div className="auth-story__glow auth-story__glow--one" />
         <div className="auth-story__glow auth-story__glow--two" />
-        <BrandMark />
+        <BrandMark contrast />
         <div className="auth-story__content">
           <Text className="eyebrow">QUALITY, IN FOCUS</Text>
           <Title level={1} className="auth-story-title">Every conversation.<br />One clear standard.</Title>

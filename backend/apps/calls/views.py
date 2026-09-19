@@ -1,15 +1,27 @@
+import json
 import logging
 import mimetypes
 import re
 from datetime import timedelta
 from pathlib import Path
+from uuid import UUID
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Avg, Count, Exists, OuterRef, Q, Subquery
-from django.db.models.functions import TruncDate
+from django.db.models import (
+    Avg,
+    Count,
+    Exists,
+    FloatField,
+    OuterRef,
+    Q,
+    Subquery,
+    Value,
+)
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Cast, Coalesce, TruncDate
 from django.http import FileResponse, Http404, HttpResponse, StreamingHttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
@@ -27,7 +39,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import CallEvent, Review, ReviewWorkflowEvent
-from .scorecard import SCORECARD_VERSION, calculate_score, rating_for, scorecard_payload
+from .scorecard import SCORECARD, SCORECARD_VERSION, calculate_score, rating_for, scorecard_payload
 from .serializers import (
     CallEventSerializer,
     ReviewDetailSerializer,
@@ -51,15 +63,20 @@ def scoped_calls(user):
     if user.is_superuser:
         return queryset
     queryset = queryset.filter(branch_id=user.branch_id)
-    if user.role != User.Role.QA:
+    if user.role not in {User.Role.QA, User.Role.TEAM_LEADER}:
         return queryset
+    if user.role == User.Role.TEAM_LEADER:
+        # Team Leaders may share a branch and project, so branch/project scope
+        # alone is not sufficient. Keep unassigned calls and calls belonging to
+        # another leader out of every call-library-backed endpoint.
+        queryset = queryset.filter(team__team_leader_id=user.pk)
     allowed_project = QAProjectAssignment.objects.filter(
         qa=user,
         dialer_campaign__dialer_id=OuterRef("dialer_id"),
         dialer_campaign__campaign__iexact=OuterRef("campaign"),
     )
-    return queryset.annotate(_qa_project_allowed=Exists(allowed_project)).filter(
-        _qa_project_allowed=True
+    return queryset.annotate(_project_allowed=Exists(allowed_project)).filter(
+        _project_allowed=True
     )
 
 
@@ -201,9 +218,13 @@ class CallReleaseView(APIView):
             raise PermissionDenied(
                 "Only the QA analyst who reserved this call can release it."
             )
-        if review.status in {Review.Status.COMPLETED, Review.Status.DISPUTED}:
+        if review.status in {
+            Review.Status.COMPLETED,
+            Review.Status.DISPUTED,
+            Review.Status.REVISION_REQUIRED,
+        }:
             raise ReservationConflict(
-                "A completed or disputed review cannot be released."
+                "A submitted or returned review cannot be released."
             )
         review.delete()
         transaction.on_commit(lambda: _broadcast_reservation(call, None))
@@ -216,7 +237,10 @@ class CallReviewDraftView(APIView):
     @transaction.atomic
     def patch(self, request, pk):
         _call, review = _owned_review(request.user, pk, for_update=True)
-        if review.status != Review.Status.IN_PROGRESS:
+        if review.status not in {
+            Review.Status.IN_PROGRESS,
+            Review.Status.REVISION_REQUIRED,
+        }:
             raise ReservationConflict("A submitted report cannot be changed.")
         serializer = ReviewSerializer(review, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -239,6 +263,7 @@ class CallReviewSubmitView(APIView):
         call, review = _owned_review(request.user, pk, for_update=True)
         if review.status == Review.Status.COMPLETED:
             return Response(ReviewSerializer(review).data)
+        is_resubmission = review.status == Review.Status.REVISION_REQUIRED
         serializer = ReviewSerializer(review, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         merged = {
@@ -247,6 +272,7 @@ class CallReviewSubmitView(APIView):
                 "scores",
                 "criterion_evidence",
                 "critical_errors",
+                "critical_error_evidence",
                 "feedback_summary",
                 "strengths",
                 "expected_behavior",
@@ -263,6 +289,17 @@ class CallReviewSubmitView(APIView):
                 {"team_leader": "The assigned Team Leader account is inactive."}
             )
         critical_errors = list(dict.fromkeys(merged["critical_errors"]))
+        unselected_evidence = set(merged["critical_error_evidence"]) - set(
+            critical_errors
+        )
+        if unselected_evidence:
+            raise ValidationError(
+                {
+                    "critical_error_evidence": (
+                        "Evidence can only be attached to selected critical errors."
+                    )
+                }
+            )
         if critical_errors:
             # Critical errors determine the outcome independently. Validate any
             # optional scoring that was entered, but only persist a comparable
@@ -294,10 +331,31 @@ class CallReviewSubmitView(APIView):
         review.completed_at = now
         review.email_status = email_status
         review.email_last_error = ""
+        if is_resubmission:
+            review.leader_status = Review.LeaderStatus.PENDING
+            review.leader_reviewed_at = None
+            review.leader_closed_at = None
+            review.leader_updated_at = now
+            review.coaching_due_at = None
+            review.revision_requested_at = None
+            review.revision_reason = ""
         review.save()
 
-        from apps.notifications.services import queue_review_report_notification
+        from apps.notifications.services import (
+            queue_review_report_notification,
+            resolve_review_returned_notifications,
+        )
 
+        if is_resubmission:
+            ReviewWorkflowEvent.objects.create(
+                review=review,
+                actor=request.user,
+                event_type=ReviewWorkflowEvent.EventType.STATUS_CHANGED,
+                from_status=Review.LeaderStatus.RETURNED_TO_QA,
+                to_status=Review.LeaderStatus.PENDING,
+                note="Reassessed and resubmitted to the Team Leader.",
+            )
+            resolve_review_returned_notifications(review)
         notification = queue_review_report_notification(review)
         transaction.on_commit(lambda: _broadcast_reservation(call, review))
         if settings.QA_REPORT_EMAIL_ENABLED:
@@ -317,7 +375,7 @@ class ReviewPagination(PageNumberPagination):
     max_page_size = 100
 
 
-def _report_queryset(user):
+def _report_base_queryset():
     project = DialerCampaign.objects.filter(
         dialer_id=OuterRef("call__dialer_id"),
         campaign__iexact=OuterRef("call__campaign"),
@@ -330,14 +388,155 @@ def _report_queryset(user):
         "reviewer",
         "team_leader",
     ).annotate(project_name=Subquery(project))
+    return queryset
+
+
+def _report_queryset(user):
+    queryset = _report_base_queryset()
     if user.is_superuser:
         return queryset
     if user.role == User.Role.QA:
         return queryset.filter(reviewer=user)
     completed = (Review.Status.COMPLETED, Review.Status.DISPUTED)
     if user.role == User.Role.TEAM_LEADER:
-        return queryset.filter(team_leader=user, status__in=completed)
+        allowed_project = QAProjectAssignment.objects.filter(
+            qa=user,
+            dialer_campaign__dialer_id=OuterRef("call__dialer_id"),
+            dialer_campaign__campaign__iexact=OuterRef("call__campaign"),
+        )
+        return (
+            queryset.filter(team_leader=user, status__in=completed)
+            .annotate(_project_allowed=Exists(allowed_project))
+            .filter(_project_allowed=True)
+        )
     return queryset.filter(call__branch_id=user.branch_id, status__in=completed)
+
+
+def _report_param_list(params, name, *, maximum=50):
+    values = params.getlist(name) if hasattr(params, "getlist") else []
+    if not values and params.get(name):
+        values = [params.get(name)]
+    normalized = list(dict.fromkeys(value.strip() for value in values if value.strip()))
+    if len(normalized) > maximum:
+        raise ValidationError({name: f"Select at most {maximum} values."})
+    return normalized
+
+
+def _score_rule_catalog():
+    categories = {category["key"]: category for category in SCORECARD}
+    criteria = {
+        key: {"key": key, "label": label, "max_score": maximum, "category": category["key"]}
+        for category in SCORECARD
+        for key, label, maximum in category["criteria"]
+    }
+    return categories, criteria
+
+
+def _parse_score_rules(raw):
+    if not raw:
+        return []
+    if len(raw) > 12000:
+        raise ValidationError({"score_rules": "The score query is too large."})
+    try:
+        rules = json.loads(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError({"score_rules": "Enter a valid score query."}) from exc
+    if not isinstance(rules, list) or len(rules) > 12:
+        raise ValidationError({"score_rules": "Use a list containing at most 12 rules."})
+
+    categories, criteria = _score_rule_catalog()
+    allowed_operators = {"gt", "gte", "lt", "lte", "eq", "neq", "between", "outside"}
+    normalized = []
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            raise ValidationError({"score_rules": f"Rule {index + 1} is invalid."})
+        scope = rule.get("scope")
+        key = rule.get("key")
+        operator = rule.get("operator")
+        unit = rule.get("unit", "points")
+        if scope == "total":
+            key, maximum = "total", 100
+        elif scope == "category" and key in categories:
+            maximum = categories[key]["max_score"]
+        elif scope == "criterion" and key in criteria:
+            maximum = criteria[key]["max_score"]
+        else:
+            raise ValidationError({"score_rules": f"Rule {index + 1} has an unknown score field."})
+        if operator not in allowed_operators:
+            raise ValidationError({"score_rules": f"Rule {index + 1} has an unsupported operator."})
+        if unit not in {"points", "percent"}:
+            raise ValidationError({"score_rules": f"Rule {index + 1} has an unsupported unit."})
+        try:
+            value = float(rule["value"])
+            value_to = float(rule["value_to"]) if operator in {"between", "outside"} else None
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValidationError({"score_rules": f"Rule {index + 1} needs numeric values."}) from exc
+        ceiling = 100 if unit == "percent" else maximum
+        if not 0 <= value <= ceiling or (value_to is not None and not 0 <= value_to <= ceiling):
+            raise ValidationError({"score_rules": f"Rule {index + 1} must be between 0 and {ceiling}."})
+        if unit == "percent":
+            value = value * maximum / 100
+            value_to = value_to * maximum / 100 if value_to is not None else None
+        if value_to is not None and value > value_to:
+            value, value_to = value_to, value
+        normalized.append({"scope": scope, "key": key, "operator": operator, "value": value, "value_to": value_to})
+    return normalized
+
+
+def _score_rule_expression(rule):
+    if rule["scope"] == "total":
+        return "score", Q(score__isnull=False)
+    categories, criteria = _score_rule_catalog()
+    if rule["scope"] == "criterion":
+        keys = [rule["key"]]
+    else:
+        keys = [key for key, _label, _maximum in categories[rule["key"]]["criteria"]]
+    expression = Value(0.0, output_field=FloatField())
+    for key in keys:
+        expression += Coalesce(Cast(KeyTextTransform(key, "scores"), FloatField()), Value(0.0))
+    return expression, Q(scores__has_keys=keys)
+
+
+def _score_rule_condition(alias, rule):
+    operator = rule["operator"]
+    value = rule["value"]
+    if operator in {"gt", "gte", "lt", "lte"}:
+        return Q(**{f"{alias}__{operator}": value})
+    if operator == "eq":
+        return Q(**{alias: value})
+    if operator == "neq":
+        return ~Q(**{alias: value})
+    bounds = Q(**{f"{alias}__gte": value, f"{alias}__lte": rule["value_to"]})
+    return bounds if operator == "between" else ~bounds
+
+
+def _apply_score_rules(queryset, params):
+    rules = _parse_score_rules(params.get("score_rules", ""))
+    if not rules:
+        return queryset
+    match = params.get("score_match", "all")
+    if match not in {"all", "any"}:
+        raise ValidationError({"score_match": "Use all or any."})
+    annotations = {}
+    conditions = []
+    for index, rule in enumerate(rules):
+        alias = f"_score_rule_{index}"
+        expression, present = _score_rule_expression(rule)
+        if rule["scope"] != "total":
+            annotations[alias] = expression
+        else:
+            alias = "score"
+        conditions.append(present & _score_rule_condition(alias, rule))
+    if annotations:
+        queryset = queryset.annotate(**annotations)
+    if match == "all":
+        for condition in conditions:
+            queryset = queryset.filter(condition)
+        return queryset
+    combined = Q()
+    for condition in conditions:
+        combined |= condition
+    return queryset.filter(combined)
 
 
 def _report_filters(queryset, params):
@@ -354,19 +553,19 @@ def _report_filters(queryset, params):
             | Q(reviewer__last_name__icontains=search)
         )
 
-    workflow_status = params.get("workflow_status", "").strip()
-    if workflow_status:
+    workflow_statuses = _report_param_list(params, "workflow_status")
+    if workflow_statuses:
         valid = {choice for choice, _label in Review.LeaderStatus.choices}
-        if workflow_status not in valid:
+        if not set(workflow_statuses) <= valid:
             raise ValidationError({"workflow_status": "Unsupported workflow status."})
-        queryset = queryset.filter(leader_status=workflow_status)
+        queryset = queryset.filter(leader_status__in=workflow_statuses)
 
-    rating = params.get("rating", "").strip()
-    if rating:
+    ratings = _report_param_list(params, "rating")
+    if ratings:
         valid = {choice for choice, _label in Review.Rating.choices}
-        if rating not in valid:
+        if not set(ratings) <= valid:
             raise ValidationError({"rating": "Unsupported rating."})
-        queryset = queryset.filter(rating=rating)
+        queryset = queryset.filter(rating__in=ratings)
 
     segment = params.get("segment", "all").strip()
     if segment == "attention":
@@ -382,12 +581,25 @@ def _report_filters(queryset, params):
     elif segment != "all":
         raise ValidationError({"segment": "Unsupported report segment."})
 
-    project = params.get("project", "").strip()
-    if project:
-        queryset = queryset.filter(project_name=project)
-    reviewer = params.get("reviewer", "").strip()
-    if reviewer:
-        queryset = queryset.filter(reviewer_id=reviewer)
+    for name, lookup in (
+        ("project", "project_name__in"),
+        ("reviewer", "reviewer_id__in"),
+        ("team", "call__team__name__in"),
+        ("agent", "call__agent_name__in"),
+        ("disposition", "call__disposition__in"),
+        ("direction", "call__call_direction__in"),
+    ):
+        values = _report_param_list(params, name)
+        if values:
+            if name == "reviewer":
+                try:
+                    [UUID(value) for value in values]
+                except ValueError as exc:
+                    raise ValidationError({"reviewer": "Select valid QA analysts."}) from exc
+            valid_directions = {choice for choice, _label in CallEvent.Direction.choices}
+            if name == "direction" and not set(values) <= valid_directions:
+                raise ValidationError({"direction": "Unsupported call direction."})
+            queryset = queryset.filter(**{lookup: values})
 
     critical = params.get("critical", "").strip().lower()
     if critical == "true":
@@ -397,16 +609,32 @@ def _report_filters(queryset, params):
     elif critical:
         raise ValidationError({"critical": "Use true or false."})
 
+    score_state = params.get("score_state", "all").strip()
+    if score_state == "scored":
+        queryset = queryset.filter(score__isnull=False)
+    elif score_state == "unscored":
+        queryset = queryset.filter(score__isnull=True)
+    elif score_state != "all":
+        raise ValidationError({"score_state": "Use all, scored, or unscored."})
+
     date_from = parse_date(params.get("date_from", ""))
     date_to = parse_date(params.get("date_to", ""))
     if params.get("date_from") and not date_from:
         raise ValidationError({"date_from": "Enter a valid date."})
     if params.get("date_to") and not date_to:
         raise ValidationError({"date_to": "Enter a valid date."})
+    if date_from and date_to and date_from > date_to:
+        raise ValidationError({"date_to": "The end date must be on or after the start date."})
+    date_field = params.get("date_field", "completed_at")
+    if date_field not in {"completed_at", "call_date"}:
+        raise ValidationError({"date_field": "Use completed_at or call_date."})
+    date_lookup = "completed_at__date" if date_field == "completed_at" else "call__call_date__date"
     if date_from:
-        queryset = queryset.filter(completed_at__date__gte=date_from)
+        queryset = queryset.filter(**{f"{date_lookup}__gte": date_from})
     if date_to:
-        queryset = queryset.filter(completed_at__date__lte=date_to)
+        queryset = queryset.filter(**{f"{date_lookup}__lte": date_to})
+
+    queryset = _apply_score_rules(queryset, params)
 
     ordering = params.get("ordering", "-completed_at")
     allowed_ordering = {
@@ -502,6 +730,31 @@ class ReviewReportSummaryView(APIView):
                         )
                         .distinct()
                     ),
+                    "teams": list(
+                        queryset.exclude(call__team__name="")
+                        .order_by("call__team__name")
+                        .values_list("call__team__name", flat=True)
+                        .distinct()
+                    ),
+                    "agents": list(
+                        queryset.exclude(call__agent_name="")
+                        .order_by("call__agent_name")
+                        .values_list("call__agent_name", flat=True)
+                        .distinct()
+                    ),
+                    "dispositions": list(
+                        queryset.exclude(call__disposition="")
+                        .order_by("call__disposition")
+                        .values_list("call__disposition", flat=True)
+                        .distinct()
+                    ),
+                    "directions": list(
+                        queryset.exclude(call__call_direction="")
+                        .order_by("call__call_direction")
+                        .values_list("call__call_direction", flat=True)
+                        .distinct()
+                    ),
+                    "scorecard": scorecard_payload(),
                 },
                 "generated_at": now,
             }
@@ -533,25 +786,34 @@ class ReviewReportActionView(APIView):
             Review.LeaderStatus.ACKNOWLEDGED,
             Review.LeaderStatus.COACHING_PLANNED,
             Review.LeaderStatus.ESCALATED,
+            Review.LeaderStatus.RETURNED_TO_QA,
         },
         Review.LeaderStatus.ACKNOWLEDGED: {
             Review.LeaderStatus.COACHING_PLANNED,
             Review.LeaderStatus.ESCALATED,
             Review.LeaderStatus.CLOSED,
+            Review.LeaderStatus.RETURNED_TO_QA,
         },
         Review.LeaderStatus.COACHING_PLANNED: {
             Review.LeaderStatus.COACHING_COMPLETED,
             Review.LeaderStatus.ESCALATED,
+            Review.LeaderStatus.RETURNED_TO_QA,
         },
         Review.LeaderStatus.COACHING_COMPLETED: {
             Review.LeaderStatus.COACHING_PLANNED,
             Review.LeaderStatus.CLOSED,
+            Review.LeaderStatus.RETURNED_TO_QA,
         },
         Review.LeaderStatus.ESCALATED: {
             Review.LeaderStatus.COACHING_PLANNED,
             Review.LeaderStatus.CLOSED,
+            Review.LeaderStatus.RETURNED_TO_QA,
         },
-        Review.LeaderStatus.CLOSED: {Review.LeaderStatus.ACKNOWLEDGED},
+        Review.LeaderStatus.CLOSED: {
+            Review.LeaderStatus.ACKNOWLEDGED,
+            Review.LeaderStatus.RETURNED_TO_QA,
+        },
+        Review.LeaderStatus.RETURNED_TO_QA: set(),
     }
 
     @transaction.atomic
@@ -591,6 +853,7 @@ class ReviewReportActionView(APIView):
                 Review.LeaderStatus.COACHING_PLANNED,
                 Review.LeaderStatus.COACHING_COMPLETED,
                 Review.LeaderStatus.ESCALATED,
+                Review.LeaderStatus.RETURNED_TO_QA,
             }
             and not note
         ):
@@ -627,6 +890,12 @@ class ReviewReportActionView(APIView):
             )
             if target == Review.LeaderStatus.COACHING_PLANNED:
                 review.coaching_due_at = due_at
+            elif target == Review.LeaderStatus.RETURNED_TO_QA:
+                review.status = Review.Status.REVISION_REQUIRED
+                review.coaching_due_at = None
+                review.revision_requested_at = now
+                review.revision_reason = note
+                review.revision_count += 1
         review.leader_updated_at = now
         review.save(
             update_fields=[
@@ -635,9 +904,13 @@ class ReviewReportActionView(APIView):
                 "leader_reviewed_at",
                 "leader_closed_at",
                 "leader_updated_at",
+                "status",
+                "revision_requested_at",
+                "revision_reason",
+                "revision_count",
             ]
         )
-        ReviewWorkflowEvent.objects.create(
+        workflow_event = ReviewWorkflowEvent.objects.create(
             review=review,
             actor=request.user,
             event_type=(
@@ -649,12 +922,29 @@ class ReviewReportActionView(APIView):
             to_status=target,
             note=note,
             coaching_due_at=review.coaching_due_at,
+            email_status=(
+                Review.EmailStatus.PENDING
+                if target == Review.LeaderStatus.RETURNED_TO_QA
+                and settings.QA_RETURN_EMAIL_ENABLED
+                else Review.EmailStatus.DISABLED
+            ),
         )
-        from apps.notifications.services import resolve_review_report_notification
+        from apps.notifications.services import (
+            queue_review_returned_notification,
+            resolve_review_report_notification,
+        )
 
         resolve_review_report_notification(review, request.user)
+        if target == Review.LeaderStatus.RETURNED_TO_QA:
+            queue_review_returned_notification(review, workflow_event)
+            if settings.QA_RETURN_EMAIL_ENABLED:
+                from apps.notifications.tasks import send_review_returned_email
+
+                transaction.on_commit(
+                    lambda: send_review_returned_email.delay(str(workflow_event.pk))
+                )
         review = (
-            _report_queryset(request.user)
+            _report_base_queryset()
             .prefetch_related("workflow_events__actor")
             .get(pk=review.pk)
         )

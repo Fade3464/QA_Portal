@@ -50,6 +50,7 @@ interface CallLibraryFiltersProps {
   onChange: (value: CallLibraryFilterValue) => void;
   onReset: () => void;
   onRefresh: () => void;
+  simplified?: boolean;
 }
 
 const TIME_RANGES = [
@@ -78,6 +79,7 @@ export function CallLibraryFilters({
   onChange,
   onReset,
   onRefresh,
+  simplified = false,
 }: CallLibraryFiltersProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const patch = (change: Partial<CallLibraryFilterValue>) => onChange({ ...value, ...change });
@@ -88,8 +90,8 @@ export function CallLibraryFilters({
     value.projects.length,
     value.dispositions.length,
     value.terminationReasons.length,
-    value.dialers.length,
-    value.eventTypes.length,
+    simplified ? 0 : value.dialers.length,
+    simplified ? 0 : value.eventTypes.length,
     value.recordingStatuses.length,
     value.dateFrom || value.dateTo,
     value.talkTimeMin !== undefined || value.talkTimeMax !== undefined,
@@ -121,8 +123,8 @@ export function CallLibraryFilters({
     value.projects.length ? { key: 'projects', label: `Project: ${value.projects.join(', ')}`, clear: () => patch({ projects: [] }) } : null,
     value.dispositions.length ? { key: 'dispositions', label: `Disposition: ${value.dispositions.join(', ')}`, clear: () => patch({ dispositions: [] }) } : null,
     value.terminationReasons.length ? { key: 'termination-reasons', label: `Termination: ${value.terminationReasons.join(', ')}`, clear: () => patch({ terminationReasons: [] }) } : null,
-    value.dialers.length ? { key: 'dialers', label: `Dialer: ${value.dialers.join(', ')}`, clear: () => patch({ dialers: [] }) } : null,
-    value.eventTypes.length ? { key: 'events', label: `Event: ${value.eventTypes.join(', ')}`, clear: () => patch({ eventTypes: [] }) } : null,
+    !simplified && value.dialers.length ? { key: 'dialers', label: `Dialer: ${value.dialers.join(', ')}`, clear: () => patch({ dialers: [] }) } : null,
+    !simplified && value.eventTypes.length ? { key: 'events', label: `Event: ${value.eventTypes.join(', ')}`, clear: () => patch({ eventTypes: [] }) } : null,
     value.recordingStatuses.length ? { key: 'recordings', label: `Recording: ${value.recordingStatuses.join(', ')}`, clear: () => patch({ recordingStatuses: [] }) } : null,
     value.dateFrom || value.dateTo ? { key: 'time', label: `Time: ${selectedTimeRange(value) === 'custom' ? 'custom range' : TIME_RANGES.find((item) => item.value === selectedTimeRange(value))?.label ?? 'selected'}`, clear: () => patch({ dateFrom: '', dateTo: '', relativeRange: '' }) } : null,
     value.talkTimeMin !== undefined || value.talkTimeMax !== undefined
@@ -138,7 +140,7 @@ export function CallLibraryFilters({
           value={value.search}
           onChange={(event) => patch({ search: event.target.value })}
           prefix={<SearchOutlined />}
-          placeholder="Search phone, lead, agent, project, call ID…"
+          placeholder={simplified ? 'Search phone, agent, team or project…' : 'Search phone, lead, agent, project, call ID…'}
           allowClear
           maxLength={200}
           aria-label="Search calls"
@@ -173,7 +175,7 @@ export function CallLibraryFilters({
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         size={480}
-        title={<div><Title level={4}>Explore calls</Title><Text type="secondary">Combine filters to narrow the library.</Text></div>}
+        title={<div><Title level={4}>{simplified ? 'Filter QA calls' : 'Explore calls'}</Title><Text type="secondary">{simplified ? 'Narrow the calls available for evaluation.' : 'Combine filters to narrow the library.'}</Text></div>}
         extra={<Badge count={activeCount} showZero color="var(--qa-primary)" />}
         classNames={{ body: 'call-filter-drawer__body' }}
       >
@@ -210,9 +212,9 @@ export function CallLibraryFilters({
             <label>Projects<Select mode="multiple" allowClear showSearch maxTagCount="responsive" loading={optionsLoading} value={value.projects} options={optionList(options?.projects)} onChange={(projects) => patch({ projects })} placeholder="Any project" /></label>
             <label>Dispositions<Select mode="multiple" allowClear showSearch maxTagCount="responsive" loading={optionsLoading} value={value.dispositions} options={optionList(options?.dispositions)} onChange={(dispositions) => patch({ dispositions })} placeholder="Any disposition" /></label>
             <label>Termination reasons<Select mode="multiple" allowClear showSearch maxTagCount="responsive" loading={optionsLoading} value={value.terminationReasons} options={optionList(options?.termination_reasons)} onChange={(terminationReasons) => patch({ terminationReasons })} placeholder="Any termination reason" /></label>
-            <label>Dialers<Select mode="multiple" allowClear showSearch maxTagCount="responsive" loading={optionsLoading} value={value.dialers} options={optionList(options?.dialers)} onChange={(dialers) => patch({ dialers })} placeholder="Any dialer" /></label>
-            <label>Event types<Select mode="multiple" allowClear loading={optionsLoading} value={value.eventTypes} options={options?.event_types ?? []} onChange={(eventTypes) => patch({ eventTypes })} placeholder="Any event type" /></label>
-            <label>Recording states<Select mode="multiple" allowClear showSearch maxTagCount="responsive" loading={optionsLoading} value={value.recordingStatuses} options={options?.recording_statuses ?? []} onChange={(recordingStatuses) => patch({ recordingStatuses })} placeholder="Any recording state" /></label>
+            {!simplified && <label>Dialers<Select mode="multiple" allowClear showSearch maxTagCount="responsive" loading={optionsLoading} value={value.dialers} options={optionList(options?.dialers)} onChange={(dialers) => patch({ dialers })} placeholder="Any dialer" /></label>}
+            {!simplified && <label>Event types<Select mode="multiple" allowClear loading={optionsLoading} value={value.eventTypes} options={options?.event_types ?? []} onChange={(eventTypes) => patch({ eventTypes })} placeholder="Any event type" /></label>}
+            <label>{simplified ? 'Recording readiness' : 'Recording states'}<Select mode="multiple" allowClear showSearch maxTagCount="responsive" loading={optionsLoading} value={value.recordingStatuses} options={options?.recording_statuses ?? []} onChange={(recordingStatuses) => patch({ recordingStatuses })} placeholder={simplified ? 'Any readiness state' : 'Any recording state'} /></label>
           </section>
 
           <Divider />
@@ -240,10 +242,12 @@ export function CallLibraryFilters({
                 { value: 'talk_time', label: 'Shortest talk time first' },
                 { value: 'agent_name', label: 'Agent A–Z' },
                 { value: '-agent_name', label: 'Agent Z–A' },
-                { value: 'team_name', label: 'Team A–Z' },
-                { value: '-team_name', label: 'Team Z–A' },
-                { value: 'lead_id', label: 'Lead ID ascending' },
-                { value: '-lead_id', label: 'Lead ID descending' },
+                ...(!simplified ? [
+                  { value: 'team_name', label: 'Team A–Z' },
+                  { value: '-team_name', label: 'Team Z–A' },
+                  { value: 'lead_id', label: 'Lead ID ascending' },
+                  { value: '-lead_id', label: 'Lead ID descending' },
+                ] : []),
                 { value: 'phone_number', label: 'Phone number ascending' },
                 { value: '-phone_number', label: 'Phone number descending' },
                 { value: 'project_name', label: 'Project A–Z' },

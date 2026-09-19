@@ -37,6 +37,7 @@ export function AppShell() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const isQa = user?.role === 'qa' && !user.is_superuser;
 
   const loadNotifications = useCallback(async () => {
     if (!user) return;
@@ -130,17 +131,19 @@ export function AppShell() {
 
   const items = useMemo<MenuProps['items']>(() => {
     const all = [
-      { key: '/', icon: <DashboardOutlined />, label: <Link to="/">Command center</Link> },
-      { key: '/queue', icon: <AuditOutlined />, label: <Link to="/queue">{user?.role === 'qa' ? 'My QA reports' : 'QA reports'}</Link> },
-      { key: '/calls', icon: <CustomerServiceOutlined />, label: <Link to="/calls">Call library</Link> },
-      { key: '/team', icon: <TeamOutlined />, label: <Link to="/team">Team performance</Link>, roles: ['team_leader', 'project_manager', 'supervisor', 'administrator'] },
+      { key: '/', icon: <DashboardOutlined />, label: <Link to="/">{isQa ? 'QA overview' : 'Command center'}</Link> },
+      { key: '/queue', icon: <AuditOutlined />, label: <Link to="/queue">{isQa ? 'My reports' : user?.role === 'team_leader' ? 'QA inbox' : 'QA reports'}</Link> },
+      { key: '/calls', icon: <CustomerServiceOutlined />, label: <Link to="/calls">{isQa ? 'Calls for review' : 'Call library'}</Link> },
+      { key: '/team', icon: <TeamOutlined />, label: <Link to="/team">Team performance</Link>, roles: ['project_manager', 'supervisor', 'administrator'] },
       { key: '/insights', icon: <BarChartOutlined />, label: <Link to="/insights">Quality insights</Link>, roles: ['project_manager', 'supervisor', 'administrator'] },
       { key: '/admin', icon: <SettingOutlined />, label: <Link to="/admin">Administration</Link>, roles: ['administrator'] },
     ];
     return all.filter((item) => !item.roles || item.roles.includes(user?.role ?? ''));
-  }, [user?.role]);
+  }, [isQa, user?.role]);
 
-  const accountMenu: MenuProps['items'] = [
+  const accountMenu: MenuProps['items'] = isQa ? [
+    { key: 'logout', label: 'Sign out', icon: <LogoutOutlined />, danger: true, onClick: async () => { await logout(); navigate('/login'); } },
+  ] : [
     { key: 'profile', label: 'My profile', icon: <AppstoreOutlined />, disabled: true },
     { type: 'divider' },
     { key: 'logout', label: 'Sign out', icon: <LogoutOutlined />, danger: true, onClick: async () => { await logout(); navigate('/login'); } },
@@ -149,7 +152,7 @@ export function AppShell() {
   const notificationPanel = (
     <div className="notification-panel">
       <div className="notification-panel__header">
-        <span><strong>System notifications</strong><small>{unreadCount ? `${unreadCount} need attention` : 'You are all caught up'}</small></span>
+        <span><strong>Notifications</strong><small>{unreadCount ? `${unreadCount} need attention` : 'You are all caught up'}</small></span>
         {unreadCount > 0 && <Button type="link" size="small" icon={<CheckOutlined />} onClick={() => void markAllRead()}>Read all</Button>}
       </div>
       <div className={`notification-panel__list${notificationsLoading ? ' notification-panel__list--loading' : ''}`}>
@@ -166,9 +169,9 @@ export function AppShell() {
   return (
     <Layout className="app-layout" hasSider>
       <Sider width={264} collapsedWidth={76} collapsed={collapsed} trigger={null} breakpoint="lg" onBreakpoint={setCollapsed} className="app-sider" theme="light">
-        <div className="sider-brand"><BrandMark compact={collapsed} /></div>
+        <div className={`sider-brand${collapsed ? ' sider-brand--collapsed' : ''}`}><BrandMark compact={collapsed} /></div>
         <div className={`sider-nav-header${collapsed ? ' sider-nav-header--collapsed' : ''}`}>
-          {!collapsed && <Text className="nav-label">WORKSPACE</Text>}
+          {!collapsed && <Text className="nav-label">{isQa ? 'QA WORKSPACE' : 'WORKSPACE'}</Text>}
           <Tooltip title={collapsed ? 'Expand navigation' : 'Collapse navigation'} placement="right">
             <Button
               type="text"
@@ -183,7 +186,7 @@ export function AppShell() {
         <Menu mode="inline" theme="light" selectedKeys={[location.pathname]} items={items} className="app-menu" classNames={{ itemIcon: 'app-menu__icon', itemContent: 'app-menu__content' }} />
         {!collapsed && (
           <div className="sider-foot">
-            <div className="workspace-card"><span className="workspace-card__icon"><AppstoreOutlined /></span><span><small>Active branch</small><strong>{user?.branch?.name ?? 'System-wide'}</strong></span></div>
+            <div className="workspace-card"><span className="workspace-card__icon"><AppstoreOutlined /></span><span><small>{isQa ? 'Assigned branch' : 'Active branch'}</small><strong>{user?.branch?.name ?? 'System-wide'}</strong></span></div>
           </div>
         )}
       </Sider>
@@ -194,7 +197,7 @@ export function AppShell() {
             <strong>{user?.branch?.name ?? 'All organizations'}</strong>
           </div>
           <div className="header-actions">
-            <Tag color={connection === 'live' ? 'success' : connection === 'offline' ? 'error' : 'default'} className="live-status"><span className={`live-dot ${connection === 'live' ? '' : 'live-dot--muted'}`} />{connection === 'live' ? 'Live' : connection === 'offline' ? 'Offline' : 'Connecting'}</Tag>
+            {!isQa && <Tag color={connection === 'live' ? 'success' : connection === 'offline' ? 'error' : 'default'} className="live-status"><span className={`live-dot ${connection === 'live' ? '' : 'live-dot--muted'}`} />{connection === 'live' ? 'Live' : connection === 'offline' ? 'Offline' : 'Connecting'}</Tag>}
             <Popover content={notificationPanel} trigger="click" placement="bottomRight" open={notificationsOpen} onOpenChange={(open) => { setNotificationsOpen(open); if (open) void loadNotifications(); }} styles={{ content: { padding: 0 } }}><Badge count={unreadCount} size="small" overflowCount={99}><Button type="text" shape="circle" className="header-icon-button" icon={<BellOutlined />} aria-label={`${unreadCount} unread notifications`} /></Badge></Popover>
             <ThemeControls />
             <Dropdown menu={{ items: accountMenu }} trigger={['click']} placement="bottomRight">

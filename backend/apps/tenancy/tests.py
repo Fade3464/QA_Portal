@@ -222,6 +222,47 @@ class AdministrationApiTests(TestCase):
         )
         self.assertEqual(response.json()["assigned_projects"][0]["id"], str(project.pk))
 
+    def test_administrator_assigns_team_leader_to_projects(self):
+        leader = User.objects.create_user(
+            email="project-leader@example.com",
+            password="a-very-strong-password",
+            first_name="Project",
+            last_name="Leader",
+            role=User.Role.TEAM_LEADER,
+            company=self.company,
+            branch=self.branch,
+            must_change_password=False,
+        )
+        dialer = Dialer(
+            branch=self.branch,
+            name="Leader dialer",
+            api_url="https://dialer.example.com/non_agent_api.php",
+            api_username="api",
+        )
+        dialer.set_api_password("secret")
+        dialer.set_webhook_secret("a-long-private-webhook-secret")
+        dialer.save()
+        project = DialerCampaign.objects.create(
+            dialer=dialer,
+            campaign="RETENTION",
+            project_name="Customer Retention",
+        )
+        self.client.force_login(self.admin)
+        response = self.client.patch(
+            reverse(
+                "administration-user-detail", kwargs={"pk": leader.pk}
+            ),
+            {"project_assignment_ids": [str(project.pk)]},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(
+            QAProjectAssignment.objects.filter(
+                qa=leader, dialer_campaign=project
+            ).exists()
+        )
+        self.assertEqual(response.json()["assigned_projects"][0]["id"], str(project.pk))
+
     def test_qa_project_assignment_rejects_another_branch(self):
         other_branch = Branch.objects.create(
             company=self.company, name="Lahore", code="lhe"

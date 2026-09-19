@@ -4,7 +4,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './auth/AuthContext';
 import { AppShell } from './components/AppShell';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
-import { PortalLoader } from './components/PortalLoader';
+import { ContentLoader } from './components/LoadingStates';
 import { useThemeSettings } from './theme/ThemeContext';
 
 const CallsPage = lazy(() => import('./pages/CallsPage').then((module) => ({ default: module.CallsPage })));
@@ -20,7 +20,7 @@ const ReportsPage = lazy(() => import('./pages/ReportsPage').then((module) => ({
 function ProtectedLayout() {
   const { user, loading } = useAuth();
   const location = useLocation();
-  if (loading) return <div className="app-loader"><PortalLoader /></div>;
+  if (loading) return <ContentLoader fullPage label="Preparing your workspace" />;
   if (!user) return <Navigate to="/login" state={{ from: location.pathname }} replace />;
   if (user.must_change_password) return <Navigate to="/change-password" replace />;
   return <AppShell />;
@@ -29,6 +29,11 @@ function ProtectedLayout() {
 function AdministratorRoute() {
   const { user } = useAuth();
   return user?.is_superuser ? <AdministrationPage /> : <Navigate to="/" replace />;
+}
+
+function ManagementRoute() {
+  const { user } = useAuth();
+  return user && ['project_manager', 'supervisor', 'administrator'].includes(user.role) ? <PlaceholderPage /> : <Navigate to="/" replace />;
 }
 
 export default function App() {
@@ -90,7 +95,7 @@ export default function App() {
     >
       <AntApp>
         <AppErrorBoundary>
-          <Suspense fallback={<div className="app-loader"><PortalLoader label="Loading your next view…" /></div>}>
+          <Suspense fallback={<ContentLoader fullPage label="Loading workspace" />}>
             <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
@@ -100,8 +105,8 @@ export default function App() {
               <Route index element={<DashboardPage />} />
               <Route path="calls" element={<CallsPage />} />
               <Route path="queue" element={<ReportsPage />} />
-              <Route path="team" element={<PlaceholderPage />} />
-              <Route path="insights" element={<PlaceholderPage />} />
+              <Route path="team" element={<ManagementRoute />} />
+              <Route path="insights" element={<ManagementRoute />} />
               <Route path="admin" element={<AdministratorRoute />} />
               <Route path="administration" element={<AdministratorRoute />} />
             </Route>

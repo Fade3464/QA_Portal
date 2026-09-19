@@ -185,21 +185,21 @@ def calculate_score(scores, *, require_complete: bool) -> Decimal:
     return total.quantize(Decimal("0.01"))
 
 
-def validate_criterion_evidence(
-    evidence, *, duration_seconds: int | None = None
+def _validate_evidence(
+    evidence,
+    *,
+    allowed_keys: set[str],
+    field_name: str,
+    entry_label: str,
+    duration_seconds: int | None = None,
 ) -> dict:
     if not isinstance(evidence, dict):
-        raise ValidationError({"criterion_evidence": "Evidence must be an object."})
-    criteria = {
-        key for category in SCORECARD for key, _label, _maximum in category["criteria"]
-    }
-    unknown = set(evidence) - criteria
+        raise ValidationError({field_name: "Evidence must be an object."})
+    unknown = set(evidence) - allowed_keys
     if unknown:
-        raise ValidationError(
-            {"criterion_evidence": f"Unknown criterion: {sorted(unknown)[0]}"}
-        )
-    if len(evidence) > len(criteria):
-        raise ValidationError({"criterion_evidence": "Too many criterion entries."})
+        raise ValidationError({field_name: f"Unknown {entry_label}: {sorted(unknown)[0]}"})
+    if len(evidence) > len(allowed_keys):
+        raise ValidationError({field_name: f"Too many {entry_label} entries."})
 
     normalized = {}
     total_patches = 0
@@ -207,13 +207,13 @@ def validate_criterion_evidence(
     for criterion_key, entry in evidence.items():
         if not isinstance(entry, dict):
             raise ValidationError(
-                {"criterion_evidence": f"{criterion_key} must be an object."}
+                {field_name: f"{criterion_key} must be an object."}
             )
         unexpected = set(entry) - {"comment", "patches"}
         if unexpected:
             raise ValidationError(
                 {
-                    "criterion_evidence": (
+                    field_name: (
                         f"Unsupported field for {criterion_key}: {sorted(unexpected)[0]}"
                     )
                 }
@@ -223,7 +223,7 @@ def validate_criterion_evidence(
         if not isinstance(comment, str) or len(comment) > 2000:
             raise ValidationError(
                 {
-                    "criterion_evidence": (
+                    field_name: (
                         f"The comment for {criterion_key} must be at most 2000 characters."
                     )
                 }
@@ -231,7 +231,7 @@ def validate_criterion_evidence(
         if not isinstance(patches, list) or len(patches) > 20:
             raise ValidationError(
                 {
-                    "criterion_evidence": (
+                    field_name: (
                         f"{criterion_key} can contain at most 20 timestamp patches."
                     )
                 }
@@ -239,7 +239,7 @@ def validate_criterion_evidence(
         total_patches += len(patches)
         if total_patches > 200:
             raise ValidationError(
-                {"criterion_evidence": "A report can contain at most 200 patches."}
+                {field_name: "A report can contain at most 200 patches."}
             )
 
         normalized_patches = []
@@ -248,7 +248,7 @@ def validate_criterion_evidence(
             if not isinstance(patch, dict):
                 raise ValidationError(
                     {
-                        "criterion_evidence": (
+                        field_name: (
                             f"Patch {position} for {criterion_key} must be an object."
                         )
                     }
@@ -257,7 +257,7 @@ def validate_criterion_evidence(
             if unexpected_patch:
                 raise ValidationError(
                     {
-                        "criterion_evidence": (
+                        field_name: (
                             f"Unsupported patch field: {sorted(unexpected_patch)[0]}"
                         )
                     }
@@ -268,14 +268,14 @@ def validate_criterion_evidence(
             except (TypeError, ValueError, AttributeError) as exc:
                 raise ValidationError(
                     {
-                        "criterion_evidence": (
+                        field_name: (
                             f"Patch {position} for {criterion_key} has an invalid ID."
                         )
                     }
                 ) from exc
             if normalized_id in seen_ids:
                 raise ValidationError(
-                    {"criterion_evidence": f"Duplicate patch ID for {criterion_key}."}
+                    {field_name: f"Duplicate patch ID for {criterion_key}."}
                 )
             seen_ids.add(normalized_id)
             start_ms = patch.get("start_ms")
@@ -289,7 +289,7 @@ def validate_criterion_evidence(
             ):
                 raise ValidationError(
                     {
-                        "criterion_evidence": (
+                        field_name: (
                             f"Patch {position} for {criterion_key} requires integer timestamps."
                         )
                     }
@@ -297,21 +297,21 @@ def validate_criterion_evidence(
             if start_ms < 0 or end_ms <= start_ms:
                 raise ValidationError(
                     {
-                        "criterion_evidence": (
+                        field_name: (
                             f"Patch {position} for {criterion_key} must end after it starts."
                         )
                     }
                 )
             if end_ms > 86_400_000:
                 raise ValidationError(
-                    {"criterion_evidence": "Patch timestamps cannot exceed 24 hours."}
+                    {field_name: "Patch timestamps cannot exceed 24 hours."}
                 )
             # Stored duration is rounded to a whole second, so allow one second
             # of tolerance while still enforcing the recording boundary.
             if known_duration_ms and end_ms > known_duration_ms + 1000:
                 raise ValidationError(
                     {
-                        "criterion_evidence": (
+                        field_name: (
                             f"Patch {position} for {criterion_key} exceeds the recording duration."
                         )
                     }
@@ -319,7 +319,7 @@ def validate_criterion_evidence(
             if not isinstance(patch_comment, str) or len(patch_comment) > 500:
                 raise ValidationError(
                     {
-                        "criterion_evidence": (
+                        field_name: (
                             f"Patch {position} for {criterion_key} has an invalid comment."
                         )
                     }
@@ -340,7 +340,7 @@ def validate_criterion_evidence(
             if current["start_ms"] < previous["end_ms"]:
                 raise ValidationError(
                     {
-                        "criterion_evidence": (
+                        field_name: (
                             f"Timestamp patches for {criterion_key} cannot overlap."
                         )
                     }
@@ -351,6 +351,33 @@ def validate_criterion_evidence(
                 "patches": normalized_patches,
             }
     return normalized
+
+
+def validate_criterion_evidence(
+    evidence, *, duration_seconds: int | None = None
+) -> dict:
+    criteria = {
+        key for category in SCORECARD for key, _label, _maximum in category["criteria"]
+    }
+    return _validate_evidence(
+        evidence,
+        allowed_keys=criteria,
+        field_name="criterion_evidence",
+        entry_label="criterion",
+        duration_seconds=duration_seconds,
+    )
+
+
+def validate_critical_error_evidence(
+    evidence, *, duration_seconds: int | None = None
+) -> dict:
+    return _validate_evidence(
+        evidence,
+        allowed_keys={value for value, _label in CRITICAL_ERRORS},
+        field_name="critical_error_evidence",
+        entry_label="critical error",
+        duration_seconds=duration_seconds,
+    )
 
 
 def rating_for(score: Decimal, has_critical_error: bool) -> tuple[str, str]:

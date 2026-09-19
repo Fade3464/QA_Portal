@@ -8,7 +8,7 @@ from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.utils import timezone
 
-from apps.calls.models import Review
+from apps.calls.models import Review, ReviewWorkflowEvent
 
 logger = logging.getLogger(__name__)
 
@@ -117,4 +117,124 @@ def send_review_report_email(self, review_id: str):
         email_last_error="",
     )
     logger.info("QA report email delivered", extra={"review_id": review_id})
+    return {"status": "sent"}
+
+
+def _returned_report_body(event) -> tuple[str, str]:
+    review = event.review
+    agent = review.call.agent_name or review.call.agent_user or "Unknown agent"
+    leader = event.actor.full_name
+    reason = event.note
+    revision_number = ReviewWorkflowEvent.objects.filter(
+        review=review,
+        to_status=Review.LeaderStatus.RETURNED_TO_QA,
+        created_at__lte=event.created_at,
+    ).count()
+    reassessment_url = (
+        f"{settings.FRONTEND_URL.rstrip('/')}/calls?analysis={review.call_id}"
+    )
+    text = "\n".join(
+        [
+            "QA report returned for reassessment",
+            "",
+            f"Agent: {agent}",
+            f"Team: {review.call.team.name if review.call.team_id else 'Unassigned'}",
+            f"Returned by: {leader}",
+            f"Revision: {revision_number}",
+            "",
+            "Reason supplied by the Team Leader:",
+            reason,
+            "",
+            "Review the feedback, update the evaluation, and resubmit it when ready.",
+            f"Open the report: {reassessment_url}",
+        ]
+    )
+    html_body = (
+        "<h2>QA report returned for reassessment</h2>"
+        f"<p><strong>Agent:</strong> {html.escape(agent)}<br>"
+        f"<strong>Team:</strong> {html.escape(review.call.team.name if review.call.team_id else 'Unassigned')}<br>"
+        f"<strong>Returned by:</strong> {html.escape(leader)}<br>"
+        f"<strong>Revision:</strong> {revision_number}</p>"
+        "<h3>Reason supplied by the Team Leader</h3>"
+        f"<p>{html.escape(reason)}</p>"
+        "<p>Review the feedback, update the evaluation, and resubmit it when ready.</p>"
+        f"<p><a href='{html.escape(reassessment_url)}'>Open report for reassessment</a></p>"
+    )
+    return text, html_body
+
+
+@shared_task(
+    name="notifications.send_review_returned_email",
+    bind=True,
+    max_retries=4,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    soft_time_limit=45,
+    time_limit=60,
+)
+def send_review_returned_email(self, workflow_event_id: str):
+    try:
+        event = ReviewWorkflowEvent.objects.select_related(
+            "review__call__team", "review__reviewer", "actor"
+        ).get(pk=workflow_event_id)
+    except ReviewWorkflowEvent.DoesNotExist:
+        logger.warning(
+            "Review return event disappeared before email delivery",
+            extra={"workflow_event_id": workflow_event_id},
+        )
+        return {"status": "missing"}
+    if event.to_status != Review.LeaderStatus.RETURNED_TO_QA:
+        return {"status": "not_return_event"}
+    if event.email_status == Review.EmailStatus.SENT:
+        return {"status": "already_sent"}
+    if not settings.QA_RETURN_EMAIL_ENABLED:
+        ReviewWorkflowEvent.objects.filter(pk=event.pk).update(
+            email_status=Review.EmailStatus.DISABLED
+        )
+        return {"status": "disabled"}
+    recipient = event.review.reviewer.email
+    if not recipient:
+        ReviewWorkflowEvent.objects.filter(pk=event.pk).update(
+            email_status=Review.EmailStatus.FAILED,
+            email_last_error="The QA analyst does not have an email address.",
+        )
+        return {"status": "missing_recipient"}
+    text, html_body = _returned_report_body(event)
+    try:
+        message = EmailMultiAlternatives(
+            subject=(
+                "QA report returned: "
+                f"{event.review.call.agent_name or event.review.call.agent_user}"
+            ),
+            body=text,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[recipient],
+        )
+        message.attach_alternative(html_body, "text/html")
+        message.send(fail_silently=False)
+    except Exception as exc:
+        ReviewWorkflowEvent.objects.filter(pk=event.pk).update(
+            email_status=Review.EmailStatus.FAILED,
+            email_last_error=str(exc)[:1000],
+        )
+        logger.exception(
+            "QA report return email delivery failed",
+            extra={
+                "workflow_event_id": workflow_event_id,
+                "review_id": str(event.review_id),
+            },
+        )
+        raise self.retry(exc=exc, countdown=min(600, 30 * 2**self.request.retries))
+    ReviewWorkflowEvent.objects.filter(pk=event.pk).update(
+        email_status=Review.EmailStatus.SENT,
+        email_sent_at=timezone.now(),
+        email_last_error="",
+    )
+    logger.info(
+        "QA report return email delivered",
+        extra={
+            "workflow_event_id": workflow_event_id,
+            "review_id": str(event.review_id),
+        },
+    )
     return {"status": "sent"}

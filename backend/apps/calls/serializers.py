@@ -1,7 +1,12 @@
 from rest_framework import serializers
 
 from .models import CallEvent, Review, ReviewWorkflowEvent
-from .scorecard import CRITICAL_ERRORS, calculate_score, validate_criterion_evidence
+from .scorecard import (
+    CRITICAL_ERRORS,
+    calculate_score,
+    validate_criterion_evidence,
+    validate_critical_error_evidence,
+)
 
 
 class ReviewSerializer(serializers.ModelSerializer):
@@ -17,6 +22,7 @@ class ReviewSerializer(serializers.ModelSerializer):
     )
     scores = serializers.DictField(required=False)
     criterion_evidence = serializers.DictField(required=False)
+    critical_error_evidence = serializers.DictField(required=False)
     critical_errors = serializers.ListField(
         child=serializers.ChoiceField(choices=CRITICAL_ERRORS), required=False
     )
@@ -33,6 +39,7 @@ class ReviewSerializer(serializers.ModelSerializer):
             "scores",
             "criterion_evidence",
             "critical_errors",
+            "critical_error_evidence",
             "rating",
             "rating_label",
             "outcome",
@@ -56,6 +63,9 @@ class ReviewSerializer(serializers.ModelSerializer):
             "leader_reviewed_at",
             "leader_closed_at",
             "leader_updated_at",
+            "revision_requested_at",
+            "revision_reason",
+            "revision_count",
         )
         read_only_fields = (
             "id",
@@ -76,6 +86,9 @@ class ReviewSerializer(serializers.ModelSerializer):
             "leader_reviewed_at",
             "leader_closed_at",
             "leader_updated_at",
+            "revision_requested_at",
+            "revision_reason",
+            "revision_count",
         )
 
     def validate_scores(self, value):
@@ -85,6 +98,10 @@ class ReviewSerializer(serializers.ModelSerializer):
     def validate_criterion_evidence(self, value):
         duration = self.instance.call.talk_time if self.instance else None
         return validate_criterion_evidence(value, duration_seconds=duration)
+
+    def validate_critical_error_evidence(self, value):
+        duration = self.instance.call.talk_time if self.instance else None
+        return validate_critical_error_evidence(value, duration_seconds=duration)
 
 
 class ReviewListSerializer(ReviewSerializer):
@@ -136,6 +153,8 @@ class ReviewWorkflowEventSerializer(serializers.ModelSerializer):
             "to_status_label",
             "note",
             "coaching_due_at",
+            "email_status",
+            "email_sent_at",
             "created_at",
         )
 

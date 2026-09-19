@@ -335,6 +335,7 @@ class Review(models.Model):
     class Status(models.TextChoices):
         ASSIGNED = "assigned", "Assigned"
         IN_PROGRESS = "in_progress", "In progress"
+        REVISION_REQUIRED = "revision_required", "Revision required"
         COMPLETED = "completed", "Completed"
         DISPUTED = "disputed", "Disputed"
 
@@ -369,6 +370,7 @@ class Review(models.Model):
         COACHING_PLANNED = "coaching_planned", "Coaching planned"
         COACHING_COMPLETED = "coaching_completed", "Coaching completed"
         ESCALATED = "escalated", "Escalated"
+        RETURNED_TO_QA = "returned_to_qa", "Returned to QA"
         CLOSED = "closed", "Closed"
 
     id = models.UUIDField(
@@ -407,6 +409,7 @@ class Review(models.Model):
     scores = models.JSONField(default=dict, blank=True)
     criterion_evidence = models.JSONField(default=dict, blank=True)
     critical_errors = models.JSONField(default=list, blank=True)
+    critical_error_evidence = models.JSONField(default=dict, blank=True)
     rating = models.CharField(max_length=32, choices=Rating.choices, blank=True)
     outcome = models.CharField(max_length=40, choices=Outcome.choices, blank=True)
     feedback_summary = models.TextField(blank=True)
@@ -437,6 +440,9 @@ class Review(models.Model):
     leader_reviewed_at = models.DateTimeField(null=True, blank=True)
     leader_closed_at = models.DateTimeField(null=True, blank=True)
     leader_updated_at = models.DateTimeField(null=True, blank=True)
+    revision_requested_at = models.DateTimeField(null=True, blank=True)
+    revision_reason = models.TextField(blank=True)
+    revision_count = models.PositiveIntegerField(default=0)
 
     assigned_at = models.DateTimeField(
         auto_now_add=True,
@@ -492,6 +498,13 @@ class ReviewWorkflowEvent(models.Model):
     to_status = models.CharField(max_length=24, blank=True)
     note = models.TextField(blank=True)
     coaching_due_at = models.DateTimeField(null=True, blank=True)
+    email_status = models.CharField(
+        max_length=16,
+        choices=Review.EmailStatus.choices,
+        default=Review.EmailStatus.DISABLED,
+    )
+    email_sent_at = models.DateTimeField(null=True, blank=True)
+    email_last_error = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

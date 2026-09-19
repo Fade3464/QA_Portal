@@ -1,3 +1,4 @@
+import json
 import secrets
 import tempfile
 import uuid
@@ -40,7 +41,10 @@ from .services import (
 )
 from .tasks import fetch_recording, resolve_recording
 from .webhooks import infer_call_direction, infer_dial_method
-from apps.notifications.tasks import send_review_report_email
+from apps.notifications.tasks import (
+    send_review_report_email,
+    send_review_returned_email,
+)
 
 
 class CallClassificationTests(SimpleTestCase):
@@ -160,6 +164,93 @@ class WebhookTests(TestCase):
         self.assertEqual(payload["results"][0]["phone_number"], "+923001234567")
         self.assertEqual(payload["results"][0]["termination_reason"], "AGENT")
         self.assertEqual(payload["results"][0]["call_direction"], "OUTBOUND")
+
+    def test_team_leader_call_library_and_filters_are_strictly_team_scoped(self):
+        leader = User.objects.create_user(
+            email="leader@example.com",
+            password="a-very-strong-password",
+            first_name="Amina",
+            last_name="Leader",
+            role=User.Role.TEAM_LEADER,
+            company=self.branch.company,
+            branch=self.branch,
+            must_change_password=False,
+        )
+        other_leader = User.objects.create_user(
+            email="other-leader@example.com",
+            password="a-very-strong-password",
+            first_name="Bilal",
+            last_name="Leader",
+            role=User.Role.TEAM_LEADER,
+            company=self.branch.company,
+            branch=self.branch,
+            must_change_password=False,
+        )
+        own_team = Team.objects.create(
+            branch=self.branch, name="Amina Team", team_leader=leader
+        )
+        other_team = Team.objects.create(
+            branch=self.branch, name="Bilal Team", team_leader=other_leader
+        )
+        project = DialerCampaign.objects.create(
+            dialer=self.dialer,
+            campaign="SHARED",
+            project_name="Shared Project",
+        )
+        QAProjectAssignment.objects.create(qa=leader, dialer_campaign=project)
+        own_call = CallEvent.objects.create(
+            dialer=self.dialer,
+            branch=self.branch,
+            team=own_team,
+            team_name=own_team.name,
+            event_key="leader-own-team".ljust(64, "0"),
+            event_type=CallEvent.EventType.DISPOSITION,
+            campaign="shared",
+            agent_name="Visible Agent",
+            disposition="SALE",
+        )
+        CallEvent.objects.create(
+            dialer=self.dialer,
+            branch=self.branch,
+            team=other_team,
+            team_name=other_team.name,
+            event_key="leader-other-team".ljust(64, "0"),
+            event_type=CallEvent.EventType.DISPOSITION,
+            campaign="shared",
+            agent_name="Hidden Agent",
+            disposition="HIDDEN",
+        )
+        CallEvent.objects.create(
+            dialer=self.dialer,
+            branch=self.branch,
+            event_key="leader-unassigned".ljust(64, "0"),
+            event_type=CallEvent.EventType.DISPOSITION,
+            campaign="shared",
+            agent_name="Unassigned Agent",
+            disposition="UNASSIGNED",
+        )
+
+        self.client.force_login(leader)
+        listing = self.client.get(reverse("call-list"))
+        self.assertEqual(listing.status_code, 200)
+        self.assertEqual(listing.json()["count"], 1)
+        self.assertEqual(
+            [row["id"] for row in listing.json()["results"]], [str(own_call.pk)]
+        )
+
+        filters = self.client.get(reverse("call-filter-options"))
+        self.assertEqual(filters.status_code, 200)
+        self.assertEqual(filters.json()["agents"], ["Visible Agent"])
+        self.assertEqual(filters.json()["teams"], [own_team.name])
+        self.assertEqual(filters.json()["dispositions"], ["SALE"])
+
+        dashboard = self.client.get(reverse("dashboard-summary"))
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertEqual(dashboard.json()["metrics"]["total_calls"], 1)
+        self.assertEqual(
+            [row["id"] for row in dashboard.json()["recent_calls"]],
+            [str(own_call.pk)],
+        )
 
     def test_call_library_uses_server_side_pagination(self):
         user = User.objects.create_superuser(
@@ -800,6 +891,9 @@ class AnalysisReservationTests(TestCase):
         )
         for qa in (self.qa_one, self.qa_two):
             QAProjectAssignment.objects.create(qa=qa, dialer_campaign=campaign)
+        QAProjectAssignment.objects.create(
+            qa=self.team_leader, dialer_campaign=campaign
+        )
         self.call = CallEvent.objects.create(
             dialer=self.dialer,
             branch=self.branch,
@@ -1087,6 +1181,29 @@ class AnalysisReservationTests(TestCase):
         )
         review_id = submitted.json()["id"]
 
+        DialerCampaign.objects.create(
+            dialer=self.dialer,
+            campaign="UNASSIGNED",
+            project_name="Hidden Project",
+        )
+        hidden_call = CallEvent.objects.create(
+            dialer=self.dialer,
+            branch=self.branch,
+            event_key="leader-project-hidden".ljust(64, "0"),
+            event_type=CallEvent.EventType.DISPOSITION,
+            campaign="UNASSIGNED",
+            agent_user="8015",
+            team=self.team,
+            team_name=self.team.name,
+        )
+        Review.objects.create(
+            call=hidden_call,
+            reviewer=self.qa_one,
+            team_leader=self.team_leader,
+            status=Review.Status.COMPLETED,
+            completed_at=timezone.now(),
+        )
+
         self.client.force_login(self.team_leader)
         summary = self.client.get(reverse("review-report-summary"))
         self.assertEqual(summary.status_code, 200, summary.content)
@@ -1133,6 +1250,63 @@ class AnalysisReservationTests(TestCase):
         )
         self.assertEqual(len(coaching.json()["workflow_events"]), 2)
 
+    def test_team_leader_can_filter_heading_and_subheading_scores_server_side(self):
+        scores = self.full_scores()
+        low_scores = {**scores, "professional_greeting": 0}
+        for index, (call_id, values, total) in enumerate(
+            (("PERFECT", scores, 100), ("LOW-OPENING", low_scores, 98))
+        ):
+            call = CallEvent.objects.create(
+                dialer=self.dialer,
+                branch=self.branch,
+                event_key=f"score-filter-{index}".ljust(64, "0"),
+                event_type=CallEvent.EventType.DISPOSITION,
+                campaign="analysis",
+                call_id=call_id,
+                agent_name=f"Agent {index}",
+                team=self.team,
+                team_name=self.team.name,
+            )
+            Review.objects.create(
+                call=call,
+                reviewer=self.qa_one,
+                team_leader=self.team_leader,
+                status=Review.Status.COMPLETED,
+                score=total,
+                scores=values,
+                completed_at=timezone.now(),
+            )
+
+        self.client.force_login(self.team_leader)
+        category_rule = json.dumps(
+            [{"scope": "category", "key": "opening", "operator": "lt", "value": 9, "unit": "points"}]
+        )
+        category_response = self.client.get(
+            reverse("review-report-list"), {"segment": "all", "score_rules": category_rule}
+        )
+        self.assertEqual(category_response.status_code, 200, category_response.content)
+        self.assertEqual(category_response.json()["count"], 1)
+        self.assertEqual(category_response.json()["results"][0]["call_id"], str(CallEvent.objects.get(call_id="LOW-OPENING").pk))
+
+        any_rules = json.dumps(
+            [
+                {"scope": "criterion", "key": "professional_greeting", "operator": "eq", "value": 0, "unit": "points"},
+                {"scope": "total", "key": "total", "operator": "eq", "value": 100, "unit": "percent"},
+            ]
+        )
+        any_response = self.client.get(
+            reverse("review-report-list"),
+            {"segment": "all", "score_match": "any", "score_rules": any_rules},
+        )
+        self.assertEqual(any_response.status_code, 200, any_response.content)
+        self.assertEqual(any_response.json()["count"], 2)
+
+        invalid_response = self.client.get(
+            reverse("review-report-list"),
+            {"segment": "all", "score_rules": json.dumps([{"scope": "criterion", "key": "unknown", "operator": "eq", "value": 1}])},
+        )
+        self.assertEqual(invalid_response.status_code, 400)
+
     def test_team_leader_workflow_rejects_invalid_transition_and_qa_action(self):
         self.client.force_login(self.qa_one)
         self.client.post(self.url("call-reserve"))
@@ -1167,6 +1341,92 @@ class AnalysisReservationTests(TestCase):
         )
         self.assertEqual(missing_due_date.status_code, 400)
 
+    def test_team_leader_can_return_report_and_qa_can_reassess_and_resubmit(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        submitted = self.client.post(
+            self.url("call-review-submit"),
+            self.submission(),
+            content_type="application/json",
+        )
+        review_id = submitted.json()["id"]
+        action_url = reverse("review-report-action", kwargs={"pk": review_id})
+
+        self.client.force_login(self.team_leader)
+        missing_reason = self.client.post(
+            action_url,
+            {"leader_status": Review.LeaderStatus.RETURNED_TO_QA},
+            content_type="application/json",
+        )
+        self.assertEqual(missing_reason.status_code, 400)
+
+        reason = "The timestamp does not support the selected critical finding."
+        returned = self.client.post(
+            action_url,
+            {
+                "leader_status": Review.LeaderStatus.RETURNED_TO_QA,
+                "note": reason,
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(returned.status_code, 200, returned.content)
+        self.assertEqual(returned.json()["status"], Review.Status.REVISION_REQUIRED)
+        self.assertEqual(
+            returned.json()["leader_status"], Review.LeaderStatus.RETURNED_TO_QA
+        )
+        self.assertEqual(returned.json()["revision_reason"], reason)
+        self.assertEqual(returned.json()["revision_count"], 1)
+        return_notification = SystemNotification.objects.get(
+            category=SystemNotification.Category.QA_REPORT_RETURNED
+        )
+        self.assertTrue(return_notification.recipients.filter(pk=self.qa_one.pk).exists())
+        self.assertEqual(return_notification.metadata["reason"], reason)
+        self.assertIsNone(return_notification.resolved_at)
+
+        self.client.force_login(self.qa_one)
+        analysis = self.client.get(self.url("call-analysis"))
+        self.assertEqual(analysis.status_code, 200, analysis.content)
+        self.assertEqual(
+            analysis.json()["review"]["status"], Review.Status.REVISION_REQUIRED
+        )
+        self.assertEqual(analysis.json()["review"]["revision_reason"], reason)
+        release = self.client.post(self.url("call-release"))
+        self.assertEqual(release.status_code, 409)
+        draft = self.client.patch(
+            self.url("call-review-draft"),
+            {"strengths": "Updated after the Team Leader review."},
+            content_type="application/json",
+        )
+        self.assertEqual(draft.status_code, 200, draft.content)
+
+        resubmitted = self.client.post(
+            self.url("call-review-submit"),
+            self.submission(strengths="Updated after the Team Leader review."),
+            content_type="application/json",
+        )
+        self.assertEqual(resubmitted.status_code, 200, resubmitted.content)
+        self.assertEqual(resubmitted.json()["status"], Review.Status.COMPLETED)
+        self.assertEqual(
+            resubmitted.json()["leader_status"], Review.LeaderStatus.PENDING
+        )
+        self.assertEqual(resubmitted.json()["revision_reason"], "")
+        self.assertEqual(resubmitted.json()["revision_count"], 1)
+        return_notification.refresh_from_db()
+        self.assertIsNotNone(return_notification.resolved_at)
+        events = list(
+            ReviewWorkflowEvent.objects.filter(review_id=review_id).order_by(
+                "created_at"
+            )
+        )
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0].to_status, Review.LeaderStatus.RETURNED_TO_QA)
+        self.assertEqual(events[1].from_status, Review.LeaderStatus.RETURNED_TO_QA)
+        self.assertEqual(events[1].to_status, Review.LeaderStatus.PENDING)
+        leader_notification = SystemNotification.objects.get(
+            dedupe_key=f"qa-report:{review_id}"
+        )
+        self.assertIsNone(leader_notification.resolved_at)
+
     def test_critical_error_overrides_perfect_score(self):
         self.client.force_login(self.qa_one)
         self.client.post(self.url("call-reserve"))
@@ -1199,6 +1459,54 @@ class AnalysisReservationTests(TestCase):
         self.assertEqual(
             response.json()["outcome"], Review.Outcome.IMMEDIATE_ESCALATION
         )
+
+    def test_critical_error_submission_preserves_timestamp_evidence(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        patch_id = str(uuid.uuid4())
+        response = self.client.post(
+            self.url("call-review-submit"),
+            self.submission(
+                scores={},
+                critical_errors=["misrepresentation"],
+                critical_error_evidence={
+                    "misrepresentation": {
+                        "comment": "The agent made an unsupported assurance.",
+                        "patches": [
+                            {
+                                "id": patch_id,
+                                "start_ms": 12000,
+                                "end_ms": 18500,
+                                "comment": "Unsupported commitment",
+                            }
+                        ],
+                    }
+                },
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        evidence = response.json()["critical_error_evidence"]["misrepresentation"]
+        self.assertEqual(evidence["comment"], "The agent made an unsupported assurance.")
+        self.assertEqual(evidence["patches"][0]["id"], patch_id)
+
+    def test_critical_evidence_requires_the_violation_to_be_selected(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        response = self.client.post(
+            self.url("call-review-submit"),
+            self.submission(
+                critical_error_evidence={
+                    "misrepresentation": {
+                        "comment": "Not selected.",
+                        "patches": [],
+                    }
+                }
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("selected critical errors", str(response.json()))
 
     def test_submission_rejects_incomplete_or_manipulated_scores(self):
         self.client.force_login(self.qa_one)
@@ -1243,6 +1551,42 @@ class AnalysisReservationTests(TestCase):
         self.assertEqual(second["status"], "already_sent")
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, [self.team_leader.email])
+
+    @override_settings(
+        QA_RETURN_EMAIL_ENABLED=True,
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        DEFAULT_FROM_EMAIL="qa@example.com",
+        FRONTEND_URL="https://qa.example.com",
+    )
+    def test_returned_report_email_task_is_idempotent_and_targets_qa(self):
+        review = Review.objects.create(
+            call=self.call,
+            reviewer=self.qa_one,
+            team_leader=self.team_leader,
+            status=Review.Status.REVISION_REQUIRED,
+            leader_status=Review.LeaderStatus.RETURNED_TO_QA,
+            revision_reason="Recheck the compliance evidence.",
+            revision_count=1,
+            revision_requested_at=timezone.now(),
+            completed_at=timezone.now(),
+        )
+        event = ReviewWorkflowEvent.objects.create(
+            review=review,
+            actor=self.team_leader,
+            event_type=ReviewWorkflowEvent.EventType.STATUS_CHANGED,
+            from_status=Review.LeaderStatus.PENDING,
+            to_status=Review.LeaderStatus.RETURNED_TO_QA,
+            note=review.revision_reason,
+            email_status=Review.EmailStatus.PENDING,
+        )
+        first = send_review_returned_email.apply(args=[str(event.pk)]).get()
+        second = send_review_returned_email.apply(args=[str(event.pk)]).get()
+        self.assertEqual(first["status"], "sent")
+        self.assertEqual(second["status"], "already_sent")
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, [self.qa_one.email])
+        self.assertIn(review.revision_reason, mail.outbox[0].body)
+        self.assertIn(f"/calls?analysis={self.call.pk}", mail.outbox[0].body)
 
 
 class RecordingTaskConfigurationTests(TestCase):

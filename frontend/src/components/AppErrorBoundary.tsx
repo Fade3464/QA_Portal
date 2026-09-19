@@ -12,7 +12,7 @@ export class AppErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error('QA Portal render failure', error, info.componentStack);
+    console.error('CallLens render failure', error, info.componentStack);
   }
 
   render() {

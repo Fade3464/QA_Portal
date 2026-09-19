@@ -9,6 +9,7 @@ import {
   KeyOutlined,
   MinusCircleOutlined,
   PlusOutlined,
+  ProjectOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
   SearchOutlined,
@@ -41,6 +42,7 @@ import dayjs from 'dayjs';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { api, ApiError } from '../lib/api';
 import { MaterialSymbol } from '../components/MaterialSymbol';
+import { ContentLoader } from '../components/LoadingStates';
 import { TeamAvatarPicker } from '../components/TeamAvatarPicker';
 import type { AdminSummary, AdminUserRecord, BranchRecord, CompanyRecord, DialerRecord, SecurityEvent, TeamRecord } from '../types';
 
@@ -78,8 +80,11 @@ export function AdministrationPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [projectSaving, setProjectSaving] = useState(false);
   const [editor, setEditor] = useState<EditorState>(null);
+  const [projectEditor, setProjectEditor] = useState<AdminUserRecord | null>(null);
   const [form] = Form.useForm();
+  const [projectForm] = Form.useForm();
   const selectedCompany = Form.useWatch('company', form) as string | undefined;
   const selectedBranch = Form.useWatch('branch', form) as string | undefined;
   const selectedRole = Form.useWatch('role', form) as AdminUserRecord['role'] | undefined;
@@ -135,6 +140,30 @@ export function AdministrationPage() {
 
   const openEditor = (resource: Resource, record?: ManagedRecord) => setEditor({ resource, record });
 
+  const openProjectEditor = (leader: AdminUserRecord) => {
+    projectForm.setFieldsValue({ project_assignment_ids: leader.assigned_projects.map((project) => project.id) });
+    setProjectEditor(leader);
+  };
+
+  const saveProjectAccess = async (values: { project_assignment_ids?: string[] }) => {
+    if (!projectEditor) return;
+    setProjectSaving(true);
+    try {
+      await api(`/api/v1/administration/users/${projectEditor.id}/`, {
+        method: 'PATCH',
+        body: JSON.stringify({ project_assignment_ids: values.project_assignment_ids ?? [] }),
+      });
+      message.success(`Project access updated for ${projectEditor.name}.`);
+      setProjectEditor(null);
+      projectForm.resetFields();
+      await load();
+    } catch (error) {
+      message.error(error instanceof ApiError ? error.message : 'Project access could not be updated.');
+    } finally {
+      setProjectSaving(false);
+    }
+  };
+
   const save = async (values: Record<string, unknown>) => {
     if (!editor) return;
     setSaving(true);
@@ -186,7 +215,7 @@ export function AdministrationPage() {
     { title: 'User', key: 'user', render: (_, row) => <EntityCell icon={<Avatar size={34}>{`${row.first_name[0] ?? ''}${row.last_name[0] ?? ''}`}</Avatar>} title={row.name} detail={row.email} /> },
     { title: 'Role', dataIndex: 'role_label', key: 'role', render: (value) => <Tag color="blue">{value}</Tag> },
     { title: 'Workspace', key: 'workspace', render: (_, row) => <span><strong>{row.company_name}</strong><br /><Text type="secondary">{row.branch_name}</Text></span> },
-    { title: 'Project access', key: 'project_access', width: 140, render: (_, row) => row.role === 'qa' ? <span><strong>{row.assigned_projects.length}</strong><br /><Text type="secondary">{row.assigned_projects.length === 1 ? 'assigned project' : 'assigned projects'}</Text></span> : <Text type="secondary">Not applicable</Text> },
+    { title: 'Project access', key: 'project_access', width: 140, render: (_, row) => ['qa', 'team_leader'].includes(row.role) ? <span><strong>{row.assigned_projects.length}</strong><br /><Text type="secondary">{row.assigned_projects.length === 1 ? 'assigned project' : 'assigned projects'}</Text></span> : <Text type="secondary">Not applicable</Text> },
     { title: 'Last login', dataIndex: 'last_login', key: 'last_login', render: (value) => value ? dayjs(value).format('DD MMM, h:mm A') : 'Never' },
     { title: 'Status', key: 'status', width: 130, render: (_, row) => <StatusSwitch checked={row.is_active} onChange={(checked) => void setActive('users', row, checked)} /> },
     { title: '', key: 'actions', width: 64, render: (_, row) => <EditButton onClick={() => openEditor('users', row)} /> },
@@ -194,6 +223,7 @@ export function AdministrationPage() {
   const teamColumns: TableProps<TeamRecord>['columns'] = [
     { title: 'Team', key: 'team', render: (_, row) => <EntityCell icon={<MaterialSymbol name={row.avatar} />} title={row.name} detail={`${row.company_name} · ${row.branch_name}`} /> },
     { title: 'Team leader', key: 'leader', render: (_, row) => <span><strong>{row.team_leader_name}</strong><br /><Text type="secondary">{row.team_leader_email}</Text></span> },
+    { title: 'Leader projects', key: 'leader_projects', width: 260, render: (_, row) => { const leader = users.find((user) => user.id === row.team_leader); return leader ? <ProjectAccessCell projects={leader.assigned_projects} onManage={() => openProjectEditor(leader)} /> : <Text type="secondary">Leader account unavailable</Text>; } },
     { title: 'Calls', dataIndex: 'calls_count', key: 'calls_count', width: 90 },
     { title: 'Status', key: 'status', width: 130, render: (_, row) => <StatusSwitch checked={row.is_active} onChange={(checked) => void setActive('teams', row, checked)} /> },
     { title: '', key: 'actions', width: 64, render: (_, row) => <EditButton onClick={() => openEditor('teams', row)} /> },
@@ -221,7 +251,7 @@ export function AdministrationPage() {
     { key: 'teams', label: <TabLabel label="Teams" count={teams.length} />, children: <ResourceTable resource="teams" query={query} onQuery={setQuery} loading={loading} onAdd={() => openEditor('teams')} columns={teamColumns} data={filter(teams, ['name', 'team_leader_name', 'team_leader_email', 'company_name', 'branch_name'])} /> },
     { key: 'users', label: <TabLabel label="Users" count={users.length} />, children: <ResourceTable resource="users" query={query} onQuery={setQuery} loading={loading} onAdd={() => openEditor('users')} columns={userColumns} data={filter(users, ['name', 'email', 'role_label', 'company_name', 'branch_name'])} /> },
     { key: 'dialers', label: <TabLabel label="Dialers" count={dialers.length} />, children: <ResourceTable resource="dialers" query={query} onQuery={setQuery} loading={loading} onAdd={() => openEditor('dialers')} columns={dialerColumns} data={filter(dialers, ['name', 'api_url', 'company_name', 'branch_name'])} /> },
-    { key: 'security', label: <Space size={6}><SafetyCertificateOutlined />Security</Space>, children: <Card className="admin-table-card"><Table rowKey="id" rowClassName={() => 'admin-table-row'} columns={eventColumns} dataSource={securityEvents} loading={loading} pagination={{ pageSize: 12, showSizeChanger: false }} scroll={{ x: 760 }} /></Card> },
+    { key: 'security', label: <Space size={6}><SafetyCertificateOutlined />Security</Space>, children: <Card className="admin-table-card"><Table rowKey="id" rowClassName={() => 'admin-table-row'} columns={eventColumns} dataSource={securityEvents} loading={{ spinning: loading, delay: 180, description: 'Updating security events' }} pagination={{ pageSize: 12, showSizeChanger: false }} scroll={{ x: 760 }} /></Card> },
   ];
 
   return (
@@ -234,6 +264,7 @@ export function AdministrationPage() {
       {loadError && <Alert type="error" showIcon title="Unable to load administration" description={loadError} action={<Button onClick={() => void load()}>Try again</Button>} />}
       <Tabs activeKey={activeTab} onChange={(key) => { setActiveTab(key); setQuery(''); }} items={tabs} animated={{ inkBar: true, tabPane: true }} className="admin-tabs" classNames={{ header: 'admin-tabs__header' }} />
       <EditorDrawer editor={editor} form={form} saving={saving} companies={companies} branches={branches} users={users} dialers={dialers} selectedCompany={selectedCompany} selectedBranch={selectedBranch} selectedRole={selectedRole} onClose={() => setEditor(null)} onSave={save} />
+      <ProjectAccessDrawer user={projectEditor} form={projectForm} dialers={dialers} saving={projectSaving} onClose={() => { setProjectEditor(null); projectForm.resetFields(); }} onSave={saveProjectAccess} />
     </div>
   );
 }
@@ -245,8 +276,9 @@ function AdministrationOverview({ summary, events, loading, onNavigate }: { summ
     { label: 'Portal users', value: summary?.users ?? 0, detail: `${summary?.active_users ?? 0} active`, icon: <TeamOutlined />, tab: 'users' },
     { label: 'Dialer connections', value: summary?.dialers ?? 0, detail: `${summary?.active_dialers ?? 0} online`, icon: <ApiOutlined />, tab: 'dialers' },
   ];
-  return <div className="admin-overview">
-    <Row gutter={[16, 16]}>{cards.map((card, index) => <Col xs={24} sm={12} xl={6} key={card.label}><Card hoverable className={`admin-stat admin-stat--${index}`} loading={loading} onClick={() => card.tab && onNavigate(card.tab)}><span className="admin-stat__icon">{card.icon}</span><Statistic title={card.label} value={card.value} /><Text type="secondary">{card.detail}</Text></Card></Col>)}</Row>
+  if (loading) return <ContentLoader label="Loading administration overview" minHeight={420} />;
+  return <div className="admin-overview data-reveal">
+    <Row gutter={[16, 16]}>{cards.map((card, index) => <Col xs={24} sm={12} xl={6} key={card.label}><Card hoverable className={`admin-stat admin-stat--${index}`} onClick={() => card.tab && onNavigate(card.tab)}><span className="admin-stat__icon">{card.icon}</span><Statistic title={card.label} value={card.value} /><Text type="secondary">{card.detail}</Text></Card></Col>)}</Row>
     <Row gutter={[16, 16]}>
       <Col xs={24} xl={15}><Card className="admin-command-card" title="Configuration health"><div className="health-grid"><HealthItem label="Organization structure" detail="Companies and branches define tenant isolation." complete={Boolean(summary?.companies && summary?.branches)} /><HealthItem label="User access" detail="Role-based accounts can enter the portal." complete={Boolean(summary?.active_users)} /><HealthItem label="Dialer intake" detail="At least one active VICIdial connection is ready." complete={Boolean(summary?.active_dialers)} /></div></Card></Col>
       <Col xs={24} xl={9}><Card className="admin-command-card" title="Recent security activity" extra={<Button type="link" onClick={() => onNavigate('security')}>View all</Button>}><div className="security-feed">{events.length ? events.map((event) => <div key={event.id}><span className={`event-dot event-dot--${event.event.includes('failure') ? 'danger' : 'success'}`} /><span><strong>{event.event_label}</strong><small>{event.email || 'System'} · {dayjs(event.created_at).format('DD MMM, h:mm A')}</small></span></div>) : <Text type="secondary">No security events recorded yet.</Text>}</div></Card></Col>
@@ -255,7 +287,7 @@ function AdministrationOverview({ summary, events, loading, onNavigate }: { summ
 }
 
 function ResourceTable<T extends { id: string }>({ resource, query, onQuery, loading, onAdd, columns, data }: { resource: Resource; query: string; onQuery: (value: string) => void; loading: boolean; onAdd: () => void; columns: TableProps<T>['columns']; data: T[] }) {
-  return <Card className="admin-table-card" title={<div><strong>{resourceLabels[resource].plural}</strong><small>Search, update, and control access</small></div>} extra={<Space wrap><Input prefix={<SearchOutlined />} allowClear placeholder={`Search ${resourceLabels[resource].plural.toLowerCase()}`} value={query} onChange={(event) => onQuery(event.target.value)} className="admin-search" /><Button type="primary" icon={<PlusOutlined />} onClick={onAdd}>Add {resourceLabels[resource].singular}</Button></Space>}><Table<T> rowKey="id" rowClassName={() => 'admin-table-row'} columns={columns} dataSource={data} loading={loading} pagination={{ pageSize: 10, showSizeChanger: false, showTotal: (total) => `${total} records` }} scroll={{ x: 820 }} /></Card>;
+  return <Card className="admin-table-card" title={<div><strong>{resourceLabels[resource].plural}</strong><small>Search, update, and control access</small></div>} extra={<Space wrap><Input prefix={<SearchOutlined />} allowClear placeholder={`Search ${resourceLabels[resource].plural.toLowerCase()}`} value={query} onChange={(event) => onQuery(event.target.value)} className="admin-search" /><Button type="primary" icon={<PlusOutlined />} onClick={onAdd}>Add {resourceLabels[resource].singular}</Button></Space>}><Table<T> rowKey="id" rowClassName={() => 'admin-table-row'} columns={columns} dataSource={data} loading={{ spinning: loading, delay: 180, description: `Updating ${resourceLabels[resource].plural.toLowerCase()}` }} pagination={{ pageSize: 10, showSizeChanger: false, showTotal: (total) => `${total} records` }} scroll={{ x: 820 }} /></Card>;
 }
 
 function EditorDrawer({ editor, form, saving, companies, branches, users, dialers, selectedCompany, selectedBranch, selectedRole, onClose, onSave }: { editor: EditorState; form: FormInstance; saving: boolean; companies: CompanyRecord[]; branches: BranchRecord[]; users: AdminUserRecord[]; dialers: DialerRecord[]; selectedCompany?: string; selectedBranch?: string; selectedRole?: AdminUserRecord['role']; onClose: () => void; onSave: (values: Record<string, unknown>) => Promise<void> }) {
@@ -273,10 +305,43 @@ function EditorDrawer({ editor, form, saving, companies, branches, users, dialer
       {resource === 'companies' && <><Form.Item name="name" label="Company name" rules={[{ required: true }]}><Input placeholder="e.g. Acme Operations" /></Form.Item><Form.Item name="slug" label="URL slug" rules={[{ required: true }, { pattern: /^[a-z0-9-]+$/, message: 'Use lowercase letters, numbers, and hyphens.' }]}><Input placeholder="acme-operations" /></Form.Item></>}
       {resource === 'branches' && <><Form.Item name="company" label="Company" rules={[{ required: true }]}><Select showSearch={{ optionFilterProp: 'label' }} options={companyOptions} placeholder="Select company" /></Form.Item><Form.Item name="name" label="Branch name" rules={[{ required: true }]}><Input placeholder="e.g. Karachi" /></Form.Item><Form.Item name="code" label="Branch code" rules={[{ required: true }, { pattern: /^[a-z0-9-]+$/ }]}><Input placeholder="khi" /></Form.Item><Form.Item name="timezone" label="Timezone" rules={[{ required: true }]}><Select showSearch options={[{ value: 'Asia/Karachi', label: 'Asia/Karachi (PKT)' }, { value: 'UTC', label: 'UTC' }, { value: 'Asia/Dubai', label: 'Asia/Dubai (GST)' }, { value: 'Europe/London', label: 'Europe/London' }, { value: 'America/New_York', label: 'America/New_York' }]} /></Form.Item></>}
       {resource === 'teams' && <><Form.Item name="branch" label="Branch" rules={[{ required: true }]}><Select showSearch={{ optionFilterProp: 'label' }} options={branches.map((branch) => ({ value: branch.id, label: `${branch.company_name} · ${branch.name}` }))} onChange={() => form.setFieldValue('team_leader', undefined)} placeholder="Select branch" /></Form.Item><Form.Item name="name" label="Team name" extra="Must match the prefix sent before the hyphen in agent_full_name." rules={[{ required: true }]}><Input placeholder="e.g. Annihilators" /></Form.Item><Form.Item name="avatar" label="Team avatar" rules={[{ required: true, message: 'Choose a team avatar.' }]}><TeamAvatarPicker /></Form.Item><Form.Item name="team_leader" label="Team leader" rules={[{ required: true }]}><Select showSearch={{ optionFilterProp: 'label' }} options={leaderOptions} disabled={!selectedBranch} placeholder={selectedBranch ? 'Select a team leader' : 'Select a branch first'} /></Form.Item></>}
-      {resource === 'users' && <><Row gutter={14}><Col span={12}><Form.Item name="first_name" label="First name" rules={[{ required: true }]}><Input /></Form.Item></Col><Col span={12}><Form.Item name="last_name" label="Last name" rules={[{ required: true }]}><Input /></Form.Item></Col></Row><Form.Item name="email" label="Work email" rules={[{ required: true }, { type: 'email' }]}><Input /></Form.Item><Form.Item name="role" label="Portal role" rules={[{ required: true }]}><Select options={roleOptions} onChange={(role) => { if (role !== 'qa') form.setFieldValue('project_assignment_ids', []); }} /></Form.Item><Form.Item name="company" label="Company" rules={[{ required: true }]}><Select showSearch={{ optionFilterProp: 'label' }} options={companyOptions} onChange={() => { form.setFieldValue('branch', undefined); form.setFieldValue('project_assignment_ids', []); }} /></Form.Item><Form.Item name="branch" label="Branch" rules={[{ required: true }]}><Select showSearch={{ optionFilterProp: 'label' }} options={branchOptions} disabled={!selectedCompany} onChange={() => form.setFieldValue('project_assignment_ids', [])} /></Form.Item>{selectedRole === 'qa' && <Form.Item name="project_assignment_ids" label="Dialer projects" extra="This QA user will only see calls from the selected projects." rules={[{ required: true, message: 'Assign at least one dialer project.' }]}><Select mode="multiple" allowClear showSearch={{ optionFilterProp: 'label' }} options={projectOptions} disabled={!selectedBranch} maxTagCount="responsive" placeholder={selectedBranch ? 'Select allowed projects' : 'Select a branch first'} /></Form.Item>}<Form.Item name="password" label={isEdit ? 'New temporary password' : 'Temporary password'} extra={isEdit ? 'Leave blank to keep the current password.' : 'The user must replace this at first sign-in.'} rules={isEdit ? [{ min: 12 }] : [{ required: true }, { min: 12 }]}><Input.Password prefix={<KeyOutlined />} autoComplete="new-password" /></Form.Item><Form.Item name="must_change_password" label="Require password change" valuePropName="checked"><Switch /></Form.Item></>}
+      {resource === 'users' && <><Row gutter={14}><Col span={12}><Form.Item name="first_name" label="First name" rules={[{ required: true }]}><Input /></Form.Item></Col><Col span={12}><Form.Item name="last_name" label="Last name" rules={[{ required: true }]}><Input /></Form.Item></Col></Row><Form.Item name="email" label="Work email" rules={[{ required: true }, { type: 'email' }]}><Input /></Form.Item><Form.Item name="role" label="Portal role" rules={[{ required: true }]}><Select options={roleOptions} onChange={(role) => { if (!['qa', 'team_leader'].includes(role)) form.setFieldValue('project_assignment_ids', []); }} /></Form.Item><Form.Item name="company" label="Company" rules={[{ required: true }]}><Select showSearch={{ optionFilterProp: 'label' }} options={companyOptions} onChange={() => { form.setFieldValue('branch', undefined); form.setFieldValue('project_assignment_ids', []); }} /></Form.Item><Form.Item name="branch" label="Branch" rules={[{ required: true }]}><Select showSearch={{ optionFilterProp: 'label' }} options={branchOptions} disabled={!selectedCompany} onChange={() => form.setFieldValue('project_assignment_ids', [])} /></Form.Item>{selectedRole && ['qa', 'team_leader'].includes(selectedRole) && <Form.Item name="project_assignment_ids" label="Dialer projects" extra={selectedRole === 'qa' ? 'This QA analyst can review calls from these projects.' : 'This Team Leader can access reports and calls from the projects selected here.'} rules={selectedRole === 'qa' ? [{ required: true, message: 'Assign at least one dialer project.' }] : []}><Select mode="multiple" allowClear showSearch={{ optionFilterProp: 'label' }} options={projectOptions} disabled={!selectedBranch} maxTagCount="responsive" placeholder={selectedBranch ? 'Select allowed projects' : 'Select a branch first'} /></Form.Item>}<Form.Item name="password" label={isEdit ? 'New temporary password' : 'Temporary password'} extra={isEdit ? 'Leave blank to keep the current password.' : 'The user must replace this at first sign-in.'} rules={isEdit ? [{ min: 12 }] : [{ required: true }, { min: 12 }]}><Input.Password prefix={<KeyOutlined />} autoComplete="new-password" /></Form.Item><Form.Item name="must_change_password" label="Require password change" valuePropName="checked"><Switch /></Form.Item></>}
       {resource === 'dialers' && <><Form.Item name="branch" label="Mapped branch" rules={[{ required: true }]}><Select showSearch={{ optionFilterProp: 'label' }} options={branches.map((branch) => ({ value: branch.id, label: `${branch.company_name} · ${branch.name}` }))} /></Form.Item><Form.Item name="name" label="Connection name" rules={[{ required: true }]}><Input placeholder="Primary VICIdial" /></Form.Item><Form.Item name="api_url" label="VICIdial API URL" rules={[{ required: true }, { type: 'url' }]}><Input placeholder="https://dialer.example.com/non_agent_api.php" /></Form.Item><Row gutter={14}><Col span={12}><Form.Item name="api_username" label="API username" rules={[{ required: true }]}><Input /></Form.Item></Col><Col span={12}><Form.Item name="api_source" label="API source" rules={[{ required: true }]}><Input /></Form.Item></Col></Row><Form.Item name="api_password" label={isEdit ? 'Replace API password' : 'API password'} extra={isEdit ? 'Leave blank to retain the encrypted credential.' : undefined} rules={isEdit ? [] : [{ required: true }]}><Input.Password autoComplete="new-password" /></Form.Item><Form.Item name="webhook_secret" label={isEdit ? 'Rotate webhook secret' : 'Webhook secret'} extra={isEdit ? 'Leave blank to retain the current secret.' : 'Use a long, random secret shared only with the dialer.'} rules={isEdit ? [] : [{ required: true }, { min: 24 }]}><Input.Password autoComplete="new-password" /></Form.Item><div className="campaign-mapping-editor"><div className="campaign-mapping-editor__heading"><strong>Campaign projects</strong><Text type="secondary">Map each VICIdial campaign code to the project name shown in the call library.</Text></div><Form.List name="campaigns">{(fields, { add, remove }) => <div className="campaign-mapping-editor__list">{fields.map(({ key, name, ...restField }, index) => <Row gutter={10} align="middle" key={key}><Col flex="1 1 180px"><Form.Item {...restField} name={[name, 'campaign']} label={index === 0 ? 'Campaign code' : undefined} rules={[{ required: true, message: 'Enter a campaign code.' }]}><Input placeholder="e.g. RETENTION" /></Form.Item></Col><Col flex="1 1 220px"><Form.Item {...restField} name={[name, 'project_name']} label={index === 0 ? 'Project name' : undefined} rules={[{ required: true, message: 'Enter a project name.' }]}><Input placeholder="e.g. Customer Retention" /></Form.Item></Col><Col flex="36px" className={index === 0 ? 'campaign-mapping-editor__remove--labelled' : ''}><Button type="text" danger shape="circle" icon={<MinusCircleOutlined />} aria-label={`Remove campaign mapping ${index + 1}`} onClick={() => remove(name)} /></Col></Row>)}<Button type="dashed" block icon={<PlusOutlined />} onClick={() => add({ campaign: '', project_name: '' })}>Add campaign mapping</Button></div>}</Form.List></div><Form.Item name="request_timeout_seconds" label="Request timeout (seconds)" rules={[{ required: true }]}><Input type="number" min={5} max={120} /></Form.Item></>}
       <div className="form-status-row"><span><strong>Active</strong><small>Inactive records remain stored but cannot be used.</small></span><Form.Item name="is_active" valuePropName="checked" noStyle><Switch /></Form.Item></div>
     </Form>
+  </Drawer>;
+}
+
+function ProjectAccessCell({ projects, onManage }: { projects: AdminUserRecord['assigned_projects']; onManage: () => void }) {
+  return <div className="project-access-cell">
+    <div className="project-access-cell__projects">
+      {projects.length ? <>{projects.slice(0, 2).map((project) => <Tag className="project-access-tag" key={project.id} color="blue">{project.project_name}</Tag>)}{projects.length > 2 && <Tag className="project-access-tag">+{projects.length - 2}</Tag>}</> : <Text type="secondary">No projects assigned</Text>}
+    </div>
+    <Button type="link" size="small" icon={<ProjectOutlined />} onClick={onManage}>{projects.length ? 'Manage' : 'Assign'}</Button>
+  </div>;
+}
+
+function ProjectAccessDrawer({ user, form, dialers, saving, onClose, onSave }: { user: AdminUserRecord | null; form: FormInstance; dialers: DialerRecord[]; saving: boolean; onClose: () => void; onSave: (values: { project_assignment_ids?: string[] }) => Promise<void> }) {
+  const projectOptions = user ? dialers
+    .filter((dialer) => dialer.branch === user.branch)
+    .flatMap((dialer) => dialer.campaigns.map((project) => ({ value: project.id, label: `${project.project_name} · ${dialer.name} (${project.campaign})` }))) : [];
+  return <Drawer
+    open={Boolean(user)}
+    onClose={onClose}
+    size="large"
+    destroyOnHidden
+    title={<div className="drawer-title"><span className="drawer-title__icon"><ProjectOutlined /></span><span><strong>Team Leader project access</strong><small>{user?.name ?? 'Team Leader'}</small></span></div>}
+    extra={<Space><Button onClick={onClose}>Cancel</Button><Button type="primary" loading={saving} onClick={() => form.submit()}>Save access</Button></Space>}
+  >
+    {user && <div className="project-access-drawer">
+      <Alert type="info" showIcon title={`Projects available in ${user.branch_name}`} description="The Team Leader will only see calls and QA reports from the selected projects and the teams they lead." />
+      <div className="project-access-drawer__identity"><Avatar size={42}>{`${user.first_name[0] ?? ''}${user.last_name[0] ?? ''}`}</Avatar><span><strong>{user.name}</strong><small>{user.email} · {user.company_name} · {user.branch_name}</small></span></div>
+      <Form form={form} layout="vertical" requiredMark="optional" onFinish={onSave} clearOnDestroy>
+        <Form.Item name="project_assignment_ids" label="Assigned projects" extra="Select one or more projects. Removing a project immediately removes that project from this Team Leader's call and report scope.">
+          <Select mode="multiple" allowClear showSearch={{ optionFilterProp: 'label' }} options={projectOptions} maxTagCount="responsive" placeholder={projectOptions.length ? 'Select projects' : 'No campaign projects are configured for this branch'} disabled={!projectOptions.length} />
+        </Form.Item>
+      </Form>
+    </div>}
   </Drawer>;
 }
 

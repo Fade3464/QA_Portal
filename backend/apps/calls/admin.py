@@ -53,6 +53,7 @@ class ReviewAdmin(admin.ModelAdmin):
         "rating",
         "outcome",
         "leader_status",
+        "revision_count",
         "team_leader",
         "assigned_at",
         "completed_at",

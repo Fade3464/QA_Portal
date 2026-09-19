@@ -24,7 +24,7 @@ export interface CallReservation {
   review_id: string;
   reviewer_id: string;
   reviewer_name: string;
-  status: 'assigned' | 'in_progress' | 'completed' | 'disputed';
+  status: 'assigned' | 'in_progress' | 'revision_required' | 'completed' | 'disputed';
   reserved_at: string;
   is_mine: boolean;
 }
@@ -68,6 +68,7 @@ export type TeamLeaderReportStatus =
   | 'coaching_planned'
   | 'coaching_completed'
   | 'escalated'
+  | 'returned_to_qa'
   | 'closed';
 
 export interface ReviewWorkflowEvent {
@@ -82,12 +83,14 @@ export interface ReviewWorkflowEvent {
   to_status_label: string;
   note: string;
   coaching_due_at: string | null;
+  email_status: 'disabled' | 'pending' | 'sent' | 'failed';
+  email_sent_at: string | null;
   created_at: string;
 }
 
 export interface QAReview {
   id: string;
-  status: 'assigned' | 'in_progress' | 'completed' | 'disputed';
+  status: 'assigned' | 'in_progress' | 'revision_required' | 'completed' | 'disputed';
   status_label: string;
   score: string | null;
   scorecard_version: string;
@@ -95,6 +98,7 @@ export interface QAReview {
   scores: Record<string, number>;
   criterion_evidence: Record<string, QACriterionEvidence>;
   critical_errors: string[];
+  critical_error_evidence: Record<string, QACriterionEvidence>;
   rating: string;
   rating_label: string;
   outcome: string;
@@ -118,6 +122,9 @@ export interface QAReview {
   leader_reviewed_at: string | null;
   leader_closed_at: string | null;
   leader_updated_at: string | null;
+  revision_requested_at: string | null;
+  revision_reason: string;
+  revision_count: number;
 }
 
 export interface QAAnalysisResponse {
@@ -153,6 +160,11 @@ export interface QAReportSummary {
   trend: Array<{ date: string; count: number; average_score: number | null }>;
   filters: {
     projects: string[];
+    teams: string[];
+    agents: string[];
+    dispositions: string[];
+    directions: string[];
+    scorecard: QAScorecard;
     reviewers: Array<{
       reviewer_id: string;
       reviewer__first_name: string;

@@ -117,6 +117,63 @@ def queue_review_report_notification(review) -> SystemNotification:
 
 
 @transaction.atomic
+def queue_review_returned_notification(review, event) -> SystemNotification:
+    reason_summary = event.note if len(event.note) <= 240 else f"{event.note[:237]}..."
+    notification, _created = SystemNotification.objects.update_or_create(
+        dedupe_key=f"qa-report-returned:{event.pk}",
+        defaults={
+            "category": SystemNotification.Category.QA_REPORT_RETURNED,
+            "severity": SystemNotification.Severity.WARNING,
+            "title": "QA report returned for reassessment",
+            "message": (
+                f"{event.actor.full_name} returned the report for "
+                f"{review.call.agent_name or review.call.agent_user}: {reason_summary}"
+            ),
+            "branch": review.call.branch,
+            "call": review.call,
+            "metadata": {
+                "review_id": str(review.pk),
+                "workflow_event_id": str(event.pk),
+                "revision_count": review.revision_count,
+                "reason": event.note,
+                "agent_name": review.call.agent_name or review.call.agent_user,
+                "team_name": review.call.team.name if review.call.team_id else "",
+                "target_path": f"/calls?analysis={review.call_id}",
+            },
+            "resolved_at": None,
+        },
+    )
+    notification.recipients.set([review.reviewer])
+    notification.read_by.remove(review.reviewer)
+    transaction.on_commit(lambda: _broadcast_notification(notification.pk))
+    return notification
+
+
+@transaction.atomic
+def resolve_review_returned_notifications(review) -> None:
+    notification_ids = list(
+        SystemNotification.objects.filter(
+            category=SystemNotification.Category.QA_REPORT_RETURNED,
+            recipients=review.reviewer,
+            resolved_at__isnull=True,
+            metadata__review_id=str(review.pk),
+        ).values_list("pk", flat=True)
+    )
+    if not notification_ids:
+        return
+    now = timezone.now()
+    SystemNotification.objects.filter(pk__in=notification_ids).update(
+        resolved_at=now, updated_at=now
+    )
+    for notification_id in notification_ids:
+        transaction.on_commit(
+            lambda notification_id=notification_id: _broadcast_notification(
+                notification_id, "notification.resolved"
+            )
+        )
+
+
+@transaction.atomic
 def resolve_review_report_notification(review, user) -> None:
     notification = (
         SystemNotification.objects.select_for_update()

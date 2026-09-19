@@ -32,7 +32,7 @@ import type { CallEvent, CallReservation, QAAnalysisResponse, QAReview, QAScorec
 import type { QACriterionEvidence, QAEvidencePatch } from '../types';
 import { AudioPlayer, type AudioPlaybackState, type AudioRangeRequest } from './AudioPlayerModal';
 import { CriterionEvidenceEditor, evidenceValidationError } from './CriterionEvidenceEditor';
-import { PortalLoader } from './PortalLoader';
+import { ContentLoader } from './LoadingStates';
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
@@ -42,6 +42,7 @@ interface EvaluationValues {
   scores: Record<string, number>;
   criterion_evidence: Record<string, QACriterionEvidence>;
   critical_errors: string[];
+  critical_error_evidence: Record<string, QACriterionEvidence>;
   feedback_summary: string;
   strengths: string;
   expected_behavior: string;
@@ -65,6 +66,7 @@ function reviewValues(review: QAReview | null): Partial<EvaluationValues> {
     scores: review?.scores ?? {},
     criterion_evidence: review?.criterion_evidence ?? {},
     critical_errors: review?.critical_errors ?? [],
+    critical_error_evidence: review?.critical_error_evidence ?? {},
     feedback_summary: review?.feedback_summary ?? '',
     strengths: review?.strengths ?? '',
     expected_behavior: review?.expected_behavior ?? '',
@@ -79,9 +81,11 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
   const watchedScoresValue = Form.useWatch('scores', form);
   const watchedCriticalValue = Form.useWatch('critical_errors', form);
   const watchedEvidenceValue = Form.useWatch('criterion_evidence', { form, preserve: true });
+  const watchedCriticalEvidenceValue = Form.useWatch('critical_error_evidence', { form, preserve: true });
   const watchedScores = useMemo(() => watchedScoresValue ?? {}, [watchedScoresValue]);
   const watchedCritical = useMemo(() => watchedCriticalValue ?? [], [watchedCriticalValue]);
   const watchedEvidence = useMemo(() => watchedEvidenceValue ?? {}, [watchedEvidenceValue]);
+  const watchedCriticalEvidence = useMemo(() => watchedCriticalEvidenceValue ?? {}, [watchedCriticalEvidenceValue]);
   const [activeCall, setActiveCall] = useState<CallEvent | null>(call);
   const [review, setReview] = useState<QAReview | null>(null);
   const [scorecard, setScorecard] = useState<QAScorecard | null>(null);
@@ -161,6 +165,7 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
   const reservation = activeCall?.reservation ?? null;
   const mine = Boolean(reservation?.is_mine);
   const completed = review?.status === 'completed';
+  const revisionRequired = review?.status === 'revision_required';
   const editable = mine && !completed;
   const lockedByAnother = Boolean(reservation && !mine);
   const visibleViewers = useMemo(() => viewers.filter((viewer) => viewer.id !== user?.id), [user?.id, viewers]);
@@ -177,6 +182,21 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
 
   const updateCriterionEvidence = useCallback((criterionKey: string, value: QACriterionEvidence) => {
     form.setFieldValue(['criterion_evidence', criterionKey], value);
+  }, [form]);
+
+  const updateCriticalEvidence = useCallback((criticalKey: string, value: QACriterionEvidence) => {
+    form.setFieldValue(['critical_error_evidence', criticalKey], value);
+  }, [form]);
+
+  const evaluationValues = useCallback(() => {
+    const values = form.getFieldsValue(true);
+    const selectedCritical = new Set(values.critical_errors ?? []);
+    return {
+      ...values,
+      critical_error_evidence: Object.fromEntries(
+        Object.entries(values.critical_error_evidence ?? {}).filter(([key]) => selectedCritical.has(key)),
+      ),
+    };
   }, [form]);
 
   const playEvidencePatch = useCallback((patch: QAEvidencePatch) => {
@@ -224,8 +244,10 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
 
   const saveDraft = useCallback(async () => {
     if (!activeCall || !editable) return;
-    const values = form.getFieldsValue(true);
-    const evidenceError = evidenceValidationError(values.criterion_evidence ?? {}, playback.duration || activeCall.talk_time);
+    const values = evaluationValues();
+    const duration = playback.duration || activeCall.talk_time;
+    const evidenceError = evidenceValidationError(values.criterion_evidence ?? {}, duration)
+      || evidenceValidationError(values.critical_error_evidence ?? {}, duration);
     if (evidenceError) {
       void message.warning(evidenceError);
       return;
@@ -243,14 +265,15 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
     } finally {
       setSaving(false);
     }
-  }, [activeCall, editable, form, message, playback.duration]);
+  }, [activeCall, editable, evaluationValues, message, playback.duration]);
 
   const submit = useCallback(async () => {
     if (!activeCall || !editable || !scorecard) return;
     setSubmitting(true);
     setError('');
     try {
-      const values = await form.validateFields();
+      await form.validateFields();
+      const values = evaluationValues();
       const isAutomaticFail = (values.critical_errors ?? []).length > 0;
       if (!isAutomaticFail) {
         const missingCriteria = scorecard.categories.flatMap((category) => category.criteria).filter((criterion) => {
@@ -266,7 +289,9 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
           return;
         }
       }
-      const evidenceError = evidenceValidationError(values.criterion_evidence ?? {}, playback.duration || activeCall.talk_time);
+      const duration = playback.duration || activeCall.talk_time;
+      const evidenceError = evidenceValidationError(values.criterion_evidence ?? {}, duration)
+        || evidenceValidationError(values.critical_error_evidence ?? {}, duration);
       if (evidenceError) {
         void message.warning(evidenceError);
         return;
@@ -281,7 +306,7 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
       };
       setActiveCall((current) => current ? { ...current, reservation: nextReservation } : current);
       onReservationChange(activeCall.id, nextReservation);
-      message.success('Report submitted to the Team Leader.');
+      message.success(revisionRequired ? 'Reassessed report resubmitted to the Team Leader.' : 'Report submitted to the Team Leader.');
     } catch (requestError) {
       if (requestError && typeof requestError === 'object' && 'errorFields' in requestError) {
         message.warning('Complete all required scorecard fields.');
@@ -291,7 +316,7 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
     } finally {
       setSubmitting(false);
     }
-  }, [activeCall, editable, form, message, onReservationChange, playback.duration, scorecard]);
+  }, [activeCall, editable, evaluationValues, form, message, onReservationChange, playback.duration, revisionRequired, scorecard]);
 
   const categoryItems = scorecard?.categories.map((category) => {
     const categoryScore = category.criteria.reduce((total, criterion) => total + (Number(watchedScores[criterion.key]) || 0), 0);
@@ -321,20 +346,21 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
   return <Modal open onCancel={onClose} footer={null} width="min(1540px, calc(100vw - 40px))" destroyOnHidden mask={{ closable: false, blur: true }} classNames={{ container: 'analysis-modal__container', header: 'analysis-modal__header', body: 'analysis-modal__body' }} title={(
     <div className="analysis-modal__title"><span className="analysis-modal__title-icon"><FileSearchOutlined /></span><span><Title level={4}>Call analysis</Title><Text type="secondary">{activeCall?.phone_number || 'Unknown number'} · {activeCall?.agent_name || activeCall?.agent_user || 'Unknown agent'}</Text></span><span className="analysis-modal__status">{completed ? <Tag icon={<CheckCircleFilled />} color="success">Report submitted</Tag> : mine ? <Tag icon={<CheckCircleFilled />} color="processing">Reserved by you</Tag> : lockedByAnother ? <Tag icon={<LockOutlined />} color="warning">Reserved by {reservation?.reviewer_name}</Tag> : <Tag>Available</Tag>}</span></div>
   )}>
-    {loading ? <div className="analysis-modal__loading"><PortalLoader label="Preparing analysis workspace…" /></div> : error && !activeCall ? <Alert type="error" showIcon title="Unable to open analysis" description={error} /> : activeCall && <div className="analysis-workspace">
+    {loading ? <ContentLoader label="Preparing analysis workspace" minHeight={620} /> : error && !activeCall ? <Alert type="error" showIcon title="Unable to open analysis" description={error} /> : activeCall && <div className="analysis-workspace data-reveal">
       {visibleViewers.length > 0 && <Alert className="analysis-presence" type="info" showIcon icon={<UsergroupAddOutlined />} title={presenceMessage(visibleViewers)} />}
+      {revisionRequired && <Alert className="analysis-revision-request" type="warning" showIcon title={`Reassessment requested${review.revision_count > 1 ? ` · revision ${review.revision_count}` : ''}`} description={<span><strong>Team Leader feedback:</strong> {review.revision_reason}</span>} />}
       {error && <Alert type="error" showIcon title="Action unsuccessful" description={error} closable={{ onClose: () => setError('') }} />}
-      <div className="analysis-workspace__toolbar"><Text type="secondary">{completed ? `Submitted to ${review?.team_leader_name}.` : 'Reserve the call before entering or saving QA findings.'}</Text><Space>{!reservation && <Button type="primary" icon={<LockOutlined />} loading={reserving} onClick={() => void reserve()}>Reserve</Button>}{mine && !completed && <Popconfirm title="Release this call?" description="Your draft will be deleted and another QA analyst can reserve it." okText="Release" okButtonProps={{ danger: true }} onConfirm={release}><Button danger icon={<UnlockOutlined />} loading={releasing}>Release</Button></Popconfirm>}</Space></div>
+      <div className="analysis-workspace__toolbar"><Text type="secondary">{completed ? `Submitted to ${review?.team_leader_name}.` : revisionRequired ? 'Update the evaluation against the Team Leader’s feedback, then resubmit it.' : 'Reserve the call before entering or saving QA findings.'}</Text><Space>{!reservation && <Button type="primary" icon={<LockOutlined />} loading={reserving} onClick={() => void reserve()}>Reserve</Button>}{mine && !completed && !revisionRequired && <Popconfirm title="Release this call?" description="Your draft will be deleted and another QA analyst can reserve it." okText="Release" okButtonProps={{ danger: true }} onConfirm={release}><Button danger icon={<UnlockOutlined />} loading={releasing}>Release</Button></Popconfirm>}</Space></div>
       <div className="analysis-workspace__columns">
         <section className="analysis-panel analysis-panel--audio" aria-label="Call recording tools"><div className="analysis-panel__heading"><span><FileSearchOutlined /></span><div><strong>Recording</strong><small>Listen, seek, adjust speed, or download</small></div></div><AudioPlayer call={activeCall} onPlaybackStateChange={setPlayback} rangeRequest={rangeRequest} /></section>
         <section className={`analysis-panel analysis-panel--form${editable || completed ? '' : ' is-locked'}`} aria-label="QA evaluation form">
-          <div className="analysis-panel__heading"><span><FormOutlined /></span><div><strong>QA evaluation</strong><small>{completed ? `${review?.rating_label} · ${review?.outcome_label}` : editable ? 'Score all criteria, then document actionable feedback' : lockedByAnother ? `Locked by ${reservation?.reviewer_name}` : 'Reserve this call to begin'}</small></div></div>
+          <div className="analysis-panel__heading"><span><FormOutlined /></span><div><strong>QA evaluation</strong><small>{completed ? `${review?.rating_label} · ${review?.outcome_label}` : revisionRequired ? 'Reassessment in progress · review the return reason above' : editable ? 'Score all criteria, then document actionable feedback' : lockedByAnother ? `Locked by ${reservation?.reviewer_name}` : 'Reserve this call to begin'}</small></div></div>
           {!editable && !completed ? <div className="analysis-form-placeholder"><span className="analysis-form-placeholder__icon"><LockOutlined /></span><strong>{lockedByAnother ? 'This call is reserved' : 'Reserve to unlock the scorecard'}</strong><Text type="secondary">{lockedByAnother ? `${reservation?.reviewer_name} currently owns this analysis.` : 'Reservation prevents duplicate assessments while you work.'}</Text></div> : scorecard && <Form form={form} layout="vertical" className="qa-scorecard" disabled={!editable}>
             <div className={`qa-score-summary${criticalFail ? ' qa-score-summary--critical' : ''}`}><Progress type="circle" percent={score} size={92} status={criticalFail ? 'exception' : score >= scorecard.benchmark ? 'success' : 'normal'} format={() => criticalFail ? 'FAIL' : `${score}%`} /><span><strong>{criticalFail ? 'Automatic failure' : score >= scorecard.benchmark ? 'Meets benchmark' : 'Below benchmark'}</strong><small>{criticalFail ? 'Scorecard completion is optional for this escalation.' : `Numeric score ${score}/100 · benchmark ${scorecard.benchmark}%`}</small></span></div>
             <Collapse items={categoryItems} defaultActiveKey={[scorecard.categories[0]?.key]} size="small" />
-            <div className="qa-critical-block"><div><WarningFilled /><span><strong>Critical error override</strong><small>Selecting any item results in an automatic fail and immediate escalation.</small></span></div><Form.Item name="critical_errors"><Checkbox.Group options={scorecard.critical_errors.map((item) => ({ label: item.label, value: item.value }))} className="qa-critical-options" /></Form.Item></div>
+            <div className="qa-critical-block"><div><WarningFilled /><span><strong>Critical error override</strong><small>Selecting any item results in an automatic fail and immediate escalation.</small></span></div><Form.Item name="critical_errors"><Checkbox.Group options={scorecard.critical_errors.map((item) => ({ label: item.label, value: item.value }))} className="qa-critical-options" /></Form.Item>{watchedCritical.length > 0 && <div className="qa-critical-evidence"><Text type="secondary">Document each selected violation and attach the exact recording segments that support it.</Text>{watchedCritical.map((criticalKey) => { const critical = scorecard.critical_errors.find((item) => item.value === criticalKey); return <div className="qa-critical-evidence__item" key={criticalKey}><strong>{critical?.label ?? criticalKey}</strong><CriterionEvidenceEditor criterionLabel={critical?.label ?? criticalKey} value={watchedCriticalEvidence[criticalKey]} editable={editable} currentTimeSeconds={playback.currentTime} durationSeconds={playback.duration || activeCall?.talk_time || 0} onChange={(value) => updateCriticalEvidence(criticalKey, value)} onPlayRange={playEvidencePatch} /></div>; })}</div>}</div>
             <div className="qa-feedback-grid"><Form.Item name="feedback_summary" label="What happened and why it matters"><TextArea rows={3} maxLength={4000} showCount /></Form.Item><Form.Item name="strengths" label="Strengths observed"><TextArea rows={3} maxLength={4000} showCount /></Form.Item><Form.Item name="expected_behavior" label="Expected behavior"><TextArea rows={3} maxLength={4000} showCount /></Form.Item><Form.Item name="coaching_plan" label="Recommended coaching / follow-up"><TextArea rows={3} maxLength={4000} showCount /></Form.Item></div>
-            {editable && <div className="qa-form-actions"><Button icon={<SaveOutlined />} loading={saving} onClick={() => void saveDraft()}>Save draft</Button><Popconfirm title="Submit this QA report?" description="The report will be locked and sent to the agent’s Team Leader." okText="Submit report" onConfirm={submit}><Button type="primary" icon={<SendOutlined />} loading={submitting}>Submit report</Button></Popconfirm></div>}
+            {editable && <div className="qa-form-actions"><Button icon={<SaveOutlined />} loading={saving} onClick={() => void saveDraft()}>Save draft</Button><Popconfirm title={revisionRequired ? 'Resubmit this QA report?' : 'Submit this QA report?'} description={revisionRequired ? 'The revised evaluation will be locked and returned to the Team Leader’s queue.' : 'The report will be locked and sent to the agent’s Team Leader.'} okText={revisionRequired ? 'Resubmit report' : 'Submit report'} onConfirm={submit}><Button type="primary" icon={<SendOutlined />} loading={submitting}>{revisionRequired ? 'Resubmit report' : 'Submit report'}</Button></Popconfirm></div>}
           </Form>}
         </section>
       </div>

@@ -361,8 +361,9 @@ class UserAdminSerializer(serializers.ModelSerializer):
                 )
             ]
         assignments = assignments or []
-        if role == User.Role.QA:
-            if not assignments:
+        project_scoped_roles = {User.Role.QA, User.Role.TEAM_LEADER}
+        if role in project_scoped_roles:
+            if role == User.Role.QA and not assignments:
                 raise serializers.ValidationError(
                     {
                         "project_assignment_ids": "Assign at least one dialer project to every QA user."
@@ -384,7 +385,7 @@ class UserAdminSerializer(serializers.ModelSerializer):
         elif attrs.get("project_assignment_ids"):
             raise serializers.ValidationError(
                 {
-                    "project_assignment_ids": "Project access can only be assigned to QA users."
+                    "project_assignment_ids": "Project access can only be assigned to QA or Team Leader users."
                 }
             )
         if self.instance and self.instance.led_teams.exists():
@@ -443,7 +444,7 @@ class UserAdminSerializer(serializers.ModelSerializer):
                 instance.must_change_password = True
             instance.full_clean()
             instance.save()
-            if instance.role != User.Role.QA:
+            if instance.role not in {User.Role.QA, User.Role.TEAM_LEADER}:
                 instance.qa_project_assignments.all().delete()
             elif assignments_provided:
                 instance.qa_project_assignments.all().delete()

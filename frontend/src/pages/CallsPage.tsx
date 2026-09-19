@@ -7,7 +7,7 @@ import { useSearchParams } from 'react-router-dom';
 import { AudioPlayerModal } from '../components/AudioPlayerModal';
 import { AnalysisWorkspaceModal } from '../components/AnalysisWorkspaceModal';
 import { CallLibraryFilters, type CallLibraryFilterValue } from '../components/CallLibraryFilters';
-import { PortalLoader } from '../components/PortalLoader';
+import { TableSkeleton } from '../components/LoadingStates';
 import { MaterialSymbol } from '../components/MaterialSymbol';
 import { api } from '../lib/api';
 import { useAuth } from '../auth/AuthContext';
@@ -120,6 +120,7 @@ export function CallsPage() {
   const { user } = useAuth();
   const { compact } = useThemeSettings();
   const [searchParams, setSearchParams] = useSearchParams();
+  const isQa = user?.role === 'qa' && !user.is_superuser;
   const [calls, setCalls] = useState<CallEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -130,12 +131,14 @@ export function CallsPage() {
   const [analysisCall, setAnalysisCall] = useState<CallEvent | null>(null);
   const [analysisTarget, setAnalysisTarget] = useState(() => searchParams.get('analysis'));
   const [analysisOpenError, setAnalysisOpenError] = useState('');
-  const [filters, setFilters] = useState(() => filtersFromParams(searchParams));
+  const [filters, setFilters] = useState(() => {
+    const parsed = filtersFromParams(searchParams);
+    return isQa ? { ...parsed, dialers: [], eventTypes: [] } : parsed;
+  });
   const [options, setOptions] = useState<CallFilterOptions | null>(null);
   const [optionsLoading, setOptionsLoading] = useState(true);
   const pageCache = useRef(new Map<string, CachedCallPage>());
   const serializedFilters = useMemo(() => filterQuery(filters).toString(), [filters]);
-  const isQa = user?.role === 'qa' && !user.is_superuser;
 
   const updateReservation = useCallback((callId: string, reservation: CallReservation | null) => {
     const normalize = (value: CallReservation | null) => value
@@ -280,24 +283,23 @@ export function CallsPage() {
   return (
     <>
     <div className="page-stack">
-      <div className="page-heading"><div><Title level={2} className="page-title">Call library</Title><Paragraph className="page-subtitle">Explore every dialer call available to your branch.</Paragraph></div></div>
+      <div className="page-heading"><div><Title level={2} className="page-title">{isQa ? 'Calls for review' : 'Call library'}</Title><Paragraph className="page-subtitle">{isQa ? 'Find a call from your assigned projects and begin an evaluation when its recording is ready.' : 'Explore every dialer call available to your branch.'}</Paragraph></div></div>
       {analysisOpenError && <Alert type="error" showIcon closable={{ onClose: () => setAnalysisOpenError('') }} title="Unable to continue analysis" description={analysisOpenError} />}
       <Card className="call-filter-card" classNames={{ body: 'call-filter-card__body' }}>
-        <CallLibraryFilters value={filters} options={options} optionsLoading={optionsLoading} loading={loading} onChange={changeFilters} onReset={resetFilters} onRefresh={reload} />
+        <CallLibraryFilters simplified={isQa} value={filters} options={options} optionsLoading={optionsLoading} loading={loading} onChange={changeFilters} onReset={resetFilters} onRefresh={reload} />
       </Card>
       {error && <Alert type="error" showIcon title="Unable to filter calls" description={error} action={<Button onClick={reload}>Try again</Button>} />}
       <Card className="library-card" classNames={{ header: 'library-card__header', body: 'content-card__body' }} title={<div className="library-card__heading"><span>Call records <span className="library-count">{total.toLocaleString()}</span></span></div>}>
-        <Table<CallEvent>
+        {loading ? <TableSkeleton rows={Math.min(pageSize, 8)} columns={7} /> : <Table<CallEvent>
           className="library-table"
           classNames={{ header: { cell: 'library-table__heading' }, body: { cell: 'library-table__cell' }, pagination: { root: 'library-table__pagination' } }}
           size={compact ? 'small' : 'middle'}
           rowKey="id" columns={sortableColumns} onChange={handleTableChange} dataSource={calls}
           showSorterTooltip={false}
-          loading={{ spinning: loading, indicator: <PortalLoader compact label="Loading calls…" /> }}
           scroll={{ x: 1004 }}
           pagination={{ current: currentPage, pageSize, total, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], showTotal: (recordCount, range) => `${range[0]}–${range[1]} of ${recordCount.toLocaleString()} calls`, position: ['bottomRight'] }}
           locale={{ emptyText: <div className="empty-table"><CustomerServiceOutlined className="empty-table__icon" /><strong>No matching calls</strong><span>Adjust or clear filters to expand the result set.</span></div> }}
-        />
+        />}
       </Card>
       <AudioPlayerModal call={selectedCall} onClose={() => setSelectedCall(null)} />
       {analysisCall && <AnalysisWorkspaceModal call={analysisCall} onClose={() => setAnalysisCall(null)} onReservationChange={updateReservation} />}
