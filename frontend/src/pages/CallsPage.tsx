@@ -14,7 +14,7 @@ import { useAuth } from '../auth/AuthContext';
 import { useThemeSettings } from '../theme/ThemeContext';
 import type { CallEvent, CallFilterOptions, CallReservation, PaginatedResponse, QAAnalysisResponse } from '../types';
 
-const { Title, Paragraph } = Typography;
+const { Title } = Typography;
 const PAGE_CACHE_TTL_MS = 30_000;
 const PAGE_CACHE_LIMIT = 20;
 const COLUMN_SORT_FIELDS: Record<string, string> = {
@@ -291,7 +291,7 @@ export function CallsPage() {
   return (
     <>
     <div className="page-stack">
-      <div className="page-heading"><div><Title level={2} className="page-title">{isQa ? 'Calls for review' : 'Call library'}</Title><Paragraph className="page-subtitle">{isQa ? 'Find a call from your assigned projects and begin an evaluation when its recording is ready.' : 'Explore every dialer call available to your branch.'}</Paragraph></div></div>
+      <div className="page-heading"><div><Title level={2} className="page-title">{isQa ? 'Calls for review' : 'Call library'}</Title></div></div>
       {analysisOpenError && <Alert type="error" showIcon closable={{ onClose: () => setAnalysisOpenError('') }} title="Unable to continue analysis" description={analysisOpenError} />}
       <Card className="call-filter-card" classNames={{ body: 'call-filter-card__body' }}>
         <CallLibraryFilters simplified={isQa} value={filters} options={options} optionsLoading={optionsLoading} loading={loading} onChange={changeFilters} onReset={resetFilters} onRefresh={reload} />
@@ -306,7 +306,7 @@ export function CallsPage() {
           showSorterTooltip={false}
           scroll={{ x: 1004 }}
           pagination={{ current: currentPage, pageSize, total, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], showTotal: (recordCount, range) => `${range[0]}–${range[1]} of ${recordCount.toLocaleString()} calls`, position: ['bottomRight'] }}
-          locale={{ emptyText: <div className="empty-table"><CustomerServiceOutlined className="empty-table__icon" /><strong>No matching calls</strong><span>Adjust or clear filters to expand the result set.</span></div> }}
+          locale={{ emptyText: <div className="empty-table"><CustomerServiceOutlined className="empty-table__icon" /><strong>No matching calls</strong></div> }}
         />}
       </Card>
       <AudioPlayerModal call={selectedCall} onClose={() => setSelectedCall(null)} />

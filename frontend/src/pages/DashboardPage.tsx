@@ -22,7 +22,7 @@ import { appDate } from '../lib/datetime';
 import type { CallEvent, DashboardSummary, PaginatedResponse, QAReport, QAReportSummary } from '../types';
 import { ProjectPerformancePage } from './ProjectPerformancePage';
 
-const { Title, Paragraph, Text } = Typography;
+const { Title, Text } = Typography;
 
 function greeting() {
   return appDate().hour() < 12 ? 'morning' : appDate().hour() < 18 ? 'afternoon' : 'evening';
@@ -91,7 +91,7 @@ function QAAnalystCommandCenter() {
 
   return <div className="page-stack qa-command">
     <div className="page-heading">
-      <div><Text className="eyebrow">QA WORKSPACE</Text><Title level={2} className="page-title">Good {greeting()}, {user?.first_name}.</Title><Paragraph className="page-subtitle">Review available calls, finish active evaluations, and respond to returned reports.</Paragraph></div>
+      <div><Text className="eyebrow">QA WORKSPACE</Text><Title level={2} className="page-title">Good {greeting()}, {user?.first_name}.</Title></div>
       <Button type="primary" className="page-heading__action" icon={<SearchOutlined />} onClick={() => navigate('/calls')}>Find a call</Button>
     </div>
     {error && <Alert type="error" showIcon title="Unable to load QA workspace" description={error} action={<Button onClick={retry}>Try again</Button>} />}
@@ -103,11 +103,11 @@ function QAAnalystCommandCenter() {
       </section>
 
       <Card className="content-card qa-work-card" title={<div><strong>My recent work</strong><small>Drafts, returned reports, and completed evaluations</small></div>} extra={<Link to="/queue">View all <ArrowRightOutlined /></Link>}>
-        <Table<QAReport> rowKey="id" size="small" columns={reportColumns} dataSource={reports} pagination={false} scroll={{ x: 720 }} locale={{ emptyText: <div className="leader-empty"><FileDoneOutlined /><strong>No QA reports yet</strong><span>Reserve a ready call to begin your first evaluation.</span></div> }} />
+        <Table<QAReport> rowKey="id" size="small" columns={reportColumns} dataSource={reports} pagination={false} scroll={{ x: 720 }} locale={{ emptyText: <div className="leader-empty"><FileDoneOutlined /><strong>No QA reports yet</strong></div> }} />
       </Card>
 
       <Card className="content-card qa-ready-card" title={<div><strong>Ready to analyze</strong><small>Recent calls with recordings available now</small></div>} extra={<Link to="/calls">Open library <ArrowRightOutlined /></Link>}>
-        <Table<CallEvent> rowKey="id" size="small" columns={callColumns} dataSource={readyCalls} pagination={false} scroll={{ x: 620 }} locale={{ emptyText: <div className="leader-empty"><CheckCircleFilled /><strong>No ready calls in recent activity</strong><span>Open the library to search the full assigned project scope.</span></div> }} />
+        <Table<CallEvent> rowKey="id" size="small" columns={callColumns} dataSource={readyCalls} pagination={false} scroll={{ x: 620 }} locale={{ emptyText: <div className="leader-empty"><CheckCircleFilled /><strong>No ready calls in recent activity</strong></div> }} />
       </Card>
     </div>}
   </div>;
@@ -165,7 +165,7 @@ function TeamLeaderCommandCenter() {
 
   return <div className="page-stack leader-command">
     <div className="page-heading leader-command__heading">
-      <div><Text className="eyebrow">TEAM COMMAND CENTER</Text><Title level={2} className="page-title">Good {greeting()}, {user?.first_name}.</Title><Paragraph className="page-subtitle">The calls, QA decisions, and coaching work that need your attention.</Paragraph></div>
+      <div><Text className="eyebrow">TEAM COMMAND CENTER</Text><Title level={2} className="page-title">Good {greeting()}, {user?.first_name}.</Title></div>
       <Button type="primary" className="page-heading__action" icon={<InboxOutlined />} onClick={() => navigate('/queue')}>Open QA inbox</Button>
     </div>
     {error && <Alert type="error" showIcon title="Unable to load command center" description={error} action={<Button onClick={retry}>Try again</Button>} />}
@@ -178,11 +178,11 @@ function TeamLeaderCommandCenter() {
       </section>
 
       <Card className="content-card leader-attention-card" title={<div><strong>Reports awaiting decision</strong><small>Newest completed evaluations submitted to you</small></div>} extra={<Link to="/queue">View all <ArrowRightOutlined /></Link>}>
-        <Table<QAReport> rowKey="id" size="small" columns={reportColumns} dataSource={pendingReports} pagination={false} scroll={{ x: 760 }} rowClassName={() => 'leader-report-row'} onRow={() => ({ onClick: () => navigate('/queue') })} locale={{ emptyText: <div className="leader-empty"><CheckCircleFilled /><strong>You’re caught up</strong><span>No QA reports are waiting for a decision.</span></div> }} />
+        <Table<QAReport> rowKey="id" size="small" columns={reportColumns} dataSource={pendingReports} pagination={false} scroll={{ x: 760 }} rowClassName={() => 'leader-report-row'} onRow={() => ({ onClick: () => navigate('/queue') })} locale={{ emptyText: <div className="leader-empty"><CheckCircleFilled /><strong>No reports awaiting decision</strong></div> }} />
       </Card>
 
       <Card className="content-card leader-calls-card" title={<div><strong>Recent team calls</strong><small>Latest activity from teams and projects assigned to you</small></div>} extra={<Link to="/calls">Open call library <ArrowRightOutlined /></Link>}>
-        <Table<CallEvent> rowKey="id" size="small" columns={callColumns} dataSource={calls?.recent_calls ?? []} pagination={false} scroll={{ x: 680 }} locale={{ emptyText: <div className="leader-empty"><CustomerServiceOutlined /><strong>No recent calls</strong><span>New calls from your teams will appear here.</span></div> }} />
+        <Table<CallEvent> rowKey="id" size="small" columns={callColumns} dataSource={calls?.recent_calls ?? []} pagination={false} scroll={{ x: 680 }} locale={{ emptyText: <div className="leader-empty"><CustomerServiceOutlined /><strong>No recent calls</strong></div> }} />
       </Card>
     </div>}
   </div>;
@@ -222,7 +222,7 @@ function OperationsDashboard() {
     { title: 'Received', dataIndex: 'received_at', key: 'received_at', render: (value) => `${appDate(value).format('h:mm A')} ET` },
   ];
 
-  return <div className="page-stack"><div className="page-heading"><div><Text className="eyebrow">OPERATIONS OVERVIEW</Text><Title level={2} className="page-title">Good {greeting()}, {user?.first_name}.</Title><Paragraph className="page-subtitle">Here’s the quality pulse for your branch over the last 24 hours.</Paragraph></div><Button type="primary" className="page-heading__action" icon={<AuditOutlined />} onClick={() => navigate('/queue')}>Start reviewing</Button></div>
+  return <div className="page-stack"><div className="page-heading"><div><Text className="eyebrow">OPERATIONS OVERVIEW</Text><Title level={2} className="page-title">Good {greeting()}, {user?.first_name}.</Title></div><Button type="primary" className="page-heading__action" icon={<AuditOutlined />} onClick={() => navigate('/queue')}>Start reviewing</Button></div>
     {error && <Alert type="error" showIcon title="Unable to load dashboard" description={error} action={<Button onClick={retry}>Try again</Button>} />}
     {loading ? <ContentLoader label="Loading dashboard" minHeight={420} /> : !error && <div className="data-reveal"><Row gutter={[16, 16]}><Col xs={24} sm={12} xl={6}><MetricCard order={0} title="Calls received" value={data?.metrics.total_calls ?? 0} icon={<CustomerServiceOutlined />} footer={<><span className="positive"><RiseOutlined /> Live intake</span><Text type="secondary">24 hours</Text></>} /></Col><Col xs={24} sm={12} xl={6}><MetricCard order={1} title="Recordings ready" value={data?.metrics.recordings_ready ?? 0} icon={<DownloadOutlined />} footer={<><span className="positive"><CheckCircleFilled /> Available</span><Text type="secondary">for review</Text></>} /></Col><Col xs={24} sm={12} xl={6}><MetricCard order={2} title="Awaiting recording" value={data?.metrics.recordings_pending ?? 0} icon={<ClockCircleOutlined />} footer={<span>Automatic retries active</span>} /></Col><Col xs={24} sm={12} xl={6}><MetricCard order={3} title="Average talk time" value={formatDuration(data?.metrics.avg_talk_time ?? 0)} icon={<BarChartVisual />} footer={<span>Across received calls</span>} /></Col></Row>
       <Row gutter={[16, 16]}><Col xs={24} xl={16}><Card className="content-card" title={<div><strong>Recent call activity</strong><small>Newest dialer events in your branch</small></div>} extra={<Link to="/calls">View library <ArrowRightOutlined /></Link>}><Table<CallEvent> className="content-table" rowKey="id" columns={columns} dataSource={data?.recent_calls ?? []} pagination={false} scroll={{ x: 760 }} /></Card></Col><Col xs={24} xl={8}><Card className="content-card quality-card" title={<div><strong>Review completion</strong><small>Current assigned workload</small></div>}><div className="quality-progress"><Progress type="circle" percent={data?.metrics.review_completion ?? 0} strokeColor="var(--qa-primary)" size={154} /><div><Text type="secondary">Reviews completed</Text><Title level={3} className="quality-total">{data?.metrics.reviewed ?? 0}</Title></div></div><div className="queue-breakdown"><div><span className="queue-dot queue-dot--purple" /><span><strong>Ready for review</strong><small>Recordings processed</small></span><b>{data?.metrics.recordings_ready ?? 0}</b></div><div><span className="queue-dot queue-dot--amber" /><span><strong>Processing</strong><small>Recording retrieval</small></span><b>{data?.metrics.recordings_pending ?? 0}</b></div></div><Link className="card-action" to="/queue">Open review queue <ArrowRightOutlined /></Link></Card></Col></Row></div>}

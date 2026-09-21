@@ -9,7 +9,7 @@ import { api } from '../lib/api';
 import { DEFAULT_THEME, THEME_PRESETS, useThemeSettings, type ThemeMode, type ThemePreferences } from '../theme/ThemeContext';
 import type { CurrentUser, LedTeam } from '../types';
 
-const { Paragraph, Text, Title } = Typography;
+const { Text, Title } = Typography;
 const VALID_TABS = new Set(['profile', 'team', 'appearance']);
 
 function initialsFor(user: CurrentUser | null) {
@@ -75,7 +75,7 @@ export function AccountPage() {
         <Upload accept="image/jpeg,image/png,image/webp" maxCount={1} showUploadList={false} customRequest={uploadAvatar} disabled={uploading}><Button type="primary" icon={<UploadOutlined />} loading={uploading}>Change photo</Button></Upload>
         {user?.profile_picture_url && <Popconfirm title="Remove profile picture?" description="Your initials will be shown instead." onConfirm={() => void removeAvatar()}><Button icon={<DeleteOutlined />} loading={removing}>Remove</Button></Popconfirm>}
       </Space>
-      <Text type="secondary" className="account-photo-card__hint">JPEG, PNG or WebP · 5 MB maximum<br />Images are securely resized to a square.</Text>
+      <Text type="secondary" className="account-photo-card__hint">JPEG, PNG or WebP · Max 5 MB</Text>
     </Card>
     <Card title="Account information" className="account-detail-card" extra={<Tag color="blue">Read only</Tag>}>
       <Descriptions column={{ xs: 1, sm: 1, md: 2 }} layout="vertical" items={[
@@ -87,7 +87,7 @@ export function AccountPage() {
         { key: 'status', label: 'Account status', children: <Tag color="success">Active</Tag> },
       ]} />
       <Divider />
-      <div className="account-projects"><Text strong>Assigned projects</Text><Paragraph type="secondary">Your project access is managed by a system administrator.</Paragraph><Space wrap>{user?.assigned_projects.length ? user.assigned_projects.map((project) => <Tag key={project.id}>{project.name}</Tag>) : <Text type="secondary">No project-specific assignment</Text>}</Space></div>
+      <div className="account-projects"><Text strong>Assigned projects</Text><Space wrap>{user?.assigned_projects.length ? user.assigned_projects.map((project) => <Tag key={project.id}>{project.name}</Tag>) : <Text type="secondary">No project-specific assignment</Text>}</Space></div>
     </Card>
   </div>;
 
@@ -98,7 +98,7 @@ export function AccountPage() {
   ];
 
   return <div className="account-page">
-    <div className="page-heading"><div><Text className="eyebrow">PERSONAL SETTINGS</Text><Title level={2} className="page-title">Account</Title><Paragraph className="page-subtitle">Manage your photo, team identity, and workspace appearance.</Paragraph></div></div>
+    <div className="page-heading"><div><Text className="eyebrow">PERSONAL SETTINGS</Text><Title level={2} className="page-title">Account</Title></div></div>
     <Card className="account-shell-card" classNames={{ body: 'account-shell-card__body' }} variant="borderless"><Tabs activeKey={activeTab} animated={{ inkBar: true, tabPane: true }} items={tabs} onChange={(tab) => setSearchParams(tab === 'profile' ? {} : { tab })} /></Card>
   </div>;
 }
@@ -135,7 +135,7 @@ function TeamAvatarSection() {
 
   if (loading) return <div className="account-section-loading"><Spin /><Text type="secondary">Loading team settings…</Text></div>;
   if (!teams.length) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No teams are assigned to you" />;
-  return <div className="account-section"><div className="account-section__intro"><Title level={4}>Team identity</Title><Paragraph type="secondary">Choose the symbol shown beside your agents across CallLens.</Paragraph></div><div className="team-settings-grid">{teams.map((team) => <Card key={team.id} className="team-setting-card" classNames={{ body: 'team-setting-card__body' }}><div className="team-setting-card__identity"><span className="team-avatar team-avatar--account"><MaterialSymbol name={team.avatar} /></span><span><strong>{team.name}</strong><small>{team.is_active ? 'Active team' : 'Inactive team'}</small></span></div><Spin spinning={saving === team.id} size="small"><TeamAvatarPicker value={team.avatar} onChange={(avatar) => void updateAvatar(team, avatar)} /></Spin></Card>)}</div></div>;
+  return <div className="account-section"><div className="account-section__intro"><Title level={4}>Team identity</Title></div><div className="team-settings-grid">{teams.map((team) => <Card key={team.id} className="team-setting-card" classNames={{ body: 'team-setting-card__body' }}><div className="team-setting-card__identity"><span className="team-avatar team-avatar--account"><MaterialSymbol name={team.avatar} /></span><span><strong>{team.name}</strong><small>{team.is_active ? 'Active team' : 'Inactive team'}</small></span></div><Spin spinning={saving === team.id} size="small"><TeamAvatarPicker value={team.avatar} onChange={(avatar) => void updateAvatar(team, avatar)} /></Spin></Card>)}</div></div>;
 }
 
 function AppearanceSection() {
@@ -155,13 +155,13 @@ function AppearanceSection() {
   };
 
   return <div className="account-section appearance-section">
-    <div className="account-section__intro"><Title level={4}>Make CallLens yours</Title><Paragraph type="secondary">Select a workspace palette, color mode, and information density. Changes preview instantly.</Paragraph></div>
-    <div className="appearance-setting-row"><div><Text strong>Color mode</Text><Text type="secondary">Use your device setting or keep a fixed mode.</Text></div><Segmented<ThemeMode> value={mode} onChange={setMode} options={[{ value: 'light', label: 'Light', icon: <SunOutlined /> }, { value: 'dark', label: 'Dark', icon: <MoonOutlined /> }, { value: 'system', label: 'System', icon: <DesktopOutlined /> }]} /></div>
+    <div className="account-section__intro"><Title level={4}>Appearance</Title></div>
+    <div className="appearance-setting-row"><div><Text strong>Color mode</Text></div><Segmented<ThemeMode> value={mode} onChange={setMode} options={[{ value: 'light', label: 'Light', icon: <SunOutlined /> }, { value: 'dark', label: 'Dark', icon: <MoonOutlined /> }, { value: 'system', label: 'System', icon: <DesktopOutlined /> }]} /></div>
     <Divider />
-    <div className="theme-gallery-heading"><div><Text strong>Theme</Text><Text type="secondary">A curated set of accessible Ant Design palettes.</Text></div><PictureOutlined className="theme-gallery-heading__icon" /></div>
+    <div className="theme-gallery-heading"><div><Text strong>Theme</Text></div><PictureOutlined className="theme-gallery-heading__icon" /></div>
     <div className="theme-gallery" role="radiogroup" aria-label="Workspace theme">{THEME_PRESETS.map((item) => <button key={item.id} type="button" role="radio" aria-checked={preset === item.id} aria-label={`${item.name}: ${item.description}`} className={`theme-orb-option${preset === item.id ? ' theme-orb-option--selected' : ''}`} onClick={() => setPreset(item.id)} style={{ '--theme-primary': item.primary, '--theme-secondary': item.secondary } as CSSProperties}><span className="theme-orb"><span className="theme-orb__lens" />{preset === item.id && <CheckOutlined className="theme-orb__check" />}</span><span><strong>{item.name}</strong><small>{item.description}</small></span></button>)}</div>
     <Divider />
-    <div className="appearance-setting-row"><div><Text strong>Compact density</Text><Text type="secondary">Reduce spacing to fit more records on screen.</Text></div><Switch checked={compact} onChange={setCompact} aria-label="Use compact interface density" /></div>
-    <div className="appearance-footer"><Text type="secondary">Your saved appearance follows you across devices.</Text><Space><Button onClick={() => setPreferences(DEFAULT_THEME)}>Reset</Button><Button type="primary" icon={<SaveOutlined />} disabled={!dirty} loading={saving} onClick={() => void save()}>Save appearance</Button></Space></div>
+    <div className="appearance-setting-row"><div><Text strong>Compact density</Text></div><Switch checked={compact} onChange={setCompact} aria-label="Use compact interface density" /></div>
+    <div className="appearance-footer"><div /><Space><Button onClick={() => setPreferences(DEFAULT_THEME)}>Reset</Button><Button type="primary" icon={<SaveOutlined />} disabled={!dirty} loading={saving} onClick={() => void save()}>Save appearance</Button></Space></div>
   </div>;
 }

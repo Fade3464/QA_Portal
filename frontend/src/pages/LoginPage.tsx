@@ -89,12 +89,6 @@ export function LoginPage() {
               Sign in securely
             </Button>
           </Form>
-
-          <div className="auth-security-note">
-            <LockOutlined />
-            <Text type="secondary">Protected with encrypted sessions and access controls.</Text>
-          </div>
-          <Text className="support-note" type="secondary">Need access? Contact your system administrator.</Text>
         </div>
       </section>
     </main>

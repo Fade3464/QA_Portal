@@ -55,7 +55,7 @@ export function TeamAvatarPicker({ value, onChange }: { value?: string; onChange
     <Popover open={open} onOpenChange={setOpen} trigger="click" placement="bottomLeft" content={content} destroyOnHidden rootClassName="team-avatar-picker__popover">
       <Button className="team-avatar-picker__trigger">
         <span className="team-avatar team-avatar--preview"><MaterialSymbol name={selected?.value ?? DEFAULT_TEAM_AVATAR} /></span>
-        <span><strong>{selected?.label ?? 'Choose avatar'}</strong><small>Browse the symbol library</small></span>
+        <span><strong>{selected?.label ?? 'Choose avatar'}</strong></span>
       </Button>
     </Popover>
   );

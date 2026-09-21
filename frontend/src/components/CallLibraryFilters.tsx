@@ -175,14 +175,13 @@ export function CallLibraryFilters({
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         size={480}
-        title={<div><Title level={4}>{simplified ? 'Filter QA calls' : 'Explore calls'}</Title><Text type="secondary">{simplified ? 'Narrow the calls available for evaluation.' : 'Combine filters to narrow the library.'}</Text></div>}
+        title={<Title level={4}>{simplified ? 'Filter QA calls' : 'Explore calls'}</Title>}
         extra={<Badge count={activeCount} showZero color="var(--qa-primary)" />}
         classNames={{ body: 'call-filter-drawer__body' }}
       >
         <div className="call-filter-form">
           <section>
             <Text strong>Time window</Text>
-            <Text type="secondary">Filter by ingestion time or the dialer call timestamp.</Text>
             <Select
               value={value.dateField}
               onChange={(dateField) => patch({ dateField, relativeRange: 'custom' })}
@@ -206,7 +205,6 @@ export function CallLibraryFilters({
           <Divider />
           <section>
             <Text strong>Call dimensions</Text>
-            <Text type="secondary">Selections use OR within a field and AND across fields.</Text>
             <label>Agents<Select mode="multiple" allowClear showSearch maxTagCount="responsive" loading={optionsLoading} value={value.agents} options={optionList(options?.agents)} onChange={(agents) => patch({ agents })} placeholder="Any agent" /></label>
             <label>Teams<Select mode="multiple" allowClear showSearch maxTagCount="responsive" loading={optionsLoading} value={value.teams} options={optionList(options?.teams)} onChange={(teams) => patch({ teams })} placeholder="Any team" /></label>
             <label>Projects<Select mode="multiple" allowClear showSearch maxTagCount="responsive" loading={optionsLoading} value={value.projects} options={optionList(options?.projects)} onChange={(projects) => patch({ projects })} placeholder="Any project" /></label>
@@ -220,7 +218,6 @@ export function CallLibraryFilters({
           <Divider />
           <section>
             <Text strong>Talk time</Text>
-            <Text type="secondary">Use seconds; either boundary can be left empty.</Text>
             <div className="call-filter-form__range">
               <label>Minimum<div className="call-filter-form__unit"><InputNumber min={0} precision={0} value={value.talkTimeMin} onChange={(talkTimeMin) => patch({ talkTimeMin: talkTimeMin ?? undefined })} placeholder="0" /><span>sec</span></div></label>
               <label>Maximum<div className="call-filter-form__unit"><InputNumber min={0} precision={0} value={value.talkTimeMax} onChange={(talkTimeMax) => patch({ talkTimeMax: talkTimeMax ?? undefined })} placeholder="No limit" /><span>sec</span></div></label>
