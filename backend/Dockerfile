@@ -12,7 +12,7 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
-RUN mkdir -p /app/staticfiles /app/media /recordings && chown -R app:app /app /recordings
+RUN mkdir -p /app/staticfiles /app/media /media /recordings && chown -R app:app /app /media /recordings
 
 USER app
 

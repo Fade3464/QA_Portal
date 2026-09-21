@@ -31,6 +31,9 @@ class CurrentUserSerializer(serializers.ModelSerializer):
     role_label = serializers.CharField(source="get_role_display", read_only=True)
     company = serializers.SerializerMethodField()
     branch = serializers.SerializerMethodField()
+    profile_picture_url = serializers.SerializerMethodField()
+    appearance = serializers.SerializerMethodField()
+    assigned_projects = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -46,6 +49,9 @@ class CurrentUserSerializer(serializers.ModelSerializer):
             "branch",
             "must_change_password",
             "is_superuser",
+            "profile_picture_url",
+            "appearance",
+            "assigned_projects",
         )
 
     def get_company(self, obj):
@@ -61,3 +67,44 @@ class CurrentUserSerializer(serializers.ModelSerializer):
             if obj.branch_id
             else None
         )
+
+    def get_profile_picture_url(self, obj):
+        if not obj.profile_picture:
+            return None
+        version = int(obj.updated_at.timestamp() * 1_000_000)
+        return f"/api/v1/auth/account/avatar/?v={version}"
+
+    def get_appearance(self, obj):
+        return {
+            "mode": obj.appearance_mode,
+            "preset": obj.appearance_preset,
+            "compact": obj.appearance_compact,
+        }
+
+    def get_assigned_projects(self, obj):
+        assignments = obj.qa_project_assignments.select_related(
+            "dialer_campaign__dialer"
+        ).all()
+        return [
+            {
+                "id": str(item.dialer_campaign_id),
+                "name": item.dialer_campaign.project_name,
+                "campaign": item.dialer_campaign.campaign,
+                "dialer": item.dialer_campaign.dialer.name,
+            }
+            for item in assignments
+        ]
+
+
+class AppearanceSerializer(serializers.ModelSerializer):
+    mode = serializers.ChoiceField(
+        source="appearance_mode", choices=User.AppearanceMode.choices
+    )
+    preset = serializers.ChoiceField(
+        source="appearance_preset", choices=User.AppearancePreset.choices
+    )
+    compact = serializers.BooleanField(source="appearance_compact")
+
+    class Meta:
+        model = User
+        fields = ("mode", "preset", "compact")

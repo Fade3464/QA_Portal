@@ -11,6 +11,7 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   SettingOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import { App as AntApp, Avatar, Badge, Button, Dropdown, Empty, Layout, Menu, Popover, Tag, Tooltip, Typography, type MenuProps } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -163,14 +164,13 @@ export function AppShell() {
       { key: '/calls', icon: <CustomerServiceOutlined />, label: <Link to="/calls">{isQa ? 'Calls for review' : 'Call library'}</Link> },
       { key: '/insights', icon: <BarChartOutlined />, label: <Link to="/insights">Quality insights</Link>, roles: ['supervisor', 'administrator'] },
       { key: '/admin', icon: <SettingOutlined />, label: <Link to="/admin">Administration</Link>, roles: ['administrator'] },
+      { key: '/account', icon: <UserOutlined />, label: <Link to="/account">Account</Link> },
     ];
     return all.filter((item) => !item.roles || item.roles.includes(user?.role ?? ''));
   }, [isQa, user?.role]);
 
-  const accountMenu: MenuProps['items'] = isQa ? [
-    { key: 'logout', label: 'Sign out', icon: <LogoutOutlined />, danger: true, onClick: async () => { await logout(); navigate('/login'); } },
-  ] : [
-    { key: 'profile', label: 'My profile', icon: <AppstoreOutlined />, disabled: true },
+  const accountMenu: MenuProps['items'] = [
+    { key: 'profile', label: 'My account', icon: <UserOutlined />, onClick: () => navigate('/account') },
     { type: 'divider' },
     { key: 'logout', label: 'Sign out', icon: <LogoutOutlined />, danger: true, onClick: async () => { await logout(); navigate('/login'); } },
   ];
@@ -229,7 +229,7 @@ export function AppShell() {
             <ThemeControls />
             <Dropdown menu={{ items: accountMenu }} trigger={['click']} placement="bottomRight">
               <button className="account-button" type="button">
-                <Avatar size={38} className="account-avatar">{initials}</Avatar>
+                <Avatar size={38} className="account-avatar" src={user?.profile_picture_url ?? undefined}>{initials}</Avatar>
                 <span className="account-button__copy"><strong>{user?.name}</strong><small>{user?.role_label}</small></span>
                 <DownOutlined className="account-chevron" />
               </button>

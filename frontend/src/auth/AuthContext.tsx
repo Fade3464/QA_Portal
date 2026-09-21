@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { api, setCsrfToken } from '../lib/api';
+import { useThemeSettings } from '../theme/ThemeContext';
 import type { CurrentUser } from '../types';
 
 interface AuthContextValue {
@@ -14,14 +15,17 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const { setPreferences } = useThemeSettings();
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     const session = await api<{ authenticated: boolean; csrfToken: string; user?: CurrentUser }>('/api/v1/auth/session/');
     setCsrfToken(session.csrfToken);
-    setUser(session.authenticated ? (session.user ?? null) : null);
-  }, []);
+    const nextUser = session.authenticated ? (session.user ?? null) : null;
+    setUser(nextUser);
+    if (nextUser?.appearance) setPreferences(nextUser.appearance);
+  }, [setPreferences]);
 
   useEffect(() => {
     let active = true;
@@ -29,12 +33,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then((session) => {
         if (!active) return;
         setCsrfToken(session.csrfToken);
-        setUser(session.authenticated ? (session.user ?? null) : null);
+        const nextUser = session.authenticated ? (session.user ?? null) : null;
+        setUser(nextUser);
+        if (nextUser?.appearance) setPreferences(nextUser.appearance);
       })
       .catch(() => { if (active) setUser(null); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, []);
+  }, [setPreferences]);
 
   const login = useCallback(async (email: string, password: string, remember: boolean) => {
     const result = await api<{ user: CurrentUser; csrfToken: string }>('/api/v1/auth/login/', {
@@ -43,7 +49,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     setCsrfToken(result.csrfToken);
     setUser(result.user);
-  }, []);
+    if (result.user.appearance) setPreferences(result.user.appearance);
+  }, [setPreferences]);
 
   const logout = useCallback(async () => {
     await api('/api/v1/auth/logout/', { method: 'POST' });
@@ -58,7 +65,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     setCsrfToken(result.csrfToken);
     setUser(result.user);
-  }, []);
+    if (result.user.appearance) setPreferences(result.user.appearance);
+  }, [setPreferences]);
 
   const value = useMemo(() => ({ user, loading, login, changePassword, logout, refresh }), [user, loading, login, changePassword, logout, refresh]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -17,6 +17,7 @@ const PlaceholderPage = lazy(() => import('./pages/PlaceholderPage').then((modul
 const AdministrationPage = lazy(() => import('./pages/AdministrationPage').then((module) => ({ default: module.AdministrationPage })));
 const ReportsPage = lazy(() => import('./pages/ReportsPage').then((module) => ({ default: module.ReportsPage })));
 const ProjectPerformancePage = lazy(() => import('./pages/ProjectPerformancePage').then((module) => ({ default: module.ProjectPerformancePage })));
+const AccountPage = lazy(() => import('./pages/AccountPage').then((module) => ({ default: module.AccountPage })));
 
 function ProtectedLayout() {
   const { user, loading } = useAuth();
@@ -44,7 +45,7 @@ function ManagementRoute() {
 }
 
 export default function App() {
-  const { resolvedMode, primaryColor, compact } = useThemeSettings();
+  const { resolvedMode, primaryColor, borderRadius, compact } = useThemeSettings();
   const dark = resolvedMode === 'dark';
   const surface = dark ? '#161a23' : '#ffffff';
   const text = dark ? '#edf1f7' : '#172033';
@@ -63,8 +64,8 @@ export default function App() {
           colorError: '#e05260',
           colorTextBase: dark ? '#edf1f7' : '#172033',
           colorBgBase: dark ? '#10131a' : '#f5f7fb',
-          borderRadius: 10,
-          borderRadiusLG: 16,
+          borderRadius,
+          borderRadiusLG: borderRadius + 6,
           fontFamily: "'DM Sans', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
           controlHeight: 40,
         },
@@ -116,6 +117,7 @@ export default function App() {
               <Route path="insights" element={<ManagementRoute />} />
               <Route path="admin" element={<AdministratorRoute />} />
               <Route path="administration" element={<AdministratorRoute />} />
+              <Route path="account" element={<AccountPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

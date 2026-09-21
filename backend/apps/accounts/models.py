@@ -16,6 +16,23 @@ class User(AbstractUser):
         SUPERVISOR = "supervisor", "Supervisor"
         ADMINISTRATOR = "administrator", "System Administrator"
 
+    class AppearanceMode(models.TextChoices):
+        LIGHT = "light", "Light"
+        DARK = "dark", "Dark"
+        SYSTEM = "system", "System"
+
+    class AppearancePreset(models.TextChoices):
+        CALLLENS = "calllens", "CallLens"
+        ANT_BLUE = "ant_blue", "Ant Blue"
+        GEEK_BLUE = "geek_blue", "Geek Blue"
+        PURPLE = "purple", "Purple"
+        CYAN = "cyan", "Cyan"
+        EMERALD = "emerald", "Emerald"
+        MAGENTA = "magenta", "Magenta"
+        VOLCANO = "volcano", "Volcano"
+        GOLD = "gold", "Gold"
+        NEUTRAL = "neutral", "Neutral"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     username = None
     email = models.EmailField(unique=True)
@@ -37,6 +54,18 @@ class User(AbstractUser):
         blank=True,
     )
     must_change_password = models.BooleanField(default=True)
+    profile_picture = models.ImageField(upload_to="profile-avatars/", blank=True)
+    appearance_mode = models.CharField(
+        max_length=12,
+        choices=AppearanceMode.choices,
+        default=AppearanceMode.SYSTEM,
+    )
+    appearance_preset = models.CharField(
+        max_length=24,
+        choices=AppearancePreset.choices,
+        default=AppearancePreset.CALLLENS,
+    )
+    appearance_compact = models.BooleanField(default=False)
     last_password_change = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

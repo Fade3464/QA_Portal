@@ -1,0 +1,167 @@
+import { BgColorsOutlined, CheckOutlined, DeleteOutlined, DesktopOutlined, MoonOutlined, PictureOutlined, SaveOutlined, SunOutlined, TeamOutlined, UploadOutlined, UserOutlined } from '@ant-design/icons';
+import { App as AntApp, Avatar, Button, Card, Descriptions, Divider, Empty, Popconfirm, Segmented, Space, Spin, Switch, Tabs, Tag, Typography, Upload, type UploadProps } from 'antd';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
+import { MaterialSymbol } from '../components/MaterialSymbol';
+import { TeamAvatarPicker } from '../components/TeamAvatarPicker';
+import { api } from '../lib/api';
+import { DEFAULT_THEME, THEME_PRESETS, useThemeSettings, type ThemeMode, type ThemePreferences } from '../theme/ThemeContext';
+import type { CurrentUser, LedTeam } from '../types';
+
+const { Paragraph, Text, Title } = Typography;
+const VALID_TABS = new Set(['profile', 'team', 'appearance']);
+
+function initialsFor(user: CurrentUser | null) {
+  return `${user?.first_name?.[0] ?? ''}${user?.last_name?.[0] ?? ''}`.toUpperCase() || 'U';
+}
+
+export function AccountPage() {
+  const { message } = AntApp.useApp();
+  const { user, refresh } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get('tab') ?? 'profile';
+  const activeTab = VALID_TABS.has(requestedTab) && (requestedTab !== 'team' || user?.role === 'team_leader') ? requestedTab : 'profile';
+  const [uploading, setUploading] = useState(false);
+  const [removing, setRemoving] = useState(false);
+
+  const uploadAvatar: UploadProps['customRequest'] = async ({ file, onError, onSuccess }) => {
+    const avatar = file as File;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(avatar.type)) {
+      message.error('Choose a JPEG, PNG, or WebP image.');
+      onError?.(new Error('Unsupported image type'));
+      return;
+    }
+    if (avatar.size > 5 * 1024 * 1024) {
+      message.error('Profile pictures must be 5 MB or smaller.');
+      onError?.(new Error('Image is too large'));
+      return;
+    }
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append('avatar', avatar);
+      await api<CurrentUser>('/api/v1/auth/account/avatar/', { method: 'POST', body: form });
+      await refresh();
+      onSuccess?.({});
+      message.success('Profile picture updated.');
+    } catch (error) {
+      const reason = error instanceof Error ? error : new Error('Upload failed');
+      onError?.(reason);
+      message.error(reason.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removeAvatar = async () => {
+    setRemoving(true);
+    try {
+      await api('/api/v1/auth/account/avatar/', { method: 'DELETE' });
+      await refresh();
+      message.success('Profile picture removed.');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : 'Could not remove the picture.');
+    } finally {
+      setRemoving(false);
+    }
+  };
+
+  const profile = <div className="account-profile-grid">
+    <Card className="account-photo-card" variant="borderless">
+      <div className="account-photo-card__halo"><Avatar size={112} src={user?.profile_picture_url ?? undefined} className="account-photo-card__avatar">{initialsFor(user)}</Avatar></div>
+      <Title level={4}>{user?.name}</Title><Text type="secondary">{user?.role_label}</Text>
+      <Space wrap className="account-photo-card__actions">
+        <Upload accept="image/jpeg,image/png,image/webp" maxCount={1} showUploadList={false} customRequest={uploadAvatar} disabled={uploading}><Button type="primary" icon={<UploadOutlined />} loading={uploading}>Change photo</Button></Upload>
+        {user?.profile_picture_url && <Popconfirm title="Remove profile picture?" description="Your initials will be shown instead." onConfirm={() => void removeAvatar()}><Button icon={<DeleteOutlined />} loading={removing}>Remove</Button></Popconfirm>}
+      </Space>
+      <Text type="secondary" className="account-photo-card__hint">JPEG, PNG or WebP · 5 MB maximum<br />Images are securely resized to a square.</Text>
+    </Card>
+    <Card title="Account information" className="account-detail-card" extra={<Tag color="blue">Read only</Tag>}>
+      <Descriptions column={{ xs: 1, sm: 1, md: 2 }} layout="vertical" items={[
+        { key: 'name', label: 'Full name', children: user?.name },
+        { key: 'email', label: 'Work email', children: user?.email },
+        { key: 'role', label: 'Portal role', children: user?.role_label },
+        { key: 'company', label: 'Company', children: user?.company?.name ?? 'System-wide' },
+        { key: 'branch', label: 'Branch', children: user?.branch?.name ?? 'All organizations' },
+        { key: 'status', label: 'Account status', children: <Tag color="success">Active</Tag> },
+      ]} />
+      <Divider />
+      <div className="account-projects"><Text strong>Assigned projects</Text><Paragraph type="secondary">Your project access is managed by a system administrator.</Paragraph><Space wrap>{user?.assigned_projects.length ? user.assigned_projects.map((project) => <Tag key={project.id}>{project.name}</Tag>) : <Text type="secondary">No project-specific assignment</Text>}</Space></div>
+    </Card>
+  </div>;
+
+  const tabs = [
+    { key: 'profile', label: 'Profile', icon: <UserOutlined />, children: profile },
+    ...(user?.role === 'team_leader' ? [{ key: 'team', label: 'Team avatar', icon: <TeamOutlined />, children: <TeamAvatarSection /> }] : []),
+    { key: 'appearance', label: 'Appearance', icon: <BgColorsOutlined />, children: <AppearanceSection /> },
+  ];
+
+  return <div className="account-page">
+    <div className="page-heading"><div><Text className="eyebrow">PERSONAL SETTINGS</Text><Title level={2} className="page-title">Account</Title><Paragraph className="page-subtitle">Manage your photo, team identity, and workspace appearance.</Paragraph></div></div>
+    <Card className="account-shell-card" classNames={{ body: 'account-shell-card__body' }} variant="borderless"><Tabs activeKey={activeTab} animated={{ inkBar: true, tabPane: true }} items={tabs} onChange={(tab) => setSearchParams(tab === 'profile' ? {} : { tab })} /></Card>
+  </div>;
+}
+
+function TeamAvatarSection() {
+  const { message } = AntApp.useApp();
+  const [teams, setTeams] = useState<LedTeam[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try { setTeams(await api<LedTeam[]>('/api/v1/auth/account/teams/')); }
+    catch (error) { message.error(error instanceof Error ? error.message : 'Could not load your teams.'); }
+    finally { setLoading(false); }
+  }, [message]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
+
+  const updateAvatar = async (team: LedTeam, avatar: string) => {
+    const previous = team.avatar;
+    setTeams((current) => current.map((item) => item.id === team.id ? { ...item, avatar } : item));
+    setSaving(team.id);
+    try {
+      const updated = await api<LedTeam>(`/api/v1/auth/account/teams/${team.id}/avatar/`, { method: 'PATCH', body: JSON.stringify({ avatar }) });
+      setTeams((current) => current.map((item) => item.id === team.id ? updated : item));
+      message.success(`${team.name} avatar updated.`);
+    } catch (error) {
+      setTeams((current) => current.map((item) => item.id === team.id ? { ...item, avatar: previous } : item));
+      message.error(error instanceof Error ? error.message : 'Could not update the team avatar.');
+    } finally { setSaving(null); }
+  };
+
+  if (loading) return <div className="account-section-loading"><Spin /><Text type="secondary">Loading team settings…</Text></div>;
+  if (!teams.length) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No teams are assigned to you" />;
+  return <div className="account-section"><div className="account-section__intro"><Title level={4}>Team identity</Title><Paragraph type="secondary">Choose the symbol shown beside your agents across CallLens.</Paragraph></div><div className="team-settings-grid">{teams.map((team) => <Card key={team.id} className="team-setting-card" classNames={{ body: 'team-setting-card__body' }}><div className="team-setting-card__identity"><span className="team-avatar team-avatar--account"><MaterialSymbol name={team.avatar} /></span><span><strong>{team.name}</strong><small>{team.is_active ? 'Active team' : 'Inactive team'}</small></span></div><Spin spinning={saving === team.id} size="small"><TeamAvatarPicker value={team.avatar} onChange={(avatar) => void updateAvatar(team, avatar)} /></Spin></Card>)}</div></div>;
+}
+
+function AppearanceSection() {
+  const { message } = AntApp.useApp();
+  const { mode, preset, compact, setMode, setPreset, setCompact, setPreferences } = useThemeSettings();
+  const [saved, setSaved] = useState<ThemePreferences>({ mode, preset, compact });
+  const [saving, setSaving] = useState(false);
+  const preferences = useMemo(() => ({ mode, preset, compact }), [mode, preset, compact]);
+  const dirty = saved.mode !== mode || saved.preset !== preset || saved.compact !== compact;
+  const save = async () => {
+    setSaving(true);
+    try {
+      const updated = await api<CurrentUser>('/api/v1/auth/account/appearance/', { method: 'PATCH', body: JSON.stringify(preferences) });
+      setSaved(updated.appearance); setPreferences(updated.appearance); message.success('Appearance saved.');
+    } catch (error) { message.error(error instanceof Error ? error.message : 'Could not save appearance.'); }
+    finally { setSaving(false); }
+  };
+
+  return <div className="account-section appearance-section">
+    <div className="account-section__intro"><Title level={4}>Make CallLens yours</Title><Paragraph type="secondary">Select a workspace palette, color mode, and information density. Changes preview instantly.</Paragraph></div>
+    <div className="appearance-setting-row"><div><Text strong>Color mode</Text><Text type="secondary">Use your device setting or keep a fixed mode.</Text></div><Segmented<ThemeMode> value={mode} onChange={setMode} options={[{ value: 'light', label: 'Light', icon: <SunOutlined /> }, { value: 'dark', label: 'Dark', icon: <MoonOutlined /> }, { value: 'system', label: 'System', icon: <DesktopOutlined /> }]} /></div>
+    <Divider />
+    <div className="theme-gallery-heading"><div><Text strong>Theme</Text><Text type="secondary">A curated set of accessible Ant Design palettes.</Text></div><PictureOutlined className="theme-gallery-heading__icon" /></div>
+    <div className="theme-gallery" role="radiogroup" aria-label="Workspace theme">{THEME_PRESETS.map((item) => <button key={item.id} type="button" role="radio" aria-checked={preset === item.id} aria-label={`${item.name}: ${item.description}`} className={`theme-orb-option${preset === item.id ? ' theme-orb-option--selected' : ''}`} onClick={() => setPreset(item.id)} style={{ '--theme-primary': item.primary, '--theme-secondary': item.secondary } as CSSProperties}><span className="theme-orb"><span className="theme-orb__lens" />{preset === item.id && <CheckOutlined className="theme-orb__check" />}</span><span><strong>{item.name}</strong><small>{item.description}</small></span></button>)}</div>
+    <Divider />
+    <div className="appearance-setting-row"><div><Text strong>Compact density</Text><Text type="secondary">Reduce spacing to fit more records on screen.</Text></div><Switch checked={compact} onChange={setCompact} aria-label="Use compact interface density" /></div>
+    <div className="appearance-footer"><Text type="secondary">Your saved appearance follows you across devices.</Text><Space><Button onClick={() => setPreferences(DEFAULT_THEME)}>Reset</Button><Button type="primary" icon={<SaveOutlined />} disabled={!dirty} loading={saving} onClick={() => void save()}>Save appearance</Button></Space></div>
+  </div>;
+}

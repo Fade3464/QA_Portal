@@ -44,9 +44,11 @@ services:
       TIME_ZONE: ${TIME_ZONE:-America/New_York}
       TZ: ${TIME_ZONE:-America/New_York}
       RECORDINGS_ROOT: /recordings
+      MEDIA_ROOT: /media
       RECORDING_DOWNLOAD_VERIFY_TLS: ${RECORDING_DOWNLOAD_VERIFY_TLS:-false}
     volumes:
       - recordings:/recordings
+      - profile_media:/media
     read_only: true
     tmpfs:
       - /tmp
@@ -148,3 +150,4 @@ volumes:
   postgres_data:
   redis_data:
   recordings:
+  profile_media:

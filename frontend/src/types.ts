@@ -18,6 +18,29 @@ export interface CurrentUser {
   branch: TenantReference | null;
   must_change_password: boolean;
   is_superuser: boolean;
+  profile_picture_url: string | null;
+  appearance: AppearancePreferences;
+  assigned_projects: AssignedProject[];
+}
+
+export interface AppearancePreferences {
+  mode: 'light' | 'dark' | 'system';
+  preset: 'calllens' | 'ant_blue' | 'geek_blue' | 'purple' | 'cyan' | 'emerald' | 'magenta' | 'volcano' | 'gold' | 'neutral';
+  compact: boolean;
+}
+
+export interface AssignedProject {
+  id: string;
+  name: string;
+  campaign: string;
+  dialer: string;
+}
+
+export interface LedTeam {
+  id: string;
+  name: string;
+  avatar: string;
+  is_active: boolean;
 }
 
 export interface CallReservation {
