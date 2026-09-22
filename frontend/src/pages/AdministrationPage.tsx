@@ -46,7 +46,7 @@ import { ContentLoader } from '../components/LoadingStates';
 import { TeamAvatarPicker } from '../components/TeamAvatarPicker';
 import type { AdminSummary, AdminUserRecord, BranchRecord, CompanyRecord, DialerRecord, SecurityEvent, TeamRecord } from '../types';
 
-const { Title, Paragraph, Text } = Typography;
+const { Title, Text } = Typography;
 type Resource = 'companies' | 'branches' | 'teams' | 'users' | 'dialers';
 type ManagedRecord = CompanyRecord | BranchRecord | TeamRecord | AdminUserRecord | DialerRecord;
 type EditorState = { resource: Resource; record?: ManagedRecord; defaults?: Record<string, unknown> } | null;
@@ -263,7 +263,7 @@ export function AdministrationPage() {
     <div className="page-stack administration-page">
       <section className="admin-hero">
         <div className="admin-hero__mesh" />
-        <div className="admin-hero__copy"><Text className="admin-kicker">SYSTEM CONTROL</Text><Title level={2}>Administration</Title><Paragraph>Manage your organization, access, dialer connections, and security from one workspace.</Paragraph></div>
+        <div className="admin-hero__copy"><Title level={2}>Administration</Title></div>
         <Space wrap><Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading}>Refresh</Button><Button type="primary" icon={<PlusOutlined />} onClick={() => { setActiveTab('companies'); openEditor('companies'); }}>Add company</Button></Space>
       </section>
       {loadError && <Alert type="error" showIcon title="Unable to load administration" description={loadError} action={<Button onClick={() => void load()}>Try again</Button>} />}

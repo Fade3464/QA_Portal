@@ -1,4 +1,4 @@
-import { ArrowRightOutlined, CheckCircleFilled, LockOutlined, MailOutlined, SafetyCertificateFilled } from '@ant-design/icons';
+import { LockOutlined, MailOutlined } from '@ant-design/icons';
 import { Alert, Button, Checkbox, Form, Input, Typography } from 'antd';
 import { useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
@@ -7,7 +7,7 @@ import { BrandMark } from '../components/BrandMark';
 import { ThemeControls } from '../components/ThemeControls';
 import { ApiError } from '../lib/api';
 
-const { Title, Paragraph, Text } = Typography;
+const { Title } = Typography;
 
 interface LoginValues {
   email: string;
@@ -39,57 +39,73 @@ export function LoginPage() {
   };
 
   return (
-    <main className="auth-layout">
-      <section className="auth-story" aria-label="Product overview">
-        <div className="auth-story__glow auth-story__glow--one" />
-        <div className="auth-story__glow auth-story__glow--two" />
-        <BrandMark contrast />
-        <div className="auth-story__content">
-          <Text className="eyebrow">QUALITY, IN FOCUS</Text>
-          <Title level={1} className="auth-story-title">Every conversation.<br />One clear standard.</Title>
-          <Paragraph className="auth-story-copy">
-            Turn live dialer activity into consistent reviews, focused coaching, and measurable operational confidence.
-          </Paragraph>
-          <div className="auth-benefits">
-            <div><CheckCircleFilled className="auth-benefit-icon" /><span><strong>Real-time intake</strong><small>Calls and recordings organized automatically</small></span></div>
-            <div><CheckCircleFilled className="auth-benefit-icon" /><span><strong>Branch-level control</strong><small>The right work, visible to the right team</small></span></div>
-            <div><CheckCircleFilled className="auth-benefit-icon" /><span><strong>Actionable quality</strong><small>From review queue to coaching insight</small></span></div>
-          </div>
-        </div>
-        <div className="auth-story__footer">
-          <span className="live-dot" /> Secure operations workspace
-          <span>Built for focused teams</span>
-        </div>
-      </section>
+    <main className="login-page">
+      <ThemeControls className="auth-theme-controls" />
+      <section className="login-card" aria-label="Sign in">
+        <div className="login-brand"><BrandMark /></div>
+        <Title level={2} className="auth-form-title">Sign in</Title>
 
-      <section className="auth-panel">
-        <ThemeControls className="auth-theme-controls" />
-        <div className="auth-panel__inner">
-          <div className="auth-panel__mobile-brand"><BrandMark /></div>
-          <div className="auth-heading">
-            <div className="auth-heading__icon"><SafetyCertificateFilled /></div>
-            <Title level={2} className="auth-form-title">Welcome back</Title>
-            <Paragraph className="auth-form-copy">Sign in to continue to your quality workspace.</Paragraph>
-          </div>
+        {error && (
+          <Alert
+            className="auth-alert"
+            type="error"
+            showIcon
+            title="Sign-in unsuccessful"
+            description={error}
+            closable={{ onClose: () => setError('') }}
+          />
+        )}
 
-          {error && <Alert className="auth-alert" type="error" showIcon title="Sign-in unsuccessful" description={error} closable={{ onClose: () => setError('') }} />}
+        <Form<LoginValues>
+          layout="vertical"
+          size="large"
+          requiredMark={false}
+          onFinish={submit}
+          initialValues={{ remember: false }}
+          className="login-form"
+          classNames={{ label: 'login-form__label' }}
+        >
+          <Form.Item
+            label="Work email"
+            name="email"
+            rules={[
+              { required: true, message: 'Enter your work email' },
+              { type: 'email', message: 'Enter a valid email address' },
+            ]}
+          >
+            <Input
+              className="login-input"
+              prefix={<MailOutlined />}
+              placeholder="you@company.com"
+              autoComplete="username"
+              autoFocus
+            />
+          </Form.Item>
 
-          <Form<LoginValues> layout="vertical" size="large" requiredMark={false} onFinish={submit} initialValues={{ remember: false }} className="login-form" classNames={{ label: 'login-form__label' }}>
-            <Form.Item label="Work email" name="email" rules={[{ required: true, message: 'Enter your work email' }, { type: 'email', message: 'Enter a valid email address' }]}>
-              <Input className="login-input" prefix={<MailOutlined />} placeholder="you@company.com" autoComplete="username" autoFocus />
+          <Form.Item
+            label="Password"
+            name="password"
+            rules={[{ required: true, message: 'Enter your password' }]}
+          >
+            <Input.Password
+              className="login-input"
+              prefix={<LockOutlined />}
+              placeholder="Password"
+              autoComplete="current-password"
+            />
+          </Form.Item>
+
+          <div className="login-form__options">
+            <Form.Item name="remember" valuePropName="checked" noStyle>
+              <Checkbox className="login-checkbox">Keep me signed in</Checkbox>
             </Form.Item>
-            <Form.Item label="Password" name="password" rules={[{ required: true, message: 'Enter your password' }]}>
-              <Input.Password className="login-input" prefix={<LockOutlined />} placeholder="Enter your password" autoComplete="current-password" />
-            </Form.Item>
-            <div className="login-form__options">
-              <Form.Item name="remember" valuePropName="checked" noStyle><Checkbox className="login-checkbox">Keep me signed in</Checkbox></Form.Item>
-              <Link to="/forgot-password">Forgot password?</Link>
-            </div>
-            <Button type="primary" htmlType="submit" block loading={submitting} icon={<ArrowRightOutlined />} iconPlacement="end">
-              Sign in securely
-            </Button>
-          </Form>
-        </div>
+            <Link to="/forgot-password">Forgot password?</Link>
+          </div>
+
+          <Button type="primary" htmlType="submit" block loading={submitting}>
+            Sign in
+          </Button>
+        </Form>
       </section>
     </main>
   );

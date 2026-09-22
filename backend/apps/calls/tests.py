@@ -1178,7 +1178,7 @@ class AnalysisReservationTests(TestCase):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()["score"], "1.50")
         review = Review.objects.get(call=self.call)
-        self.assertEqual(review.scorecard_version, "outbound-sales-v1")
+        self.assertEqual(review.scorecard_version, "outbound-sales-v2")
         self.assertEqual(review.strengths, "Warm tone.")
 
     def test_partial_call_normalizes_quality_against_applicable_headings(self):
@@ -1243,6 +1243,148 @@ class AnalysisReservationTests(TestCase):
         self.assertIsNone(response.json()["score"])
         self.assertEqual(response.json()["coverage"], "10.00")
         self.assertEqual(response.json()["rating"], "not_evaluable")
+
+    def test_partial_call_does_not_require_reasons_for_not_reached_headings(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        applicable = {category["key"]: "not_reached" for category in SCORECARD}
+        applicable["opening"] = "applicable"
+        opening_scores = {
+            key: maximum for key, _label, maximum in SCORECARD[0]["criteria"]
+        }
+
+        response = self.client.post(
+            self.url("call-review-submit"),
+            self.submission(
+                scores=opening_scores,
+                evaluation_type="partial",
+                category_applicability=applicable,
+                category_applicability_reasons={},
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["coverage"], "10.00")
+        self.assertEqual(response.json()["category_applicability_reasons"], {})
+
+    def test_partial_call_defaults_unspecified_headings_to_not_reached(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+
+        response = self.client.patch(
+            self.url("call-review-draft"),
+            {
+                "evaluation_type": "partial",
+                "category_applicability": {"opening": "applicable"},
+                "scores": {"professional_greeting": 2},
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        states = response.json()["category_applicability"]
+        self.assertEqual(states["opening"], "applicable")
+        self.assertTrue(
+            all(
+                states[category["key"]] == "not_reached"
+                for category in SCORECARD[1:]
+            )
+        )
+
+    def test_not_reached_criterion_is_excluded_from_score_and_denominator(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        applicable = {category["key"]: "not_reached" for category in SCORECARD}
+        applicable.update({"opening": "applicable", "communication": "applicable"})
+        excluded_key = SCORECARD[1]["criteria"][0][0]
+        excluded_maximum = SCORECARD[1]["criteria"][0][2]
+        criterion_applicability = {excluded_key: "not_reached"}
+        scores = {
+            key: maximum
+            for category in SCORECARD[:2]
+            for key, _label, maximum in category["criteria"]
+            if key != excluded_key
+        }
+
+        response = self.client.post(
+            self.url("call-review-submit"),
+            self.submission(
+                scores=scores,
+                evaluation_type="partial",
+                category_applicability=applicable,
+                category_applicability_reasons={},
+                criterion_applicability=criterion_applicability,
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["score"], "100.00")
+        self.assertEqual(response.json()["applicable_points"], f"{25 - excluded_maximum:.2f}")
+        self.assertEqual(response.json()["criterion_applicability"][excluded_key], "not_reached")
+        self.assertNotIn(excluded_key, response.json()["scores"])
+
+    def test_zero_score_is_not_treated_as_not_reached(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        applicable = {category["key"]: "not_reached" for category in SCORECARD}
+        applicable.update({"opening": "applicable", "communication": "applicable"})
+        zero_key = SCORECARD[0]["criteria"][0][0]
+        zero_maximum = SCORECARD[0]["criteria"][0][2]
+        scores = {
+            key: (0 if key == zero_key else maximum)
+            for category in SCORECARD[:2]
+            for key, _label, maximum in category["criteria"]
+        }
+
+        response = self.client.post(
+            self.url("call-review-submit"),
+            self.submission(
+                scores=scores,
+                evaluation_type="partial",
+                category_applicability=applicable,
+                category_applicability_reasons={},
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        expected_score = ((25 - zero_maximum) / 25) * 100
+        self.assertEqual(response.json()["score"], f"{expected_score:.2f}")
+        self.assertEqual(response.json()["applicable_points"], "25.00")
+        self.assertEqual(response.json()["scores"][zero_key], 0.0)
+
+    def test_new_critical_errors_are_accepted(self):
+        self.client.force_login(self.qa_one)
+        for index, critical_error in enumerate(("non_serious_attitude", "wasted_lead")):
+            if index:
+                Review.objects.filter(call=self.call).delete()
+            self.client.post(self.url("call-reserve"))
+            response = self.client.post(
+                self.url("call-review-submit"),
+                self.submission(scores={}, critical_errors=[critical_error]),
+                content_type="application/json",
+            )
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertIn(critical_error, response.json()["critical_errors"])
+            self.assertEqual(response.json()["rating"], Review.Rating.AUTOMATIC_FAIL)
+
+    def test_full_call_rejects_not_reached_criterion(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        excluded_key = SCORECARD[0]["criteria"][0][0]
+
+        response = self.client.post(
+            self.url("call-review-submit"),
+            self.submission(
+                criterion_applicability={excluded_key: "not_reached"},
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("every sub-heading", str(response.json()))
 
     def test_agent_ended_call_scores_missed_heading_as_zero(self):
         self.client.force_login(self.qa_one)

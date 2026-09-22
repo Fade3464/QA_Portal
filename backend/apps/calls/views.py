@@ -266,6 +266,10 @@ class CallReviewDraftView(APIView):
                 "category_applicability_reasons",
                 review.category_applicability_reasons,
             ),
+            criterion_applicability=serializer.validated_data.get(
+                "criterion_applicability",
+                review.criterion_applicability,
+            ),
             require_complete=False,
         )
         serializer.save(
@@ -273,6 +277,7 @@ class CallReviewDraftView(APIView):
             scores=evaluation.scores,
             category_applicability=evaluation.category_applicability,
             category_applicability_reasons=evaluation.category_applicability_reasons,
+            criterion_applicability=evaluation.criterion_applicability,
             earned_points=evaluation.earned_points,
             applicable_points=evaluation.applicable_points,
             coverage=evaluation.coverage,
@@ -302,6 +307,7 @@ class CallReviewSubmitView(APIView):
                 "evaluation_reason",
                 "category_applicability",
                 "category_applicability_reasons",
+                "criterion_applicability",
                 "criterion_evidence",
                 "critical_errors",
                 "critical_error_evidence",
@@ -345,6 +351,7 @@ class CallReviewSubmitView(APIView):
             "category_applicability_reasons": merged[
                 "category_applicability_reasons"
             ],
+            "criterion_applicability": merged["criterion_applicability"],
         }
         if critical_errors:
             evaluation = calculate_evaluation(
@@ -377,6 +384,7 @@ class CallReviewSubmitView(APIView):
         review.category_applicability_reasons = (
             evaluation.category_applicability_reasons
         )
+        review.criterion_applicability = evaluation.criterion_applicability
         review.score = score
         review.earned_points = evaluation.earned_points
         review.applicable_points = evaluation.applicable_points

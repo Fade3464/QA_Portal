@@ -189,7 +189,7 @@ export function AppShell() {
           </button>
         )) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No active notifications" />}
       </div>
-      {browserPermission === 'default' && <div className="notification-panel__permission"><span><strong>Desktop alerts are off</strong><small>Enable them to receive updates while working in another tab.</small></span><Button size="small" type="primary" onClick={() => void enableBrowserNotifications()}>Enable</Button></div>}
+      {browserPermission === 'default' && <div className="notification-panel__permission"><span><strong>Desktop alerts are off</strong></span><Button size="small" type="primary" onClick={() => void enableBrowserNotifications()}>Enable</Button></div>}
     </div>
   );
 

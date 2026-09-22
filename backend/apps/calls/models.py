@@ -426,6 +426,7 @@ class Review(models.Model):
     evaluation_reason = models.CharField(max_length=40, blank=True)
     category_applicability = models.JSONField(default=dict, blank=True)
     category_applicability_reasons = models.JSONField(default=dict, blank=True)
+    criterion_applicability = models.JSONField(default=dict, blank=True)
     earned_points = models.DecimalField(
         max_digits=5, decimal_places=2, null=True, blank=True
     )

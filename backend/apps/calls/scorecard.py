@@ -7,7 +7,7 @@ from uuid import UUID
 from rest_framework.exceptions import ValidationError
 
 
-SCORECARD_VERSION = "outbound-sales-v1"
+SCORECARD_VERSION = "outbound-sales-v2"
 
 CALL_EVALUATION_TYPES = {
     "full",
@@ -19,6 +19,10 @@ CATEGORY_APPLICABILITY_STATES = {
     "applicable",
     "not_reached",
     "missed_opportunity",
+}
+CRITERION_APPLICABILITY_STATES = {
+    "applicable",
+    "not_reached",
 }
 CATEGORY_REASON_VALUES = {
     "caller_ended",
@@ -152,6 +156,8 @@ CRITICAL_ERRORS = (
         "Circumvention of legal, compliance, client, or campaign requirements",
     ),
     ("fraud", "Fraudulent or intentionally deceptive sales practices"),
+    ("non_serious_attitude", "Non-serious attitude"),
+    ("wasted_lead", "Wasted lead (agent did not respond to the customer)"),
 )
 
 
@@ -244,6 +250,7 @@ class EvaluationResult:
     scores: dict[str, float]
     category_applicability: dict[str, str]
     category_applicability_reasons: dict[str, str]
+    criterion_applicability: dict[str, str]
 
 
 def calculate_evaluation(
@@ -252,14 +259,14 @@ def calculate_evaluation(
     evaluation_type: str = "full",
     category_applicability=None,
     category_applicability_reasons=None,
+    criterion_applicability=None,
     require_complete: bool,
 ) -> EvaluationResult:
-    """Calculate a normalized QA score using only headings that were applicable.
+    """Calculate normalized QA quality across only material that was reached.
 
-    A missed opportunity remains in the denominator and receives zero points. A
-    heading that was genuinely not reached is excluded. Coverage remains a
-    separate metric so a high score on a short interaction is not mistaken for
-    a complete evaluation.
+    Heading- and criterion-level ``not_reached`` values are excluded from the
+    denominator. A heading marked as a missed opportunity remains fully in the
+    denominator and receives zero points.
     """
     if evaluation_type not in CALL_EVALUATION_TYPES:
         raise ValidationError({"evaluation_type": "Unsupported call evaluation type."})
@@ -271,19 +278,27 @@ def calculate_evaluation(
         raise ValidationError(
             {"category_applicability_reasons": "Heading reasons must be an object."}
         )
+    if not isinstance(criterion_applicability or {}, dict):
+        raise ValidationError(
+            {"criterion_applicability": "Sub-heading applicability must be an object."}
+        )
 
     categories = {category["key"]: category for category in SCORECARD}
+    criteria = {
+        criterion_key: (category["key"], maximum)
+        for category in SCORECARD
+        for criterion_key, _label, maximum in category["criteria"]
+    }
     supplied_states = category_applicability or {}
     supplied_reasons = category_applicability_reasons or {}
+    supplied_criterion_states = criterion_applicability or {}
+
     unknown_states = set(supplied_states) - set(categories)
     unknown_reasons = set(supplied_reasons) - set(categories)
+    unknown_criterion_states = set(supplied_criterion_states) - set(criteria)
     if unknown_states:
         raise ValidationError(
-            {
-                "category_applicability": (
-                    f"Unknown heading: {sorted(unknown_states)[0]}"
-                )
-            }
+            {"category_applicability": f"Unknown heading: {sorted(unknown_states)[0]}"}
         )
     if unknown_reasons:
         raise ValidationError(
@@ -293,12 +308,21 @@ def calculate_evaluation(
                 )
             }
         )
+    if unknown_criterion_states:
+        raise ValidationError(
+            {
+                "criterion_applicability": (
+                    f"Unknown sub-heading: {sorted(unknown_criterion_states)[0]}"
+                )
+            }
+        )
 
-    default_state = "not_reached" if evaluation_type == "not_evaluable" else "applicable"
-    states = {
-        key: supplied_states.get(key, default_state)
-        for key in categories
-    }
+    default_state = (
+        "not_reached"
+        if evaluation_type in {"partial", "not_evaluable"}
+        else "applicable"
+    )
+    states = {key: supplied_states.get(key, default_state) for key in categories}
     invalid_state = next(
         (state for state in states.values() if state not in CATEGORY_APPLICABILITY_STATES),
         None,
@@ -307,11 +331,38 @@ def calculate_evaluation(
         raise ValidationError(
             {"category_applicability": f"Unsupported heading state: {invalid_state}"}
         )
+
+    criterion_states = {
+        key: supplied_criterion_states.get(key, "applicable") for key in criteria
+    }
+    invalid_criterion_state = next(
+        (
+            state
+            for state in criterion_states.values()
+            if state not in CRITERION_APPLICABILITY_STATES
+        ),
+        None,
+    )
+    if invalid_criterion_state:
+        raise ValidationError(
+            {
+                "criterion_applicability": (
+                    f"Unsupported sub-heading state: {invalid_criterion_state}"
+                )
+            }
+        )
+
     if evaluation_type == "full" and any(
         state != "applicable" for state in states.values()
     ):
         raise ValidationError(
             {"category_applicability": "A full call must include every heading."}
+        )
+    if evaluation_type == "full" and any(
+        state != "applicable" for state in criterion_states.values()
+    ):
+        raise ValidationError(
+            {"criterion_applicability": "A full call must include every sub-heading."}
         )
     if evaluation_type == "not_evaluable" and any(
         state != "not_reached" for state in states.values()
@@ -346,7 +397,10 @@ def calculate_evaluation(
             )
         if states[key] != "applicable":
             reasons[key] = reason
-    if require_complete and evaluation_type != "not_evaluable":
+
+    # Partial calls intentionally do not require a reason for each Not Reached
+    # heading. Agent-ended-early evaluations keep the reason requirement.
+    if require_complete and evaluation_type == "agent_premature":
         missing_reason = next(
             (
                 key
@@ -368,15 +422,24 @@ def calculate_evaluation(
     normalized_scores: dict[str, float] = {}
     earned = Decimal("0")
     applicable = Decimal("0")
+
     for category_key, category in categories.items():
-        state = states[category_key]
-        if state == "not_reached":
+        category_state = states[category_key]
+        if category_state == "not_reached":
             continue
-        applicable += Decimal(str(category["max_score"]))
+
         for criterion_key, _label, maximum in category["criteria"]:
-            if state == "missed_opportunity":
+            maximum_points = Decimal(str(maximum))
+
+            if category_state == "missed_opportunity":
+                applicable += maximum_points
                 normalized_scores[criterion_key] = 0
                 continue
+
+            if criterion_states[criterion_key] == "not_reached":
+                continue
+
+            applicable += maximum_points
             if criterion_key not in scores:
                 if require_complete:
                     raise ValidationError(
@@ -388,6 +451,7 @@ def calculate_evaluation(
                         }
                     )
                 continue
+
             points = Decimal(str(scores[criterion_key]))
             if points < 0 or points > maximum or points.as_tuple().exponent < -2:
                 raise ValidationError(
@@ -424,8 +488,8 @@ def calculate_evaluation(
         scores=normalized_scores,
         category_applicability=states,
         category_applicability_reasons=reasons,
+        criterion_applicability=criterion_states,
     )
-
 
 def _validate_evidence(
     evidence,

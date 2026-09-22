@@ -79,6 +79,7 @@ export interface QAScorecard {
 
 export type QAEvaluationType = 'full' | 'partial' | 'not_evaluable' | 'agent_premature';
 export type QACategoryApplicability = 'applicable' | 'not_reached' | 'missed_opportunity';
+export type QACriterionApplicability = 'applicable' | 'not_reached';
 
 export interface QAEvidencePatch {
   id: string;
@@ -127,6 +128,7 @@ export interface QAReview {
   evaluation_reason: string;
   category_applicability: Record<string, QACategoryApplicability>;
   category_applicability_reasons: Record<string, string>;
+  criterion_applicability: Record<string, QACriterionApplicability>;
   earned_points: string | null;
   applicable_points: string | null;
   coverage: string | null;

@@ -34,6 +34,7 @@ import type {
   CallReservation,
   QAAnalysisResponse,
   QACategoryApplicability,
+  QACriterionApplicability,
   QAEvaluationType,
   QAReview,
   QAScorecard,
@@ -53,6 +54,7 @@ interface EvaluationValues {
   evaluation_reason: string;
   category_applicability: Record<string, QACategoryApplicability>;
   category_applicability_reasons: Record<string, string>;
+  criterion_applicability: Record<string, QACriterionApplicability>;
   criterion_evidence: Record<string, QACriterionEvidence>;
   critical_errors: string[];
   critical_error_evidence: Record<string, QACriterionEvidence>;
@@ -81,6 +83,7 @@ function reviewValues(review: QAReview | null): Partial<EvaluationValues> {
     evaluation_reason: review?.evaluation_reason ?? '',
     category_applicability: review?.category_applicability ?? {},
     category_applicability_reasons: review?.category_applicability_reasons ?? {},
+    criterion_applicability: review?.criterion_applicability ?? {},
     criterion_evidence: review?.criterion_evidence ?? {},
     critical_errors: review?.critical_errors ?? [],
     critical_error_evidence: review?.critical_error_evidence ?? {},
@@ -98,12 +101,17 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
   const watchedScoresValue = Form.useWatch('scores', form);
   const watchedEvaluationTypeValue = Form.useWatch('evaluation_type', form);
   const watchedApplicabilityValue = Form.useWatch('category_applicability', { form, preserve: true });
+  const watchedCriterionApplicabilityValue = Form.useWatch('criterion_applicability', { form, preserve: true });
   const watchedCriticalValue = Form.useWatch('critical_errors', form);
   const watchedEvidenceValue = Form.useWatch('criterion_evidence', { form, preserve: true });
   const watchedCriticalEvidenceValue = Form.useWatch('critical_error_evidence', { form, preserve: true });
   const watchedScores = useMemo(() => watchedScoresValue ?? {}, [watchedScoresValue]);
   const watchedEvaluationType = watchedEvaluationTypeValue ?? 'full';
   const watchedApplicability = useMemo(() => watchedApplicabilityValue ?? {}, [watchedApplicabilityValue]);
+  const watchedCriterionApplicability = useMemo(
+    () => watchedCriterionApplicabilityValue ?? {},
+    [watchedCriterionApplicabilityValue],
+  );
   const watchedCritical = useMemo(() => watchedCriticalValue ?? [], [watchedCriticalValue]);
   const watchedEvidence = useMemo(() => watchedEvidenceValue ?? {}, [watchedEvidenceValue]);
   const watchedCriticalEvidence = useMemo(() => watchedCriticalEvidenceValue ?? {}, [watchedCriticalEvidenceValue]);
@@ -193,8 +201,14 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
   const categoryState = useCallback((categoryKey: string): QACategoryApplicability => {
     if (watchedEvaluationType === 'not_evaluable') return 'not_reached';
     if (watchedEvaluationType === 'full') return 'applicable';
-    return watchedApplicability[categoryKey] ?? 'applicable';
+    return watchedApplicability[categoryKey]
+      ?? (watchedEvaluationType === 'partial' ? 'not_reached' : 'applicable');
   }, [watchedApplicability, watchedEvaluationType]);
+
+  const criterionState = useCallback((criterionKey: string): QACriterionApplicability => (
+    watchedCriterionApplicability[criterionKey] ?? 'applicable'
+  ), [watchedCriterionApplicability]);
+
   const scoreMetrics = useMemo(() => {
     if (!scorecard || watchedEvaluationType === 'not_evaluable') {
       return { earned: 0, applicable: 0, coverage: 0, score: null as number | null, tier: 'insufficient' };
@@ -204,10 +218,15 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
     scorecard.categories.forEach((category) => {
       const state = categoryState(category.key);
       if (state === 'not_reached') return;
-      applicable += category.max_score;
-      if (state === 'applicable') {
-        earned += category.criteria.reduce((total, criterion) => total + (Number(watchedScores[criterion.key]) || 0), 0);
+      if (state === 'missed_opportunity') {
+        applicable += category.max_score;
+        return;
       }
+      category.criteria.forEach((criterion) => {
+        if (criterionState(criterion.key) === 'not_reached') return;
+        applicable += criterion.max_score;
+        earned += Number(watchedScores[criterion.key]) || 0;
+      });
     });
     const coverage = applicable;
     const score = coverage >= (scorecard.minimum_scored_coverage ?? 20) && applicable > 0
@@ -215,19 +234,22 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
       : null;
     const tier = coverage < 20 ? 'insufficient' : coverage < 60 ? 'limited' : coverage < 85 ? 'partial' : 'full';
     return { earned, applicable, coverage, score, tier };
-  }, [categoryState, scorecard, watchedEvaluationType, watchedScores]);
+  }, [categoryState, criterionState, scorecard, watchedEvaluationType, watchedScores]);
   const criticalFail = watchedCritical.length > 0;
 
   const changeEvaluationType = useCallback((value: QAEvaluationType) => {
     form.setFieldValue('evaluation_type', value);
     form.setFieldValue('evaluation_reason', '');
     if (!scorecard) return;
-    const nextState: QACategoryApplicability = value === 'not_evaluable' ? 'not_reached' : 'applicable';
+    const nextState: QACategoryApplicability = value === 'partial' || value === 'not_evaluable'
+      ? 'not_reached'
+      : 'applicable';
     form.setFieldValue(
       'category_applicability',
       Object.fromEntries(scorecard.categories.map((category) => [category.key, nextState])),
     );
     form.setFieldValue('category_applicability_reasons', {});
+    form.setFieldValue('criterion_applicability', {});
   }, [form, scorecard]);
 
   const changeCategoryState = useCallback((categoryKey: string, value: QACategoryApplicability) => {
@@ -238,10 +260,28 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
     const category = scorecard?.categories.find((item) => item.key === categoryKey);
     if (category && value !== 'applicable') {
       const scores = { ...form.getFieldValue('scores') };
-      category.criteria.forEach((criterion) => { delete scores[criterion.key]; });
+      const criterionApplicability = { ...form.getFieldValue('criterion_applicability') };
+      category.criteria.forEach((criterion) => {
+        delete scores[criterion.key];
+        delete criterionApplicability[criterion.key];
+      });
       form.setFieldValue('scores', scores);
+      form.setFieldValue('criterion_applicability', criterionApplicability);
     }
   }, [form, scorecard]);
+
+  const changeCriterionState = useCallback((criterionKey: string, value: QACriterionApplicability) => {
+    form.setFieldValue(['criterion_applicability', criterionKey], value);
+    if (value === 'not_reached') {
+      const scores = { ...form.getFieldValue('scores') };
+      const criterionEvidence = { ...form.getFieldValue('criterion_evidence') };
+      delete scores[criterionKey];
+      delete criterionEvidence[criterionKey];
+      form.setFieldValue('scores', scores);
+      form.setFieldValue('criterion_evidence', criterionEvidence);
+      form.setFields([{ name: ['scores', criterionKey], errors: [] }]);
+    }
+  }, [form]);
 
   useEffect(() => {
     if (!criticalFail || !scorecard) return;
@@ -353,13 +393,16 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
               ? 'not_reached'
               : values.evaluation_type === 'full'
                 ? 'applicable'
-                : values.category_applicability?.[category.key] ?? 'applicable';
+                : values.category_applicability?.[category.key]
+                  ?? (values.evaluation_type === 'partial' ? 'not_reached' : 'applicable');
             return state === 'applicable';
           })
-          .flatMap((category) => category.criteria).filter((criterion) => {
-          const value = values.scores?.[criterion.key];
-          return value === undefined || value === null;
-        });
+          .flatMap((category) => category.criteria)
+          .filter((criterion) => values.criterion_applicability?.[criterion.key] !== 'not_reached')
+          .filter((criterion) => {
+            const value = values.scores?.[criterion.key];
+            return value === undefined || value === null;
+          });
         if (missingCriteria.length > 0) {
           form.setFields(missingCriteria.map((criterion) => ({
             name: ['scores', criterion.key],
@@ -405,14 +448,25 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
 
   const categoryItems = scorecard?.categories.map((category) => {
     const state = categoryState(category.key);
+    const categoryApplicable = state === 'applicable'
+      ? category.criteria.reduce(
+        (total, criterion) => total + (criterionState(criterion.key) === 'not_reached' ? 0 : criterion.max_score),
+        0,
+      )
+      : category.max_score;
     const categoryScore = state === 'applicable'
-      ? category.criteria.reduce((total, criterion) => total + (Number(watchedScores[criterion.key]) || 0), 0)
+      ? category.criteria.reduce(
+        (total, criterion) => total + (criterionState(criterion.key) === 'not_reached' ? 0 : Number(watchedScores[criterion.key]) || 0),
+        0,
+      )
       : 0;
     const statusLabel = state === 'not_reached'
       ? 'Not reached'
       : state === 'missed_opportunity'
         ? 'Missed · 0'
-        : `${categoryScore}/${category.max_score}`;
+        : categoryApplicable > 0
+          ? `${categoryScore}/${categoryApplicable}`
+          : 'No applicable items';
     return {
       key: category.key,
       label: <span className="qa-category-label"><strong>{category.label}</strong><span>{statusLabel}</span></span>,
@@ -428,14 +482,13 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
       ) : undefined,
       children: state === 'not_reached' ? (
         <div className="qa-heading-exclusion">
-          <Text type="secondary">Excluded from the quality score and coverage denominator.</Text>
-          <Form.Item
+          {watchedEvaluationType === 'agent_premature' && <Form.Item
             name={['category_applicability_reasons', category.key]}
             label="Why was this heading not reached?"
             rules={[{ required: true, message: 'Select a reason' }]}
           >
             <Select options={scorecard.applicability_reasons} placeholder="Select reason" />
-          </Form.Item>
+          </Form.Item>}
         </div>
       ) : <div className="qa-criteria-list">
         {state === 'missed_opportunity' && <div className="qa-heading-exclusion qa-heading-exclusion--missed">
@@ -448,41 +501,58 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
             <Select options={scorecard.applicability_reasons} placeholder="Select reason" />
           </Form.Item>
         </div>}
-        {category.criteria.map((criterion) => (
-        <div className="qa-criterion" key={criterion.key}>
-          <span><strong>{criterion.label}</strong><small>Maximum {criterion.max_score} points</small></span>
-          <Form.Item name={['scores', criterion.key]} noStyle>
-            <InputNumber
-              min={0}
-              max={criterion.max_score}
-              precision={1}
-              step={0.5}
-              controls
-              disabled={!editable || state === 'missed_opportunity'}
-              placeholder={state === 'missed_opportunity' ? '0' : undefined}
-              aria-label={`${criterion.label} score. Press Alt to enter the maximum score.`}
-              aria-keyshortcuts="Alt"
-              onKeyDown={(event) => {
-                if (event.key !== 'Alt' || event.repeat || !editable || state !== 'applicable') return;
-                event.preventDefault();
-                form.setFieldValue(['scores', criterion.key], criterion.max_score);
-                form.setFields([{ name: ['scores', criterion.key], errors: [] }]);
-              }}
-            />
-          </Form.Item>
-          <CriterionEvidenceEditor
-            criterionLabel={criterion.label}
-            value={watchedEvidence[criterion.key]}
-            editable={editable}
-            currentTimeSeconds={playback.currentTime}
-            durationSeconds={playback.duration || activeCall?.talk_time || 0}
-            onChange={(value) => updateCriterionEvidence(criterion.key, value)}
-            onPlayRange={playEvidencePatch}
-          />
-        </div>
-      ))}</div>,
+        {category.criteria.map((criterion) => {
+          const criterionNotReached = criterionState(criterion.key) === 'not_reached';
+          return (
+            <div className="qa-criterion" key={criterion.key}>
+              <span><strong>{criterion.label}</strong><small>Maximum {criterion.max_score} points</small></span>
+              <div className="qa-criterion__score">
+                <Form.Item name={['scores', criterion.key]} noStyle>
+                  <InputNumber
+                    min={0}
+                    max={criterion.max_score}
+                    precision={1}
+                    step={0.5}
+                    controls
+                    disabled={!editable || state === 'missed_opportunity' || criterionNotReached}
+                    placeholder={state === 'missed_opportunity' ? '0' : criterionNotReached ? 'N/R' : undefined}
+                    aria-label={`${criterion.label} score. Press Alt to enter the maximum score.`}
+                    aria-keyshortcuts="Alt"
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Alt' || event.repeat || !editable || state !== 'applicable' || criterionNotReached) return;
+                      event.preventDefault();
+                      form.setFieldValue(['scores', criterion.key], criterion.max_score);
+                      form.setFields([{ name: ['scores', criterion.key], errors: [] }]);
+                    }}
+                  />
+                </Form.Item>
+                {state === 'applicable' && watchedEvaluationType !== 'full' && <Checkbox
+                  checked={criterionNotReached}
+                  disabled={!editable}
+                  onChange={(event) => changeCriterionState(
+                    criterion.key,
+                    event.target.checked ? 'not_reached' : 'applicable',
+                  )}
+                >
+                  Not reached
+                </Checkbox>}
+              </div>
+              <CriterionEvidenceEditor
+                criterionLabel={criterion.label}
+                value={watchedEvidence[criterion.key]}
+                editable={editable && !criterionNotReached}
+                currentTimeSeconds={playback.currentTime}
+                durationSeconds={playback.duration || activeCall?.talk_time || 0}
+                onChange={(value) => updateCriterionEvidence(criterion.key, value)}
+                onPlayRange={playEvidencePatch}
+              />
+            </div>
+          );
+        })}
+      </div>,
     };
   }) ?? [];
+
 
   return <Modal open onCancel={onClose} footer={null} width="min(1540px, calc(100vw - 40px))" destroyOnHidden mask={{ closable: false, blur: true }} classNames={{ container: 'analysis-modal__container', header: 'analysis-modal__header', body: 'analysis-modal__body' }} title={(
     <div className="analysis-modal__title"><span className="analysis-modal__title-icon"><FileSearchOutlined /></span><span><Title level={4}>Call analysis</Title><Text type="secondary">{activeCall?.phone_number || 'Unknown number'} · {activeCall?.agent_name || activeCall?.agent_user || 'Unknown agent'}</Text></span><span className="analysis-modal__status">{completed ? <Tag icon={<CheckCircleFilled />} color="success">Report submitted</Tag> : mine ? <Tag icon={<CheckCircleFilled />} color="processing">Reserved by you</Tag> : lockedByAnother ? <Tag icon={<LockOutlined />} color="warning">Reserved by {reservation?.reviewer_name}</Tag> : <Tag>Available</Tag>}</span></div>
@@ -491,7 +561,7 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
       {visibleViewers.length > 0 && <Alert className="analysis-presence" type="info" showIcon icon={<UsergroupAddOutlined />} title={presenceMessage(visibleViewers)} />}
       {revisionRequired && <Alert className="analysis-revision-request" type="warning" showIcon title={`Reassessment requested${review.revision_count > 1 ? ` · revision ${review.revision_count}` : ''}`} description={<span><strong>Team Leader feedback:</strong> {review.revision_reason}</span>} />}
       {error && <Alert type="error" showIcon title="Action unsuccessful" description={error} closable={{ onClose: () => setError('') }} />}
-      <div className="analysis-workspace__toolbar"><Text type="secondary">{completed ? `Submitted to ${review?.team_leader_name}.` : revisionRequired ? 'Update the evaluation against the Team Leader’s feedback, then resubmit it.' : ''}</Text><Space>{!reservation && <Button type="primary" icon={<LockOutlined />} loading={reserving} onClick={() => void reserve()}>Reserve</Button>}{mine && !completed && !revisionRequired && <Popconfirm title="Release this call?" description="Your draft will be deleted and another QA analyst can reserve it." okText="Release" okButtonProps={{ danger: true }} onConfirm={release}><Button danger icon={<UnlockOutlined />} loading={releasing}>Release</Button></Popconfirm>}</Space></div>
+      <div className="analysis-workspace__toolbar"><Space>{!reservation && <Button type="primary" icon={<LockOutlined />} loading={reserving} onClick={() => void reserve()}>Reserve</Button>}{mine && !completed && !revisionRequired && <Popconfirm title="Release this call?" description="Your draft will be deleted and another QA analyst can reserve it." okText="Release" okButtonProps={{ danger: true }} onConfirm={release}><Button danger icon={<UnlockOutlined />} loading={releasing}>Release</Button></Popconfirm>}</Space></div>
       <div className="analysis-workspace__columns">
         <section className="analysis-panel analysis-panel--audio" aria-label="Call recording tools"><div className="analysis-panel__heading"><span><FileSearchOutlined /></span><div><strong>Recording</strong></div></div><AudioPlayer call={activeCall} onPlaybackStateChange={setPlayback} rangeRequest={rangeRequest} /></section>
         <section className={`analysis-panel analysis-panel--form${editable || completed ? '' : ' is-locked'}`} aria-label="QA evaluation form">
@@ -526,8 +596,8 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
               </span>
             </div>
             {watchedEvaluationType !== 'not_evaluable' && <Collapse items={categoryItems} defaultActiveKey={[scorecard.categories[0]?.key]} size="small" />}
-            <div className="qa-critical-block"><div><WarningFilled /><span><strong>Critical error override</strong></span></div><Form.Item name="critical_errors"><Checkbox.Group options={scorecard.critical_errors.map((item) => ({ label: item.label, value: item.value }))} className="qa-critical-options" /></Form.Item>{watchedCritical.length > 0 && <div className="qa-critical-evidence">{watchedCritical.map((criticalKey) => { const critical = scorecard.critical_errors.find((item) => item.value === criticalKey); return <div className="qa-critical-evidence__item" key={criticalKey}><strong>{critical?.label ?? criticalKey}</strong><CriterionEvidenceEditor criterionLabel={critical?.label ?? criticalKey} value={watchedCriticalEvidence[criticalKey]} editable={editable} currentTimeSeconds={playback.currentTime} durationSeconds={playback.duration || activeCall?.talk_time || 0} onChange={(value) => updateCriticalEvidence(criticalKey, value)} onPlayRange={playEvidencePatch} /></div>; })}</div>}</div>
-            <div className="qa-feedback-grid"><Form.Item name="feedback_summary" label="What happened and why it matters"><TextArea rows={3} maxLength={4000} showCount /></Form.Item><Form.Item name="strengths" label="Strengths observed"><TextArea rows={3} maxLength={4000} showCount /></Form.Item><Form.Item name="expected_behavior" label="Expected behavior"><TextArea rows={3} maxLength={4000} showCount /></Form.Item><Form.Item name="coaching_plan" label="Recommended coaching / follow-up"><TextArea rows={3} maxLength={4000} showCount /></Form.Item></div>
+            <div className="qa-critical-block"><div><WarningFilled /><span><strong>Critical errors</strong></span></div><Form.Item name="critical_errors"><Checkbox.Group options={scorecard.critical_errors.map((item) => ({ label: item.label, value: item.value }))} className="qa-critical-options" /></Form.Item>{watchedCritical.length > 0 && <div className="qa-critical-evidence">{watchedCritical.map((criticalKey) => { const critical = scorecard.critical_errors.find((item) => item.value === criticalKey); return <div className="qa-critical-evidence__item" key={criticalKey}><strong>{critical?.label ?? criticalKey}</strong><CriterionEvidenceEditor criterionLabel={critical?.label ?? criticalKey} value={watchedCriticalEvidence[criticalKey]} editable={editable} currentTimeSeconds={playback.currentTime} durationSeconds={playback.duration || activeCall?.talk_time || 0} onChange={(value) => updateCriticalEvidence(criticalKey, value)} onPlayRange={playEvidencePatch} /></div>; })}</div>}</div>
+            <div className="qa-feedback-grid"><Form.Item name="feedback_summary" label="Summary"><TextArea rows={3} maxLength={4000} showCount /></Form.Item><Form.Item name="strengths" label="Strengths"><TextArea rows={3} maxLength={4000} showCount /></Form.Item><Form.Item name="expected_behavior" label="Expected behavior"><TextArea rows={3} maxLength={4000} showCount /></Form.Item><Form.Item name="coaching_plan" label="Coaching / follow-up"><TextArea rows={3} maxLength={4000} showCount /></Form.Item></div>
             {editable && <div className="qa-form-actions"><Button icon={<SaveOutlined />} loading={saving} onClick={() => void saveDraft()}>Save draft</Button><Popconfirm title={revisionRequired ? 'Resubmit this QA report?' : 'Submit this QA report?'} description={revisionRequired ? 'The revised evaluation will be locked and returned to the Team Leader’s queue.' : 'The report will be locked and sent to the agent’s Team Leader.'} okText={revisionRequired ? 'Resubmit report' : 'Submit report'} onConfirm={submit}><Button type="primary" icon={<SendOutlined />} loading={submitting}>{revisionRequired ? 'Resubmit report' : 'Submit report'}</Button></Popconfirm></div>}
           </Form>}
         </section>

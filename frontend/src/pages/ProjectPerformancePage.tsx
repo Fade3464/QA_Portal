@@ -105,7 +105,7 @@ export function ProjectPerformancePage({ overview = false }: { overview?: boolea
   const metric = data?.metrics;
   return <div className={`page-stack pm-performance${overview ? ' pm-performance--overview' : ''}`}>
     <div className="page-heading pm-performance__heading">
-      <div><Text className="eyebrow">PROJECT QUALITY</Text><Title level={2} className="page-title">{overview ? 'Project quality overview' : 'Team performance'}</Title></div>
+      <Title level={2} className="page-title">{overview ? 'Project quality overview' : 'Team performance'}</Title>
       <div className="pm-performance__actions"><Button icon={<FileSearchOutlined />} onClick={() => navigate('/calls')}>Call library</Button><Button type="primary" icon={<AuditOutlined />} onClick={() => navigate('/queue')}>QA reports</Button></div>
     </div>
     <div className="pm-performance__filters">
@@ -121,7 +121,7 @@ export function ProjectPerformancePage({ overview = false }: { overview?: boolea
         <PerformanceMetric title="Critical failure rate" value={metric?.critical_rate ?? 0} suffix="%" detail={`${metric?.critical ?? 0} critical evaluation${metric?.critical === 1 ? '' : 's'}`} icon={<SafetyCertificateOutlined />} tone={(metric?.critical_rate ?? 0) > 0 ? 'danger' : 'success'} />
         <PerformanceMetric title="Below benchmark" value={metric?.below_benchmark_rate ?? 0} suffix="%" detail={`${metric?.below_benchmark ?? 0} scored below 85%`} icon={<WarningOutlined />} tone={(metric?.below_benchmark_rate ?? 0) > 20 ? 'warning' : 'neutral'} />
       </section>
-      <Card className="pm-trend-card" classNames={{ body: 'pm-trend-card__body' }} title={<div className="pm-card-title"><strong>Quality trend</strong><small>Daily average score with evaluation volume</small></div>}><QualityTrend data={data.trend} /></Card>
+      <Card className="pm-trend-card" classNames={{ body: 'pm-trend-card__body' }} title="Quality trend"><QualityTrend data={data.trend} /></Card>
       <Card className="pm-team-card" title="Team comparison" extra={<Button type="link" icon={<ArrowRightOutlined />} iconPlacement="end" onClick={() => navigate('/queue')}>Open reports</Button>}>
         <Table rowKey="id" columns={columns} dataSource={data.teams} pagination={false} size="small" scroll={{ x: 820 }} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No team evaluations in this period" /> }} />
       </Card>

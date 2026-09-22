@@ -25,6 +25,7 @@ class ReviewSerializer(serializers.ModelSerializer):
     scores = serializers.DictField(required=False)
     category_applicability = serializers.DictField(required=False)
     category_applicability_reasons = serializers.DictField(required=False)
+    criterion_applicability = serializers.DictField(required=False)
     criterion_evidence = serializers.DictField(required=False)
     critical_error_evidence = serializers.DictField(required=False)
     critical_errors = serializers.ListField(
@@ -42,6 +43,7 @@ class ReviewSerializer(serializers.ModelSerializer):
             "evaluation_reason",
             "category_applicability",
             "category_applicability_reasons",
+            "criterion_applicability",
             "earned_points",
             "applicable_points",
             "coverage",
@@ -132,6 +134,10 @@ class ReviewSerializer(serializers.ModelSerializer):
             category_applicability_reasons=attrs.get(
                 "category_applicability_reasons",
                 instance.category_applicability_reasons if instance else {},
+            ),
+            criterion_applicability=attrs.get(
+                "criterion_applicability",
+                instance.criterion_applicability if instance else {},
             ),
             require_complete=False,
         )
