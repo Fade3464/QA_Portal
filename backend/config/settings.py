@@ -271,7 +271,9 @@ RECORDING_RETRY_DELAYS = [
 RECORDING_MAX_BYTES = int(os.getenv("RECORDING_MAX_BYTES", str(250 * 1024 * 1024)))
 RECORDING_DOWNLOAD_VERIFY_TLS = env_bool("RECORDING_DOWNLOAD_VERIFY_TLS", True)
 RECORDINGS_ROOT = Path(os.getenv("RECORDINGS_ROOT", MEDIA_ROOT / "recordings"))
-
+SECURE_REDIRECT_EXEMPT = [
+    r"^api/health/$",
+]
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
