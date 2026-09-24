@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import httpx
+from celery.exceptions import Retry
 from cryptography.fernet import Fernet
 from django.core.exceptions import ValidationError
 from django.core import mail
@@ -40,7 +41,12 @@ from .services import (
     recording_duration_seconds,
     validate_recording_url,
 )
-from .tasks import fetch_recording, resolve_recording
+from .tasks import (
+    RECORDING_FETCH_PRIORITY,
+    RECORDING_RESOLVE_PRIORITY,
+    fetch_recording,
+    resolve_recording,
+)
 from .webhooks import infer_call_direction, infer_dial_method
 from apps.notifications.tasks import (
     send_review_report_email,
@@ -2017,8 +2023,13 @@ class RecordingTaskConfigurationTests(TestCase):
             self.assertEqual(route["queue"].name, "recordings")
 
     def test_recording_tasks_are_rate_limited(self):
-        self.assertEqual(resolve_recording.rate_limit, "2/s")
-        self.assertEqual(fetch_recording.rate_limit, "1/s")
+        self.assertEqual(resolve_recording.rate_limit, "10/s")
+        self.assertEqual(fetch_recording.rate_limit, "5/s")
+
+    def test_fresh_lookups_have_priority_over_new_downloads(self):
+        self.assertEqual(resolve_recording.priority, RECORDING_RESOLVE_PRIORITY)
+        self.assertEqual(fetch_recording.priority, RECORDING_FETCH_PRIORITY)
+        self.assertLess(RECORDING_RESOLVE_PRIORITY, RECORDING_FETCH_PRIORITY)
 
 
 @override_settings(DIALER_CREDENTIAL_KEY=Fernet.generate_key().decode())
@@ -2045,6 +2056,105 @@ class RecordingDownloadRecoveryTests(TestCase):
             source_recording_id="old-recording",
             recording_source_url="http://recordings.example.com/stale.wav",
         )
+
+    @patch("apps.calls.tasks.fetch_recording.apply_async")
+    @patch("apps.calls.tasks.lookup_recording")
+    def test_resolve_handoff_queues_low_priority_fetch(self, lookup, enqueue):
+        lookup.return_value = RecordingResult(
+            "2026-09-04 10:00:00",
+            "8014",
+            "resolved-recording",
+            "12345",
+            30,
+            "https://recordings.example.com/resolved.wav",
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            result = resolve_recording.apply(args=[str(self.event.pk)]).get()
+
+        self.assertEqual(result, {"status": "found"})
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.recording_lookup_status, CallEvent.Status.FOUND)
+        enqueue.assert_called_once_with(
+            args=[str(self.event.pk)], priority=RECORDING_FETCH_PRIORITY
+        )
+
+    @patch("apps.calls.tasks.lookup_recording", return_value=None)
+    def test_resolve_retry_keeps_state_and_uses_configured_countdown(self, _lookup):
+        with patch.object(resolve_recording, "retry", side_effect=Retry()) as retry:
+            with self.assertRaises(Retry):
+                resolve_recording.run(str(self.event.pk))
+
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.recording_lookup_status, CallEvent.Status.RETRYING)
+        self.assertEqual(self.event.recording_lookup_attempts, 1)
+        self.assertEqual(retry.call_args.kwargs["countdown"], 5)
+
+    @patch("apps.calls.tasks.download_recording")
+    def test_already_downloaded_event_does_not_download_again(self, download):
+        self.event.recording_download_status = CallEvent.Status.DOWNLOADED
+        self.event.recording_path = "/recordings/already.wav"
+        self.event.save(
+            update_fields=["recording_download_status", "recording_path"]
+        )
+
+        result = fetch_recording.apply(args=[str(self.event.pk)]).get()
+
+        self.assertEqual(result, {"status": "already_downloaded"})
+        download.assert_not_called()
+
+    @patch("apps.calls.tasks.download_recording")
+    def test_duplicate_fetch_cannot_claim_downloading_event(self, download):
+        self.event.recording_download_status = CallEvent.Status.DOWNLOADING
+        self.event.save(update_fields=["recording_download_status"])
+
+        result = fetch_recording.apply(args=[str(self.event.pk)]).get()
+
+        self.assertEqual(result, {"status": "already_processing"})
+        download.assert_not_called()
+
+    @patch("apps.calls.tasks.recording_duration_seconds", return_value=12)
+    @patch("apps.calls.tasks.download_recording")
+    def test_redelivered_fetch_reclaims_stale_downloading_state(
+        self, download, _duration
+    ):
+        self.event.recording_download_status = CallEvent.Status.DOWNLOADING
+        self.event.save(update_fields=["recording_download_status"])
+        download.return_value = ("/recordings/recovered.wav", 2048, "c" * 64)
+
+        fetch_recording.push_request(delivery_info={"redelivered": True}, retries=0)
+        try:
+            result = fetch_recording.run(str(self.event.pk))
+        finally:
+            fetch_recording.pop_request()
+
+        self.assertEqual(result, {"status": "downloaded", "bytes": 2048})
+        self.event.refresh_from_db()
+        self.assertEqual(
+            self.event.recording_download_status, CallEvent.Status.DOWNLOADED
+        )
+        download.assert_called_once()
+
+    @patch("apps.calls.tasks.lookup_recording", return_value=None)
+    @patch("apps.calls.tasks.download_recording")
+    def test_fetch_failure_releases_claim_and_retries_safely(
+        self, download, _lookup
+    ):
+        request = httpx.Request("GET", self.event.recording_source_url)
+        download.side_effect = httpx.ConnectError(
+            "recording host unavailable", request=request
+        )
+
+        with patch.object(fetch_recording, "retry", side_effect=Retry()) as retry:
+            with self.assertRaises(Retry):
+                fetch_recording.run(str(self.event.pk))
+
+        self.event.refresh_from_db()
+        self.assertEqual(
+            self.event.recording_download_status, CallEvent.Status.RETRYING
+        )
+        self.assertEqual(self.event.recording_download_attempts, 1)
+        self.assertEqual(retry.call_args.kwargs["countdown"], 2)
 
     @patch("apps.calls.tasks.lookup_recording")
     @patch("apps.calls.tasks.download_recording")

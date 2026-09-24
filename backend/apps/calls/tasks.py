@@ -16,6 +16,13 @@ from .services import download_recording, lookup_recording, recording_duration_s
 logger = logging.getLogger(__name__)
 
 
+# The recordings queue uses Redis priority emulation, where lower numbers are
+# consumed first. Keep fresh lookups responsive while downloads drain in the
+# background without introducing another queue or worker topology.
+RECORDING_RESOLVE_PRIORITY = 0
+RECORDING_FETCH_PRIORITY = 9
+
+
 def _http_status(exc) -> int | None:
     return exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
 
@@ -66,6 +73,7 @@ def _refresh_recording_after_failure(event, reason):
     acks_late=True,
     reject_on_worker_lost=True,
     rate_limit="10/s",
+    priority=RECORDING_RESOLVE_PRIORITY,
     soft_time_limit=90,
     time_limit=120,
 )
@@ -148,7 +156,11 @@ def resolve_recording(self, event_id: str):
                 "recording_lookup_last_error",
             ]
         )
-        transaction.on_commit(lambda: fetch_recording.delay(str(locked.pk)))
+        transaction.on_commit(
+            lambda: fetch_recording.apply_async(
+                args=[str(locked.pk)], priority=RECORDING_FETCH_PRIORITY
+            )
+        )
     return {"status": "found"}
 
 
@@ -159,6 +171,7 @@ def resolve_recording(self, event_id: str):
     acks_late=True,
     reject_on_worker_lost=True,
     rate_limit="5/s",
+    priority=RECORDING_FETCH_PRIORITY,
     soft_time_limit=240,
     time_limit=270,
 )
@@ -176,13 +189,20 @@ def fetch_recording(self, event_id: str):
         and event.recording_path
     ):
         return {"status": "already_downloaded"}
+    claimable_statuses = [
+        CallEvent.Status.PENDING,
+        CallEvent.Status.RETRYING,
+        CallEvent.Status.FAILED,
+    ]
+    # With late acknowledgements, Redis redelivers a task after a worker is
+    # lost. The previous process may have committed DOWNLOADING immediately
+    # before it died, so that redelivery must be allowed to reclaim its own
+    # stale state. Ordinary duplicate deliveries remain blocked.
+    if (self.request.delivery_info or {}).get("redelivered"):
+        claimable_statuses.append(CallEvent.Status.DOWNLOADING)
     claimed = CallEvent.objects.filter(
         pk=event.pk,
-        recording_download_status__in=[
-            CallEvent.Status.PENDING,
-            CallEvent.Status.RETRYING,
-            CallEvent.Status.FAILED,
-        ],
+        recording_download_status__in=claimable_statuses,
     ).update(recording_download_status=CallEvent.Status.DOWNLOADING)
     if not claimed:
         return {"status": "already_processing"}

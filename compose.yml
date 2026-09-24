@@ -69,7 +69,7 @@ services:
     restart: unless-stopped
     # Consume the legacy default queue while the pre-fix recording backlog
     # drains. New recording tasks are routed to the recordings queue.
-    command: ["celery", "-A", "config", "worker", "--loglevel=INFO", "--queues=recordings,celery", "--concurrency=2", "--prefetch-multiplier=1", "--max-tasks-per-child=500"]
+    command: ["celery", "-A", "config", "worker", "--loglevel=INFO", "--queues=recordings,celery", "--concurrency=6", "--prefetch-multiplier=1", "--max-tasks-per-child=500"]
     stop_grace_period: 5m
     env_file:
       - path: .env
