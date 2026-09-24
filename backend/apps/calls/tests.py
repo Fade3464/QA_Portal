@@ -2023,8 +2023,8 @@ class RecordingTaskConfigurationTests(TestCase):
             self.assertEqual(route["queue"].name, "recordings")
 
     def test_recording_tasks_are_rate_limited(self):
-        self.assertEqual(resolve_recording.rate_limit, "10/s")
-        self.assertEqual(fetch_recording.rate_limit, "5/s")
+        self.assertEqual(resolve_recording.rate_limit, "20/s")
+        self.assertEqual(fetch_recording.rate_limit, "20/s")
 
     def test_fresh_lookups_have_priority_over_new_downloads(self):
         self.assertEqual(resolve_recording.priority, RECORDING_RESOLVE_PRIORITY)

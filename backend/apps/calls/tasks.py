@@ -72,7 +72,9 @@ def _refresh_recording_after_failure(event, reason):
     max_retries=5,
     acks_late=True,
     reject_on_worker_lost=True,
-    rate_limit="10/s",
+    # Intentionally above normal production volume so backlog recovery does
+    # not starve fresh recording work.
+    rate_limit="20/s",
     priority=RECORDING_RESOLVE_PRIORITY,
     soft_time_limit=90,
     time_limit=120,
@@ -170,7 +172,9 @@ def resolve_recording(self, event_id: str):
     max_retries=5,
     acks_late=True,
     reject_on_worker_lost=True,
-    rate_limit="5/s",
+    # Intentionally above normal production volume so backlog recovery does
+    # not starve fresh recording work.
+    rate_limit="20/s",
     priority=RECORDING_FETCH_PRIORITY,
     soft_time_limit=240,
     time_limit=270,
