@@ -226,7 +226,7 @@ export function AppShell() {
           <div className="header-actions">
             {!isQa && <Tag color={connection === 'live' ? 'success' : connection === 'offline' ? 'error' : 'default'} className="live-status"><span className={`live-dot ${connection === 'live' ? '' : 'live-dot--muted'}`} />{connection === 'live' ? 'Live' : connection === 'offline' ? 'Offline' : 'Connecting'}</Tag>}
             <Popover content={notificationPanel} trigger="click" placement="bottomRight" open={notificationsOpen} onOpenChange={(open) => { setNotificationsOpen(open); if (open) void loadNotifications(); }} styles={{ content: { padding: 0 } }}><Badge count={unreadCount} size="small" overflowCount={99}><Button type="text" shape="circle" className="header-icon-button" icon={<BellOutlined />} aria-label={`${unreadCount} unread notifications`} /></Badge></Popover>
-            <ThemeControls />
+            <ThemeControls showSettings={false} />
             <Dropdown menu={{ items: accountMenu }} trigger={['click']} placement="bottomRight">
               <button className="account-button" type="button">
                 <Avatar size={38} className="account-avatar" src={user?.profile_picture_url ?? undefined}>{initials}</Avatar>

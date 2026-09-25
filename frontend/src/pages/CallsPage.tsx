@@ -26,9 +26,10 @@ const COLUMN_SORT_FIELDS: Record<string, string> = {
 const DEFAULT_ORDERING = '-received_at';
 
 function defaultFilters(): CallLibraryFilterValue {
+  const today = appDate();
   return {
     search: '', agents: [], teams: [], projects: [], dispositions: [], terminationReasons: [], dialers: [], eventTypes: [], recordingStatuses: [],
-    dateField: 'received_at', dateFrom: appDate().subtract(24, 'hour').toISOString(), dateTo: '', relativeRange: '24h',
+    dateField: 'received_at', dateFrom: today.startOf('day').toISOString(), dateTo: today.endOf('day').toISOString(), relativeRange: 'today',
     talkTimeMin: undefined, talkTimeMax: undefined, ordering: DEFAULT_ORDERING,
   };
 }
@@ -265,6 +266,7 @@ export function CallsPage() {
       ...column,
       align: 'center',
       sorter: true,
+      sortDirections: ['ascend', 'descend', 'ascend'],
       onHeaderCell: () => ({ style: { color: 'var(--qa-text-muted)' } }),
       sortIcon: ({ sortOrder }) => sortOrder ? <span className="library-sort" aria-hidden="true">{sortOrder === 'ascend' ? <ArrowUpOutlined /> : <ArrowDownOutlined />}</span> : null,
       sortOrder: filters.ordering === field ? 'ascend' : filters.ordering === `-${field}` ? 'descend' : null,

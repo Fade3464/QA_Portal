@@ -16,6 +16,7 @@ import {
   Tag,
   Typography,
 } from 'antd';
+import type { Dayjs } from 'dayjs';
 import { useState } from 'react';
 import { appDate, appWallTimeToIso } from '../lib/datetime';
 import type { CallFilterOptions } from '../types';
@@ -53,6 +54,7 @@ interface CallLibraryFiltersProps {
   simplified?: boolean;
 }
 
+const TODAY_RANGE = { value: 'today', label: 'Today' } as const;
 const TIME_RANGES = [
   { value: '15m', label: 'Last 15 minutes', amount: 15, unit: 'minute' },
   { value: '1h', label: 'Last 1 hour', amount: 1, unit: 'hour' },
@@ -107,6 +109,16 @@ export function CallLibraryFilters({
       setDrawerOpen(true);
       return;
     }
+    if (range === TODAY_RANGE.value) {
+      const today = appDate();
+      patch({
+        dateFrom: today.startOf('day').toISOString(),
+        dateTo: today.endOf('day').toISOString(),
+        dateField: 'received_at',
+        relativeRange: TODAY_RANGE.value,
+      });
+      return;
+    }
     const preset = TIME_RANGES.find((item) => item.value === range);
     if (!preset) return;
     patch({
@@ -126,7 +138,7 @@ export function CallLibraryFilters({
     !simplified && value.dialers.length ? { key: 'dialers', label: `Dialer: ${value.dialers.join(', ')}`, clear: () => patch({ dialers: [] }) } : null,
     !simplified && value.eventTypes.length ? { key: 'events', label: `Event: ${value.eventTypes.join(', ')}`, clear: () => patch({ eventTypes: [] }) } : null,
     value.recordingStatuses.length ? { key: 'recordings', label: `Recording: ${value.recordingStatuses.join(', ')}`, clear: () => patch({ recordingStatuses: [] }) } : null,
-    value.dateFrom || value.dateTo ? { key: 'time', label: `Time: ${selectedTimeRange(value) === 'custom' ? 'custom range' : TIME_RANGES.find((item) => item.value === selectedTimeRange(value))?.label ?? 'selected'}`, clear: () => patch({ dateFrom: '', dateTo: '', relativeRange: '' }) } : null,
+    value.dateFrom || value.dateTo ? { key: 'time', label: `Time: ${selectedTimeRange(value) === 'custom' ? 'custom range' : selectedTimeRange(value) === TODAY_RANGE.value ? TODAY_RANGE.label : TIME_RANGES.find((item) => item.value === selectedTimeRange(value))?.label ?? 'selected'}`, clear: () => patch({ dateFrom: '', dateTo: '', relativeRange: '' }) } : null,
     value.talkTimeMin !== undefined || value.talkTimeMax !== undefined
       ? { key: 'duration', label: `Talk time: ${value.talkTimeMin ?? 0}s–${value.talkTimeMax ?? '∞'}s`, clear: () => patch({ talkTimeMin: undefined, talkTimeMax: undefined }) }
       : null,
@@ -151,6 +163,7 @@ export function CallLibraryFilters({
           onChange={setTimeRange}
           prefix={<ClockCircleOutlined />}
           options={[
+            TODAY_RANGE,
             ...TIME_RANGES.map(({ value: rangeValue, label }) => ({ value: rangeValue, label })),
             { value: 'all', label: 'All time' },
             { value: 'custom', label: 'Custom range' },
@@ -195,10 +208,13 @@ export function CallLibraryFilters({
                 dateTo: dates?.[1] ? appWallTimeToIso(dates[1]) : '',
                 relativeRange: dates ? 'custom' : '',
               })}
-              presets={TIME_RANGES.map((preset) => ({
-                label: preset.label,
-                value: [appDate().subtract(preset.amount, preset.unit), appDate()],
-              }))}
+              presets={[
+                { label: TODAY_RANGE.label, value: [appDate().startOf('day'), appDate().endOf('day')] as [Dayjs, Dayjs] },
+                ...TIME_RANGES.map((preset) => ({
+                  label: preset.label,
+                  value: [appDate().subtract(preset.amount, preset.unit), appDate()] as [Dayjs, Dayjs],
+                })),
+              ]}
             />
           </section>
 

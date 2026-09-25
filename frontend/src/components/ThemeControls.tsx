@@ -6,7 +6,12 @@ import { useAuth } from '../auth/AuthContext';
 import { api } from '../lib/api';
 import { useThemeSettings } from '../theme/ThemeContext';
 
-export function ThemeControls({ className = '' }: { className?: string }) {
+interface ThemeControlsProps {
+  className?: string;
+  showSettings?: boolean;
+}
+
+export function ThemeControls({ className = '', showSettings = true }: ThemeControlsProps) {
   const { message } = AntApp.useApp();
   const [savingMode, setSavingMode] = useState(false);
   const { user } = useAuth();
@@ -35,7 +40,7 @@ export function ThemeControls({ className = '' }: { className?: string }) {
       <Tooltip title={`Switch to ${nextMode} mode`}>
         <Button type="text" shape="circle" className="header-icon-button" loading={savingMode} icon={resolvedMode === 'dark' ? <SunOutlined /> : <MoonOutlined />} onClick={() => void changeMode()} aria-label={`Switch to ${nextMode} mode`} />
       </Tooltip>
-      {user && <Tooltip title="Appearance settings"><Button type="text" shape="circle" className="header-icon-button" icon={<SettingOutlined />} onClick={() => navigate('/account?tab=appearance')} aria-label="Open appearance settings" /></Tooltip>}
+      {showSettings && user && <Tooltip title="Appearance settings"><Button type="text" shape="circle" className="header-icon-button" icon={<SettingOutlined />} onClick={() => navigate('/account?tab=appearance')} aria-label="Open appearance settings" /></Tooltip>}
     </Space>
   );
 }
