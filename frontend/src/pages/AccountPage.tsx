@@ -1,5 +1,5 @@
-import { BgColorsOutlined, CheckOutlined, DeleteOutlined, DesktopOutlined, MoonOutlined, PictureOutlined, SaveOutlined, SunOutlined, TeamOutlined, UploadOutlined, UserOutlined } from '@ant-design/icons';
-import { App as AntApp, Avatar, Button, Card, Descriptions, Divider, Empty, Popconfirm, Segmented, Space, Spin, Switch, Tabs, Tag, Typography, Upload, type UploadProps } from 'antd';
+import { ApartmentOutlined, BankOutlined, BgColorsOutlined, CheckCircleFilled, CheckOutlined, DeleteOutlined, DesktopOutlined, MailOutlined, MoonOutlined, PictureOutlined, ProjectOutlined, SafetyCertificateOutlined, SaveOutlined, SunOutlined, TeamOutlined, UploadOutlined, UserOutlined } from '@ant-design/icons';
+import { App as AntApp, Avatar, Button, Card, Divider, Empty, Form, Input, Popconfirm, Segmented, Space, Spin, Switch, Tabs, Tag, Typography, Upload, type UploadProps } from 'antd';
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
@@ -78,16 +78,36 @@ export function AccountPage() {
       <Text type="secondary" className="account-photo-card__hint">JPEG, PNG or WebP · Max 5 MB</Text>
     </Card>
     <Card title="Account information" className="account-detail-card" extra={<Tag color="blue">Read only</Tag>}>
-      <Descriptions column={{ xs: 1, sm: 1, md: 2 }} layout="vertical" items={[
-        { key: 'name', label: 'Full name', children: user?.name },
-        { key: 'email', label: 'Work email', children: user?.email },
-        { key: 'role', label: 'Portal role', children: user?.role_label },
-        { key: 'company', label: 'Company', children: user?.company?.name ?? 'System-wide' },
-        { key: 'branch', label: 'Branch', children: user?.branch?.name ?? 'All organizations' },
-        { key: 'status', label: 'Account status', children: <Tag color="success">Active</Tag> },
-      ]} />
-      <Divider />
-      <div className="account-projects"><Text strong>Assigned projects</Text><Space wrap>{user?.assigned_projects.length ? user.assigned_projects.map((project) => <Tag key={project.id}>{project.name}</Tag>) : <Text type="secondary">No project-specific assignment</Text>}</Space></div>
+      <Form layout="vertical" requiredMark={false} className="account-readonly-form" aria-label="Account information">
+        <div className="account-readonly-grid">
+          <Form.Item label="Full name" className="account-readonly-field">
+            <Input size="large" variant="filled" readOnly value={user?.name ?? ''} prefix={<UserOutlined />} />
+          </Form.Item>
+          <Form.Item label="Work email" className="account-readonly-field">
+            <Input size="large" variant="filled" readOnly value={user?.email ?? ''} prefix={<MailOutlined />} />
+          </Form.Item>
+          <Form.Item label="Portal role" className="account-readonly-field">
+            <Input size="large" variant="filled" readOnly value={user?.role_label ?? ''} prefix={<SafetyCertificateOutlined />} />
+          </Form.Item>
+          <Form.Item label="Account status" className="account-readonly-field account-readonly-field--status">
+            <Input size="large" variant="filled" readOnly value="Active" prefix={<CheckCircleFilled />} />
+          </Form.Item>
+          <Form.Item label="Company" className="account-readonly-field">
+            <Input size="large" variant="filled" readOnly value={user?.company?.name ?? 'System-wide'} prefix={<BankOutlined />} />
+          </Form.Item>
+          <Form.Item label="Branch" className="account-readonly-field">
+            <Input size="large" variant="filled" readOnly value={user?.branch?.name ?? 'All organizations'} prefix={<ApartmentOutlined />} />
+          </Form.Item>
+          <Form.Item label="Assigned projects" className="account-readonly-field account-readonly-field--wide">
+            <div className="account-readonly-projects" role="group" aria-label="Assigned projects">
+              <ProjectOutlined />
+              <Space wrap size={[6, 6]}>
+                {user?.assigned_projects.length ? user.assigned_projects.map((project) => <Tag key={project.id} color="blue">{project.name}</Tag>) : <Text type="secondary">No project-specific assignment</Text>}
+              </Space>
+            </div>
+          </Form.Item>
+        </div>
+      </Form>
     </Card>
   </div>;
 

@@ -411,8 +411,16 @@ a { color: var(--qa-primary); font-weight: 600; }
 .account-photo-card h4 { margin: 0 0 2px; }
 .account-photo-card__actions { justify-content: center; margin-top: 24px; }
 .account-photo-card__hint { display: block; margin-top: 20px; font-size: 11px; line-height: 1.6; }
-.account-detail-card { height: 100%; }
-.account-projects > p { margin: 4px 0 12px; font-size: 12px; }
+.account-detail-card { height: 100%; border-color: var(--qa-border-soft); background: linear-gradient(160deg, color-mix(in srgb, var(--qa-primary) 3%, var(--qa-surface)), var(--qa-surface) 42%); }
+.account-readonly-form { padding-top: 4px; }
+.account-readonly-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 20px; }
+.account-readonly-field { min-width: 0; margin-bottom: 0; }
+.account-readonly-field label { color: var(--qa-text-muted); font-size: 12px; font-weight: 650; letter-spacing: .01em; }
+.account-readonly-field input { color: var(--qa-text); font-weight: 600; cursor: default; }
+.account-readonly-field--status svg { color: #20b486; }
+.account-readonly-field--wide { grid-column: 1 / -1; }
+.account-readonly-projects { display: flex; align-items: center; min-height: 40px; gap: 11px; padding: 7px 12px; border: 1px solid transparent; border-radius: 10px; color: var(--qa-text-muted); background: var(--qa-surface-soft); }
+.account-readonly-projects > svg { flex: 0 0 auto; color: var(--qa-primary); }
 .account-section { min-height: 400px; }
 .account-section__intro h4 { margin: 0 0 4px; }
 .account-section__intro p { margin: 0 0 26px; }
@@ -443,6 +451,8 @@ a { color: var(--qa-primary); font-weight: 600; }
 
 @media (max-width: 900px) {
   .account-profile-grid { grid-template-columns: 1fr; }
+  .account-readonly-grid { grid-template-columns: 1fr; }
+  .account-readonly-field--wide { grid-column: auto; }
   .appearance-setting-row, .appearance-footer { align-items: flex-start; flex-direction: column; }
 }
 
