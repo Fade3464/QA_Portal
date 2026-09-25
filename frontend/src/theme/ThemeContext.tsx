@@ -17,15 +17,15 @@ export const THEME_PRESETS: Array<{
   secondary: string;
   radius: number;
 }> = [
-  { id: 'calllens', name: 'CallLens', description: 'Our signature blue and teal', primary: '#087fdf', secondary: '#12c7bd', radius: 10 },
+  { id: 'calllens', name: 'CallLens', description: 'Our signature blue and teal', primary: '#087fdf', secondary: '#12c7bd', radius: 8 },
   { id: 'ant_blue', name: 'Ant Blue', description: 'Clear and familiar', primary: '#1677ff', secondary: '#69b1ff', radius: 8 },
-  { id: 'geek_blue', name: 'Geek Blue', description: 'Focused indigo', primary: '#2f54eb', secondary: '#85a5ff', radius: 10 },
-  { id: 'purple', name: 'Purple', description: 'Confident and expressive', primary: '#722ed1', secondary: '#b37feb', radius: 12 },
-  { id: 'cyan', name: 'Cyan', description: 'Cool and precise', primary: '#08979c', secondary: '#5cdbd3', radius: 10 },
-  { id: 'emerald', name: 'Emerald', description: 'Calm and balanced', primary: '#168f67', secondary: '#5fd3aa', radius: 12 },
-  { id: 'magenta', name: 'Magenta', description: 'Distinct and energetic', primary: '#c41d7f', secondary: '#f08bc2', radius: 12 },
+  { id: 'geek_blue', name: 'Geek Blue', description: 'Focused indigo', primary: '#2f54eb', secondary: '#85a5ff', radius: 8 },
+  { id: 'purple', name: 'Purple', description: 'Confident and expressive', primary: '#722ed1', secondary: '#b37feb', radius: 8 },
+  { id: 'cyan', name: 'Cyan', description: 'Cool and precise', primary: '#08979c', secondary: '#5cdbd3', radius: 8 },
+  { id: 'emerald', name: 'Emerald', description: 'Calm and balanced', primary: '#168f67', secondary: '#5fd3aa', radius: 8 },
+  { id: 'magenta', name: 'Magenta', description: 'Distinct and energetic', primary: '#c41d7f', secondary: '#f08bc2', radius: 8 },
   { id: 'volcano', name: 'Volcano', description: 'Warm and decisive', primary: '#d84a1b', secondary: '#ff9c6e', radius: 8 },
-  { id: 'gold', name: 'Gold', description: 'Warm and premium', primary: '#ad6800', secondary: '#ffd666', radius: 10 },
+  { id: 'gold', name: 'Gold', description: 'Warm and premium', primary: '#ad6800', secondary: '#ffd666', radius: 8 },
   { id: 'neutral', name: 'Slate', description: 'Quiet and understated', primary: '#526078', secondary: '#94a3b8', radius: 8 },
 ];
 

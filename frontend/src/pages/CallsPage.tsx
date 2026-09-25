@@ -1,4 +1,11 @@
-import { ArrowDownOutlined, ArrowUpOutlined, CustomerServiceOutlined, PlayCircleOutlined, SearchOutlined } from '@ant-design/icons';
+import {
+  ArrowDownOutlined,
+  ArrowUpOutlined,
+  CustomerServiceOutlined,
+  PlayCircleOutlined,
+  ReloadOutlined,
+  SearchOutlined,
+} from '@ant-design/icons';
 import { RiArrowDownLongLine, RiArrowRightUpLongLine, RiFlagFill, RiPhoneFill } from '@remixicon/react';
 import { Alert, Button, Card, FloatButton, Table, Tooltip, Typography, type TableProps } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -298,7 +305,7 @@ export function CallsPage() {
       <Card className="call-filter-card" classNames={{ body: 'call-filter-card__body' }}>
         <CallLibraryFilters simplified={isQa} value={filters} options={options} optionsLoading={optionsLoading} loading={loading} onChange={changeFilters} onReset={resetFilters} onRefresh={reload} />
       </Card>
-      {error && <Alert type="error" showIcon title="Unable to filter calls" description={error} action={<Button onClick={reload}>Try again</Button>} />}
+      {error && <Alert type="error" showIcon title="Unable to filter calls" description={error} action={<Button icon={<ReloadOutlined />} onClick={reload}>Try again</Button>} />}
       <Card className="library-card" classNames={{ header: 'library-card__header', body: 'content-card__body' }} title={<div className="library-card__heading"><span>Call records <span className="library-count">{total.toLocaleString()}</span></span></div>}>
         {loading ? <TableSkeleton rows={Math.min(pageSize, 8)} columns={7} /> : <Table<CallEvent>
           className="library-table"
