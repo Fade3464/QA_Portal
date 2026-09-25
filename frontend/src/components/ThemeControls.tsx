@@ -37,9 +37,7 @@ export function ThemeControls({ className = '', showSettings = true }: ThemeCont
 
   return (
     <Space size={4} className={`theme-actions ${className}`.trim()}>
-      <Tooltip title={`Switch to ${nextMode} mode`}>
-        <Button type="text" shape="circle" className="header-icon-button" loading={savingMode} icon={resolvedMode === 'dark' ? <SunOutlined /> : <MoonOutlined />} onClick={() => void changeMode()} aria-label={`Switch to ${nextMode} mode`} />
-      </Tooltip>
+      <Button type="text" shape="circle" className="header-icon-button" loading={savingMode} icon={resolvedMode === 'dark' ? <SunOutlined /> : <MoonOutlined />} onClick={() => void changeMode()} aria-label={`Switch to ${nextMode} mode`} />
       {showSettings && user && <Tooltip title="Appearance settings"><Button type="text" shape="circle" className="header-icon-button" icon={<SettingOutlined />} onClick={() => navigate('/account?tab=appearance')} aria-label="Open appearance settings" /></Tooltip>}
     </Space>
   );

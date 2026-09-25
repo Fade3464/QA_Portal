@@ -13,7 +13,7 @@ import {
   SettingOutlined,
   UserOutlined,
 } from '@ant-design/icons';
-import { App as AntApp, Avatar, Badge, Button, Dropdown, Empty, Layout, Menu, Popover, Tag, Tooltip, Typography, type MenuProps } from 'antd';
+import { App as AntApp, Avatar, Badge, Button, Dropdown, Empty, Layout, Menu, Popover, Tag, Typography, type MenuProps } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
@@ -199,16 +199,14 @@ export function AppShell() {
         <div className={`sider-brand${collapsed ? ' sider-brand--collapsed' : ''}`}><BrandMark compact={collapsed} /></div>
         <div className={`sider-nav-header${collapsed ? ' sider-nav-header--collapsed' : ''}`}>
           {!collapsed && <Text className="nav-label">{isQa ? 'QA WORKSPACE' : 'WORKSPACE'}</Text>}
-          <Tooltip title={collapsed ? 'Expand navigation' : 'Collapse navigation'} placement="right">
-            <Button
-              type="text"
-              shape="circle"
-              className="collapse-button"
-              icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-              onClick={() => setCollapsed((value) => !value)}
-              aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
-            />
-          </Tooltip>
+          <Button
+            type="text"
+            shape="circle"
+            className="collapse-button"
+            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            onClick={() => setCollapsed((value) => !value)}
+            aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+          />
         </div>
         <Menu mode="inline" theme="light" selectedKeys={[location.pathname]} items={items} className="app-menu" classNames={{ itemIcon: 'app-menu__icon', itemContent: 'app-menu__content' }} />
         {!collapsed && (
