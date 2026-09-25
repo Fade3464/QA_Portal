@@ -368,6 +368,25 @@ export interface NotificationResponse {
   results: SystemNotification[];
 }
 
+export type NotificationAudience = 'all' | 'users' | 'roles' | 'companies' | 'branches';
+
+export interface AdminNotificationBroadcast {
+  id: string;
+  title: string;
+  message: string;
+  severity: 'info' | 'warning' | 'error';
+  audience: NotificationAudience;
+  audience_label: string;
+  sender_name: string;
+  recipient_count: number;
+  read_count: number;
+  created_at: string;
+}
+
+export interface AdminNotificationHistory {
+  results: AdminNotificationBroadcast[];
+}
+
 export interface CompanyRecord {
   id: string;
   name: string;

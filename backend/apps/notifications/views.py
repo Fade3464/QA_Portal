@@ -1,3 +1,4 @@
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -9,7 +10,11 @@ from .services import serialize_notification
 
 def scoped_notifications(user):
     queryset = SystemNotification.objects.filter(resolved_at__isnull=True)
-    return queryset if user.is_superuser else queryset.filter(recipients=user)
+    if user.is_superuser:
+        return queryset.filter(
+            ~Q(category=SystemNotification.Category.CUSTOM) | Q(recipients=user)
+        ).distinct()
+    return queryset.filter(recipients=user)
 
 
 class NotificationListView(APIView):

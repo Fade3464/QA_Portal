@@ -8,6 +8,7 @@ import {
   EditOutlined,
   KeyOutlined,
   MinusCircleOutlined,
+  NotificationOutlined,
   PlusOutlined,
   ProjectOutlined,
   ReloadOutlined,
@@ -39,6 +40,7 @@ import {
   type TableProps,
 } from 'antd';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { AdminNotificationCenter } from '../components/AdminNotificationCenter';
 import { api, ApiError } from '../lib/api';
 import { appDate } from '../lib/datetime';
 import { MaterialSymbol } from '../components/MaterialSymbol';
@@ -256,6 +258,7 @@ export function AdministrationPage() {
     { key: 'users', label: <TabLabel label="Users" count={users.length} />, children: <ResourceTable resource="users" query={query} onQuery={setQuery} loading={loading} onAdd={() => openEditor('users')} columns={userColumns} data={filter(users, ['name', 'email', 'role_label', 'company_name', 'branch_name'])} /> },
     { key: 'project-managers', label: <TabLabel label="Project Managers" count={users.filter((user) => user.role === 'project_manager').length} />, children: <ProjectManagerAccessTable query={query} onQuery={setQuery} loading={loading} managers={filter(users.filter((user) => user.role === 'project_manager'), ['name', 'email', 'company_name', 'branch_name'])} columns={projectManagerColumns} onAdd={() => openEditor('users', undefined, { role: 'project_manager' })} /> },
     { key: 'dialers', label: <TabLabel label="Dialers" count={dialers.length} />, children: <ResourceTable resource="dialers" query={query} onQuery={setQuery} loading={loading} onAdd={() => openEditor('dialers')} columns={dialerColumns} data={filter(dialers, ['name', 'api_url', 'company_name', 'branch_name'])} /> },
+    { key: 'notifications', label: <Space size={6}><NotificationOutlined />Notifications</Space>, children: <AdminNotificationCenter users={users} companies={companies} branches={branches} /> },
     { key: 'security', label: <Space size={6}><SafetyCertificateOutlined />Security</Space>, children: <Card className="admin-table-card"><Table rowKey="id" rowClassName={() => 'admin-table-row'} columns={eventColumns} dataSource={securityEvents} loading={{ spinning: loading, delay: 180, description: 'Updating security events' }} pagination={{ pageSize: 12, showSizeChanger: false }} scroll={{ x: 760 }} /></Card> },
   ];
 

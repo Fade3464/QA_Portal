@@ -1,4 +1,5 @@
 import hashlib
+import uuid
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
@@ -67,7 +68,23 @@ def _broadcast_notification(notification_id, event_type="notification.updated") 
             "notification": serialize_notification(notification),
         }
         recipient_ids = list(notification.recipients.values_list("pk", flat=True))
-        if recipient_ids:
+        if notification.category == SystemNotification.Category.CUSTOM:
+            audience = notification.metadata.get("audience_type")
+            target_ids = notification.metadata.get("target_ids", [])
+            if audience == "all":
+                _broadcast("portal_users", payload)
+            elif audience in {"roles", "companies", "branches"}:
+                prefix = {
+                    "roles": "role",
+                    "companies": "company",
+                    "branches": "branch",
+                }[audience]
+                for target_id in target_ids:
+                    _broadcast(f"{prefix}_{target_id}", payload)
+            else:
+                for recipient_id in recipient_ids:
+                    _broadcast(f"user_{recipient_id}", payload)
+        elif recipient_ids:
             for recipient_id in recipient_ids:
                 _broadcast(f"user_{recipient_id}", payload)
         else:
@@ -263,3 +280,41 @@ def resolve_unknown_team_notifications(team, aliases=()) -> int:
             )
         )
     return len(notification_ids)
+
+
+@transaction.atomic
+def queue_custom_notification(
+    *,
+    sender,
+    title: str,
+    message: str,
+    severity: str,
+    recipients,
+    audience_type: str,
+    audience_label: str,
+    target_ids: list[str],
+) -> SystemNotification:
+    recipient_ids = list(dict.fromkeys(str(recipient.pk) for recipient in recipients))
+    if not recipient_ids:
+        raise ValueError("A notification must have at least one active recipient.")
+    notification = SystemNotification.objects.create(
+        category=SystemNotification.Category.CUSTOM,
+        severity=severity,
+        dedupe_key=f"custom:{uuid.uuid4()}",
+        title=title,
+        message=message,
+        metadata={
+            "target_path": "/",
+            "audience_type": audience_type,
+            "audience_label": audience_label,
+            "target_ids": target_ids,
+            "sender_id": str(sender.pk),
+            "sender_name": sender.full_name,
+            "recipient_count": len(recipient_ids),
+        },
+    )
+    notification.recipients.set(recipient_ids)
+    transaction.on_commit(
+        lambda notification_id=notification.pk: _broadcast_notification(notification_id)
+    )
+    return notification
