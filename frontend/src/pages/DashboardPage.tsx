@@ -6,11 +6,9 @@ import {
   ClockCircleOutlined,
   CustomerServiceOutlined,
   DownloadOutlined,
-  EyeOutlined,
   FileDoneOutlined,
   InboxOutlined,
   RiseOutlined,
-  ReloadOutlined,
   SearchOutlined,
   WarningFilled,
 } from '@ant-design/icons';
@@ -81,7 +79,7 @@ function QAAnalystCommandCenter() {
     { title: 'Status', key: 'status', width: 142, render: (_, row) => row.status === 'revision_required' ? <Tag color="warning">Needs revision</Tag> : ['completed', 'disputed'].includes(row.status) ? <Tag color="success">Submitted</Tag> : <Tag color="processing">In progress</Tag> },
     { title: 'Result', key: 'result', width: 125, render: (_, row) => ['completed', 'disputed'].includes(row.status) ? row.critical_errors.length ? <Tag color="error">Critical fail</Tag> : <strong>{row.score}%</strong> : <Text type="secondary">—</Text> },
     { title: 'Updated', key: 'updated', width: 140, render: (_, row) => <div className="leader-date"><strong>{appDate(row.revision_requested_at || row.completed_at || row.assigned_at).format('DD MMM')}</strong><small>{appDate(row.revision_requested_at || row.completed_at || row.assigned_at).format('h:mm A')} ET</small></div> },
-    { title: '', key: 'action', width: 128, align: 'right', render: (_, row) => ['assigned', 'in_progress', 'revision_required'].includes(row.status) ? <Button type="link" icon={<ArrowRightOutlined />} iconPlacement="end" onClick={() => navigate(`/calls?analysis=${encodeURIComponent(row.call_id)}`)}>{row.status === 'revision_required' ? 'Reassess' : 'Continue'}</Button> : <Button type="link" icon={<EyeOutlined />} onClick={() => navigate('/queue')}>View report</Button> },
+    { title: '', key: 'action', width: 128, align: 'right', render: (_, row) => ['assigned', 'in_progress', 'revision_required'].includes(row.status) ? <Button type="link" icon={<ArrowRightOutlined />} iconPlacement="end" onClick={() => navigate(`/calls?analysis=${encodeURIComponent(row.call_id)}`)}>{row.status === 'revision_required' ? 'Reassess' : 'Continue'}</Button> : <Button type="link" onClick={() => navigate('/queue')}>View report</Button> },
   ];
   const callColumns: TableProps<CallEvent>['columns'] = [
     { title: 'Agent', key: 'agent', render: (_, row) => <div className="table-primary"><strong>{row.agent_name || row.agent_user || 'Unassigned'}</strong><small>{row.project_name || 'Unmapped project'}</small></div> },
@@ -96,7 +94,7 @@ function QAAnalystCommandCenter() {
       <Title level={2} className="page-title">Good {greeting()}, {user?.first_name}.</Title>
       <Button type="primary" className="page-heading__action" icon={<SearchOutlined />} onClick={() => navigate('/calls')}>Find a call</Button>
     </div>
-    {error && <Alert type="error" showIcon title="Unable to load QA workspace" description={error} action={<Button icon={<ReloadOutlined />} onClick={retry}>Try again</Button>} />}
+    {error && <Alert type="error" showIcon title="Unable to load QA workspace" description={error} action={<Button onClick={retry}>Try again</Button>} />}
     {loading ? <ContentLoader label="Loading QA workspace" minHeight={460} /> : !error && <div className="qa-command__content data-reveal">
       <section className="qa-priority-grid" aria-label="QA workload summary">
         <QAPriorityCard title="Ready now" value={calls?.metrics.recordings_ready ?? 0} detail="Recordings received in the last 24 hours" icon={<DownloadOutlined />} tone="primary" onClick={() => navigate('/calls')} />
@@ -170,7 +168,7 @@ function TeamLeaderCommandCenter() {
       <Title level={2} className="page-title">Good {greeting()}, {user?.first_name}.</Title>
       <Button type="primary" className="page-heading__action" icon={<InboxOutlined />} onClick={() => navigate('/queue')}>Open QA inbox</Button>
     </div>
-    {error && <Alert type="error" showIcon title="Unable to load command center" description={error} action={<Button icon={<ReloadOutlined />} onClick={retry}>Try again</Button>} />}
+    {error && <Alert type="error" showIcon title="Unable to load command center" description={error} action={<Button onClick={retry}>Try again</Button>} />}
     {loading ? <ContentLoader label="Loading team command center" minHeight={480} /> : !error && <div className="leader-command__content data-reveal">
       <section className="leader-metric-grid" aria-label="Team priorities">
         <LeaderMetric title="Needs review" value={summary?.pending ?? 0} detail="New QA reports awaiting your decision" icon={<InboxOutlined />} tone="primary" onClick={() => navigate('/queue')} />
@@ -225,7 +223,7 @@ function OperationsDashboard() {
   ];
 
   return <div className="page-stack"><div className="page-heading"><Title level={2} className="page-title">Good {greeting()}, {user?.first_name}.</Title><Button type="primary" className="page-heading__action" icon={<AuditOutlined />} onClick={() => navigate('/queue')}>Start reviewing</Button></div>
-    {error && <Alert type="error" showIcon title="Unable to load dashboard" description={error} action={<Button icon={<ReloadOutlined />} onClick={retry}>Try again</Button>} />}
+    {error && <Alert type="error" showIcon title="Unable to load dashboard" description={error} action={<Button onClick={retry}>Try again</Button>} />}
     {loading ? <ContentLoader label="Loading dashboard" minHeight={420} /> : !error && <div className="data-reveal"><Row gutter={[16, 16]}><Col xs={24} sm={12} xl={6}><MetricCard order={0} title="Calls received" value={data?.metrics.total_calls ?? 0} icon={<CustomerServiceOutlined />} footer={<><span className="positive"><RiseOutlined /> Live intake</span><Text type="secondary">24 hours</Text></>} /></Col><Col xs={24} sm={12} xl={6}><MetricCard order={1} title="Recordings ready" value={data?.metrics.recordings_ready ?? 0} icon={<DownloadOutlined />} footer={<><span className="positive"><CheckCircleFilled /> Available</span><Text type="secondary">for review</Text></>} /></Col><Col xs={24} sm={12} xl={6}><MetricCard order={2} title="Awaiting recording" value={data?.metrics.recordings_pending ?? 0} icon={<ClockCircleOutlined />} footer={<span>Automatic retries active</span>} /></Col><Col xs={24} sm={12} xl={6}><MetricCard order={3} title="Average talk time" value={formatDuration(data?.metrics.avg_talk_time ?? 0)} icon={<BarChartVisual />} footer={<span>Across received calls</span>} /></Col></Row>
       <Row gutter={[16, 16]}><Col xs={24} xl={16}><Card className="content-card" title="Recent call activity" extra={<Link to="/calls">View library <ArrowRightOutlined /></Link>}><Table<CallEvent> className="content-table" rowKey="id" columns={columns} dataSource={data?.recent_calls ?? []} pagination={false} scroll={{ x: 760 }} /></Card></Col><Col xs={24} xl={8}><Card className="content-card quality-card" title="Review completion"><div className="quality-progress"><Progress type="circle" percent={data?.metrics.review_completion ?? 0} strokeColor="var(--qa-primary)" size={154} /><div><Text type="secondary">Reviews completed</Text><Title level={3} className="quality-total">{data?.metrics.reviewed ?? 0}</Title></div></div><div className="queue-breakdown"><div><span className="queue-dot queue-dot--purple" /><span><strong>Ready for review</strong><small>Recordings processed</small></span><b>{data?.metrics.recordings_ready ?? 0}</b></div><div><span className="queue-dot queue-dot--amber" /><span><strong>Processing</strong><small>Recording retrieval</small></span><b>{data?.metrics.recordings_pending ?? 0}</b></div></div><Link className="card-action" to="/queue">Open review queue <ArrowRightOutlined /></Link></Card></Col></Row></div>}
   </div>;

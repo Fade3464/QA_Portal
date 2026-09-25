@@ -1,4 +1,3 @@
-import { ReloadOutlined } from '@ant-design/icons';
 import { Button, Result } from 'antd';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 
@@ -23,8 +22,8 @@ export class AppErrorBoundary extends Component<Props, State> {
           <Result
             status="500"
             title="This view could not be displayed"
-            subTitle="Reload the portal to continue."
-            extra={<Button type="primary" icon={<ReloadOutlined />} onClick={() => window.location.reload()}>Reload portal</Button>}
+            subTitle="Your data is safe. Reload the portal to restore the interface."
+            extra={<Button type="primary" onClick={() => window.location.reload()}>Reload portal</Button>}
           />
         </main>
       );

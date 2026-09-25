@@ -267,11 +267,12 @@ export function AdministrationPage() {
 
   return (
     <div className="page-stack administration-page">
-      <div className="page-heading admin-page-heading">
-        <Title level={2}>Administration</Title>
+      <section className="admin-hero">
+        <div className="admin-hero__mesh" />
+        <div className="admin-hero__copy"><Title level={2}>Administration</Title></div>
         <Space wrap><Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading}>Refresh</Button><Button type="primary" icon={<PlusOutlined />} onClick={() => { setActiveTab('companies'); openEditor('companies'); }}>Add company</Button></Space>
-      </div>
-      {loadError && <Alert type="error" showIcon title="Unable to load administration" description={loadError} action={<Button icon={<ReloadOutlined />} onClick={() => void load()}>Try again</Button>} />}
+      </section>
+      {loadError && <Alert type="error" showIcon title="Unable to load administration" description={loadError} action={<Button onClick={() => void load()}>Try again</Button>} />}
       <Tabs activeKey={activeTab} onChange={(key) => { setActiveTab(key); setQuery(''); }} items={tabs} animated={{ inkBar: true, tabPane: true }} className="admin-tabs" classNames={{ header: 'admin-tabs__header' }} />
       <EditorDrawer editor={editor} form={form} saving={saving} companies={companies} branches={branches} users={users} dialers={dialers} selectedCompany={selectedCompany} selectedBranch={selectedBranch} selectedRole={selectedRole} onClose={() => setEditor(null)} onSave={save} />
       <ProjectAccessDrawer user={projectEditor} form={projectForm} dialers={dialers} saving={projectSaving} onClose={() => { setProjectEditor(null); projectForm.resetFields(); }} onSave={saveProjectAccess} />

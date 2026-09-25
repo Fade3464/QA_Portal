@@ -173,7 +173,7 @@ export function AdminNotificationCenter({ users, companies, branches }: { users:
           <Input.TextArea autoSize={{ minRows: 4, maxRows: 8 }} maxLength={1000} showCount placeholder="Tell recipients what they need to know" />
         </Form.Item>
         <div className="notification-compose-footer">
-          <Text type="secondary">{recipientCount.toLocaleString()} active recipient{recipientCount === 1 ? '' : 's'}</Text>
+          <div><BellOutlined /><span><strong>{recipientCount.toLocaleString()} active recipient{recipientCount === 1 ? '' : 's'}</strong><small>Delivered in-app and through browser notifications when permitted</small></span></div>
           <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={sending}>Review and send</Button>
         </div>
       </Form>

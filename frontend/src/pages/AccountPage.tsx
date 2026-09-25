@@ -1,4 +1,4 @@
-import { ApartmentOutlined, BankOutlined, BgColorsOutlined, CheckCircleFilled, CheckOutlined, DeleteOutlined, DesktopOutlined, MailOutlined, MessageOutlined, MoonOutlined, PaperClipOutlined, PictureOutlined, ProjectOutlined, SafetyCertificateOutlined, SaveOutlined, SendOutlined, SunOutlined, TeamOutlined, UploadOutlined, UndoOutlined, UserOutlined } from '@ant-design/icons';
+import { ApartmentOutlined, BankOutlined, BgColorsOutlined, CheckCircleFilled, CheckOutlined, DeleteOutlined, DesktopOutlined, MailOutlined, MessageOutlined, MoonOutlined, PaperClipOutlined, PictureOutlined, ProjectOutlined, SafetyCertificateOutlined, SaveOutlined, SendOutlined, SunOutlined, TeamOutlined, UploadOutlined, UserOutlined } from '@ant-design/icons';
 import { App as AntApp, Avatar, Button, Card, Divider, Empty, Form, Input, Popconfirm, Segmented, Space, Spin, Switch, Tabs, Tag, Typography, Upload, type UploadFile, type UploadProps } from 'antd';
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -120,7 +120,7 @@ export function AccountPage() {
 
   return <div className="account-page">
     <div className="page-heading"><Title level={2} className="page-title">Account</Title></div>
-    <div className="account-shell"><Tabs activeKey={activeTab} animated={{ inkBar: true, tabPane: true }} items={tabs} onChange={(tab) => setSearchParams(tab === 'profile' ? {} : { tab })} /></div>
+    <Card className="account-shell-card" classNames={{ body: 'account-shell-card__body' }} variant="borderless"><Tabs activeKey={activeTab} animated={{ inkBar: true, tabPane: true }} items={tabs} onChange={(tab) => setSearchParams(tab === 'profile' ? {} : { tab })} /></Card>
   </div>;
 }
 
@@ -180,10 +180,10 @@ function AppearanceSection() {
     <div className="appearance-setting-row"><div><Text strong>Color mode</Text></div><Segmented<ThemeMode> value={mode} onChange={setMode} options={[{ value: 'light', label: 'Light', icon: <SunOutlined /> }, { value: 'dark', label: 'Dark', icon: <MoonOutlined /> }, { value: 'system', label: 'System', icon: <DesktopOutlined /> }]} /></div>
     <Divider />
     <div className="theme-gallery-heading"><div><Text strong>Theme</Text></div><PictureOutlined className="theme-gallery-heading__icon" /></div>
-    <div className="theme-gallery" role="radiogroup" aria-label="Workspace theme">{THEME_PRESETS.map((item) => <button key={item.id} type="button" role="radio" aria-checked={preset === item.id} aria-label={item.name} className={`theme-color-option${preset === item.id ? ' theme-color-option--selected' : ''}`} onClick={() => setPreset(item.id)} style={{ '--theme-primary': item.primary, '--theme-secondary': item.secondary } as CSSProperties}><span className="theme-color-swatch" aria-hidden="true"><span className="theme-color-swatch__secondary" />{preset === item.id && <CheckOutlined className="theme-color-swatch__check" />}</span><span><strong>{item.name}</strong></span></button>)}</div>
+    <div className="theme-gallery" role="radiogroup" aria-label="Workspace theme">{THEME_PRESETS.map((item) => <button key={item.id} type="button" role="radio" aria-checked={preset === item.id} aria-label={item.name} className={`theme-orb-option${preset === item.id ? ' theme-orb-option--selected' : ''}`} onClick={() => setPreset(item.id)} style={{ '--theme-primary': item.primary, '--theme-secondary': item.secondary } as CSSProperties}><span className="theme-orb"><span className="theme-orb__lens" />{preset === item.id && <CheckOutlined className="theme-orb__check" />}</span><span><strong>{item.name}</strong></span></button>)}</div>
     <Divider />
     <div className="appearance-setting-row"><div><Text strong>Compact density</Text></div><Switch checked={compact} onChange={setCompact} aria-label="Use compact interface density" /></div>
-    <div className="appearance-footer"><div /><Space><Button icon={<UndoOutlined />} onClick={() => setPreferences(DEFAULT_THEME)}>Reset</Button><Button type="primary" icon={<SaveOutlined />} disabled={!dirty} loading={saving} onClick={() => void save()}>Save appearance</Button></Space></div>
+    <div className="appearance-footer"><div /><Space><Button onClick={() => setPreferences(DEFAULT_THEME)}>Reset</Button><Button type="primary" icon={<SaveOutlined />} disabled={!dirty} loading={saving} onClick={() => void save()}>Save appearance</Button></Space></div>
   </div>;
 }
 
