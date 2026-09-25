@@ -921,3 +921,57 @@ a { color: var(--qa-primary); font-weight: 600; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; transition-delay: 0ms !important; animation-duration: .01ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; }
 }
+
+/* Persistent System Administrator alert */
+.system-admin-alert-toast {
+  max-width: min(620px, calc(100vw - 32px));
+}
+
+.system-admin-alert-toast .ant-notification-notice-message {
+  margin-inline-end: 28px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+/* Feedback */
+.feedback-compose-card {
+  max-width: 760px;
+  background: var(--qa-surface-soft);
+}
+
+.feedback-compose-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.feedback-user-cell,
+.feedback-message-cell,
+.feedback-status {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.feedback-user-cell span,
+.feedback-user-cell small,
+.feedback-status small {
+  color: var(--qa-text-muted);
+}
+
+.feedback-message-cell > span {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.feedback-image-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.feedback-image-strip .ant-image,
+.feedback-image-strip img {
+  border-radius: 8px;
+  object-fit: cover;
+}

@@ -387,6 +387,36 @@ export interface AdminNotificationHistory {
   results: AdminNotificationBroadcast[];
 }
 
+
+export interface FeedbackImageRecord {
+  id: string;
+  name: string;
+  url: string;
+}
+
+export interface FeedbackRecord {
+  id: string;
+  message: string;
+  status: 'open' | 'reviewed';
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+    company: string;
+    branch: string;
+  };
+  images: FeedbackImageRecord[];
+  reviewed_by: string;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FeedbackResponse {
+  results: FeedbackRecord[];
+}
+
 export interface CompanyRecord {
   id: string;
   name: string;

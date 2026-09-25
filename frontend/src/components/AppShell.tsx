@@ -27,6 +27,8 @@ import { ThemeControls } from './ThemeControls';
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
 
+const SYSTEM_ADMIN_ALERT_MESSAGE = 'An alert has been issued by the System Administrator. Navigate to the notification section for more information.';
+
 export function AppShell() {
   const { notification: toast } = AntApp.useApp();
   const { user, logout } = useAuth();
@@ -40,6 +42,28 @@ export function AppShell() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [browserPermission, setBrowserPermission] = useState<NotificationPermission | 'unsupported'>(() => browserNotificationPermission());
   const isQa = user?.role === 'qa' && !user.is_superuser;
+
+  const showSystemAdminAlert = useCallback((item: SystemNotification) => {
+    if (!user || item.category !== 'custom') return;
+    const storageKey = `qa-system-admin-alerts-dismissed:${user.id}`;
+    let dismissed: string[] = [];
+    try { dismissed = JSON.parse(window.localStorage.getItem(storageKey) ?? '[]') as string[]; } catch { dismissed = []; }
+    if (dismissed.includes(item.id)) return;
+    toast.open({
+      key: `system-admin-alert-${item.id}`,
+      placement: 'top',
+      duration: 0,
+      message: SYSTEM_ADMIN_ALERT_MESSAGE,
+      className: 'system-admin-alert-toast',
+      onClick: () => setNotificationsOpen(true),
+      onClose: () => {
+        let current: string[] = [];
+        try { current = JSON.parse(window.localStorage.getItem(storageKey) ?? '[]') as string[]; } catch { current = []; }
+        const next = Array.from(new Set([...current, item.id])).slice(-100);
+        try { window.localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* Storage can be unavailable in hardened browsers. */ }
+      },
+    });
+  }, [toast, user]);
 
   const enableBrowserNotifications = useCallback(async () => {
     try {
@@ -62,12 +86,14 @@ export function AppShell() {
       const result = await api<NotificationResponse>('/api/v1/notifications/');
       setNotifications(result.results);
       setUnreadCount(result.unread_count);
+      const latestAdminAlert = result.results.find((item) => !item.is_read && item.category === 'custom');
+      if (latestAdminAlert) showSystemAdminAlert(latestAdminAlert);
     } catch {
       // Connection state communicates outages without interrupting the workspace.
     } finally {
       setNotificationsLoading(false);
     }
-  }, [user]);
+  }, [showSystemAdminAlert, user]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadNotifications(), 0);
@@ -102,10 +128,14 @@ export function AppShell() {
               if (!alreadyUnread) setUnreadCount((count) => count + 1);
               return [incoming, ...current.filter((item) => item.id !== incoming.id)].slice(0, 50);
             });
-            const toastOptions = { message: incoming.title, description: incoming.message, placement: 'topRight' as const };
-            if (incoming.severity === 'error') toast.error(toastOptions);
-            else if (incoming.severity === 'warning') toast.warning(toastOptions);
-            else toast.info(toastOptions);
+            if (incoming.category === 'custom') {
+              showSystemAdminAlert(incoming);
+            } else {
+              const toastOptions = { message: incoming.title, description: incoming.message, placement: 'topRight' as const };
+              if (incoming.severity === 'error') toast.error(toastOptions);
+              else if (incoming.severity === 'warning') toast.warning(toastOptions);
+              else toast.info(toastOptions);
+            }
             showBrowserNotification(incoming, () => {
               const target = incoming.metadata.target_path;
               navigate(target?.startsWith('/') && !target.startsWith('//') ? target : (user?.is_superuser ? '/admin' : '/queue'));
@@ -141,7 +171,7 @@ export function AppShell() {
       window.clearTimeout(retryTimer);
       socket?.close();
     };
-  }, [loadNotifications, navigate, toast, user?.is_superuser]);
+  }, [loadNotifications, navigate, showSystemAdminAlert, toast, user?.is_superuser]);
 
   const markRead = async (item: SystemNotification) => {
     if (!item.is_read) {

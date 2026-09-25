@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     "apps.calls",
     "apps.dashboard",
     "apps.notifications",
+    "apps.feedback",
 ]
 
 MIDDLEWARE = [

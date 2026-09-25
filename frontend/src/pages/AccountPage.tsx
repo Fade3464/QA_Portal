@@ -1,5 +1,5 @@
-import { ApartmentOutlined, BankOutlined, BgColorsOutlined, CheckCircleFilled, CheckOutlined, DeleteOutlined, DesktopOutlined, MailOutlined, MoonOutlined, PictureOutlined, ProjectOutlined, SafetyCertificateOutlined, SaveOutlined, SunOutlined, TeamOutlined, UploadOutlined, UserOutlined } from '@ant-design/icons';
-import { App as AntApp, Avatar, Button, Card, Divider, Empty, Form, Input, Popconfirm, Segmented, Space, Spin, Switch, Tabs, Tag, Typography, Upload, type UploadProps } from 'antd';
+import { ApartmentOutlined, BankOutlined, BgColorsOutlined, CheckCircleFilled, CheckOutlined, DeleteOutlined, DesktopOutlined, MailOutlined, MessageOutlined, MoonOutlined, PaperClipOutlined, PictureOutlined, ProjectOutlined, SafetyCertificateOutlined, SaveOutlined, SendOutlined, SunOutlined, TeamOutlined, UploadOutlined, UserOutlined } from '@ant-design/icons';
+import { App as AntApp, Avatar, Button, Card, Divider, Empty, Form, Input, Popconfirm, Segmented, Space, Spin, Switch, Tabs, Tag, Typography, Upload, type UploadFile, type UploadProps } from 'antd';
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
@@ -10,7 +10,7 @@ import { DEFAULT_THEME, THEME_PRESETS, useThemeSettings, type ThemeMode, type Th
 import type { CurrentUser, LedTeam } from '../types';
 
 const { Text, Title } = Typography;
-const VALID_TABS = new Set(['profile', 'team', 'appearance']);
+const VALID_TABS = new Set(['profile', 'team', 'appearance', 'feedback']);
 
 function initialsFor(user: CurrentUser | null) {
   return `${user?.first_name?.[0] ?? ''}${user?.last_name?.[0] ?? ''}`.toUpperCase() || 'U';
@@ -115,6 +115,7 @@ export function AccountPage() {
     { key: 'profile', label: 'Profile', icon: <UserOutlined />, children: profile },
     ...(user?.role === 'team_leader' ? [{ key: 'team', label: 'Team avatar', icon: <TeamOutlined />, children: <TeamAvatarSection /> }] : []),
     { key: 'appearance', label: 'Appearance', icon: <BgColorsOutlined />, children: <AppearanceSection /> },
+    { key: 'feedback', label: 'Feedback', icon: <MessageOutlined />, children: <FeedbackSection /> },
   ];
 
   return <div className="account-page">
@@ -183,5 +184,69 @@ function AppearanceSection() {
     <Divider />
     <div className="appearance-setting-row"><div><Text strong>Compact density</Text></div><Switch checked={compact} onChange={setCompact} aria-label="Use compact interface density" /></div>
     <div className="appearance-footer"><div /><Space><Button onClick={() => setPreferences(DEFAULT_THEME)}>Reset</Button><Button type="primary" icon={<SaveOutlined />} disabled={!dirty} loading={saving} onClick={() => void save()}>Save appearance</Button></Space></div>
+  </div>;
+}
+
+
+function FeedbackSection() {
+  const { message } = AntApp.useApp();
+  const [form] = Form.useForm<{ message: string }>();
+  const [files, setFiles] = useState<UploadFile[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+
+  const beforeUpload: UploadProps['beforeUpload'] = (file) => {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      message.error('Attach JPEG, PNG, or WebP images only.');
+      return Upload.LIST_IGNORE;
+    }
+    if (file.size > 3 * 1024 * 1024) {
+      message.error('Each feedback image must be 3 MB or smaller.');
+      return Upload.LIST_IGNORE;
+    }
+    return false;
+  };
+
+  const submit = async (values: { message: string }) => {
+    setSubmitting(true);
+    try {
+      const body = new FormData();
+      body.append('message', values.message.trim());
+      files.forEach((file) => {
+        if (file.originFileObj) body.append('images', file.originFileObj);
+      });
+      await api('/api/v1/feedback/', { method: 'POST', body });
+      form.resetFields();
+      setFiles([]);
+      message.success('Feedback sent to the System Administrator.');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : 'Feedback could not be sent.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return <div className="account-section feedback-section">
+    <div className="account-section__intro"><Title level={4}>Feedback</Title></div>
+    <Card className="feedback-compose-card" variant="borderless">
+      <Form form={form} layout="vertical" requiredMark={false} onFinish={submit}>
+        <Form.Item name="message" label="What would you like us to know?" rules={[{ required: true, whitespace: true, message: 'Enter your feedback.' }, { max: 3000 }]}>
+          <Input.TextArea autoSize={{ minRows: 5, maxRows: 10 }} maxLength={3000} showCount placeholder="Describe the issue, suggestion, or improvement." />
+        </Form.Item>
+        <Form.Item label="Screenshots" extra="Optional · Up to 3 JPEG, PNG, or WebP images · 3 MB each">
+          <Upload
+            accept="image/jpeg,image/png,image/webp"
+            multiple
+            maxCount={3}
+            beforeUpload={beforeUpload}
+            fileList={files}
+            listType="picture"
+            onChange={({ fileList }) => setFiles(fileList.slice(-3))}
+          >
+            <Button icon={<PaperClipOutlined />} disabled={files.length >= 3}>Attach images</Button>
+          </Upload>
+        </Form.Item>
+        <div className="feedback-compose-actions"><Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={submitting}>Send feedback</Button></div>
+      </Form>
+    </Card>
   </div>;
 }
