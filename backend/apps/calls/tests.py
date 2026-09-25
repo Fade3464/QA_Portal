@@ -410,6 +410,19 @@ class WebhookTests(TestCase):
         self.assertEqual(performance.json()["metrics"]["average_score"], 92.0)
         self.assertEqual(performance.json()["metrics"]["critical"], 0)
 
+        today_performance = self.client.get(
+            reverse("project-performance"), {"days": 1}
+        )
+        self.assertEqual(
+            today_performance.status_code, 200, today_performance.content
+        )
+        self.assertEqual(today_performance.json()["window"]["days"], 1)
+        self.assertEqual(
+            today_performance.json()["window"]["from"],
+            today_performance.json()["window"]["to"],
+        )
+        self.assertEqual(today_performance.json()["metrics"]["evaluated"], 1)
+
         action = self.client.post(
             reverse("review-report-action", kwargs={"pk": visible_review.pk}),
             {"leader_status": Review.LeaderStatus.ACKNOWLEDGED},

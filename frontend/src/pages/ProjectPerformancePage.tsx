@@ -16,7 +16,7 @@ import { appCalendarDate, appDate } from '../lib/datetime';
 import type { ProjectPerformance } from '../types';
 
 const { Text, Title } = Typography;
-type WindowDays = 7 | 30 | 90;
+type WindowDays = 1 | 7 | 30 | 90;
 
 function scoreTone(score: number | null) {
   if (score === null) return 'neutral';
@@ -110,7 +110,7 @@ export function ProjectPerformancePage({ overview = false }: { overview?: boolea
     </div>
     <div className="pm-performance__filters">
       <Select className="pm-project-select" allowClear showSearch={{ optionFilterProp: 'label' }} value={project || undefined} placeholder="All assigned projects" options={projectOptions} onChange={(value) => setProject(value ?? '')} aria-label="Filter by project" />
-      <Segmented<WindowDays> value={days} onChange={setDays} options={[{ label: '7 days', value: 7 }, { label: '30 days', value: 30 }, { label: '90 days', value: 90 }]} />
+      <Segmented<WindowDays> value={days} onChange={setDays} options={[{ label: 'Today', value: 1 }, { label: '7 days', value: 7 }, { label: '30 days', value: 30 }, { label: '90 days', value: 90 }]} />
       {data && <Text className="pm-performance__freshness" type="secondary">Updated {appDate(data.generated_at).format('DD MMM, h:mm A')} ET</Text>}
     </div>
     {error && <Alert type="error" showIcon title="Performance data unavailable" description={error} />}

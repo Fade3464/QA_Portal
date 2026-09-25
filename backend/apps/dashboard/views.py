@@ -78,9 +78,9 @@ class ProjectPerformanceView(APIView):
         try:
             days = int(request.query_params.get("days", "30"))
         except ValueError as exc:
-            raise ValidationError({"days": "Choose a 7, 30, or 90 day window."}) from exc
-        if days not in {7, 30, 90}:
-            raise ValidationError({"days": "Choose a 7, 30, or 90 day window."})
+            raise ValidationError({"days": "Choose today or a 7, 30, or 90 day window."}) from exc
+        if days not in {1, 7, 30, 90}:
+            raise ValidationError({"days": "Choose today or a 7, 30, or 90 day window."})
 
         if request.user.role == User.Role.PROJECT_MANAGER and not request.user.is_superuser:
             available_projects = list(
