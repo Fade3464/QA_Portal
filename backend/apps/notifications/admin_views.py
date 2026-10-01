@@ -4,6 +4,7 @@ from django.db.models import Count
 from rest_framework import serializers, status
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
 from rest_framework.views import APIView
 
 from apps.accounts.models import User
@@ -24,6 +25,15 @@ class IsSystemAdministrator(BasePermission):
         )
 
 
+class CustomNotificationThrottle(UserRateThrottle):
+    scope = "custom_notifications"
+
+    def allow_request(self, request, view):
+        if request.method == "GET":
+            return True
+        return super().allow_request(request, view)
+
+
 class CustomNotificationInputSerializer(serializers.Serializer):
     class Audience:
         ALL = "all"
@@ -42,11 +52,17 @@ class CustomNotificationInputSerializer(serializers.Serializer):
         )
     )
     target_ids = serializers.ListField(
-        child=serializers.CharField(max_length=64), required=False, default=list
+        child=serializers.CharField(max_length=64),
+        required=False,
+        default=list,
+        max_length=500,
     )
     severity = serializers.ChoiceField(choices=SystemNotification.Severity.choices)
     title = serializers.CharField(max_length=120, trim_whitespace=True)
     message = serializers.CharField(max_length=1000, trim_whitespace=True)
+
+    def validate_title(self, value):
+        return " ".join(value.split())
 
     def validate(self, attrs):
         audience = attrs["audience"]
@@ -65,7 +81,9 @@ class CustomNotificationInputSerializer(serializers.Serializer):
             self.Audience.BRANCHES,
         }:
             try:
-                target_ids = [str(UUID(value)) for value in target_ids]
+                target_ids = list(
+                    dict.fromkeys(str(UUID(value)) for value in target_ids)
+                )
             except (TypeError, ValueError, AttributeError) as exc:
                 raise serializers.ValidationError(
                     {"target_ids": "One or more audience targets are invalid."}
@@ -156,6 +174,7 @@ def _serialize_broadcast(notification):
 
 class CustomNotificationAdminView(APIView):
     permission_classes = [IsSystemAdministrator]
+    throttle_classes = [CustomNotificationThrottle]
 
     def get(self, request):
         notifications = (

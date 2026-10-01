@@ -11,6 +11,11 @@ from .models import SystemNotification
 
 
 def serialize_notification(notification, user=None) -> dict:
+    metadata = notification.metadata
+    if notification.category == SystemNotification.Category.CUSTOM:
+        # Target IDs and sender audit data are administrative information and
+        # must not be exposed to other notification recipients.
+        metadata = {"target_path": metadata.get("target_path", "/")}
     return {
         "id": str(notification.pk),
         "category": notification.category,
@@ -20,7 +25,7 @@ def serialize_notification(notification, user=None) -> dict:
         "branch_id": str(notification.branch_id) if notification.branch_id else None,
         "branch_name": notification.branch.name if notification.branch_id else "",
         "call_id": str(notification.call_id) if notification.call_id else None,
-        "metadata": notification.metadata,
+        "metadata": metadata,
         "occurrences": notification.occurrences,
         "is_read": bool(user and notification.read_by.filter(pk=user.pk).exists()),
         "created_at": notification.created_at.isoformat(),
@@ -68,23 +73,7 @@ def _broadcast_notification(notification_id, event_type="notification.updated") 
             "notification": serialize_notification(notification),
         }
         recipient_ids = list(notification.recipients.values_list("pk", flat=True))
-        if notification.category == SystemNotification.Category.CUSTOM:
-            audience = notification.metadata.get("audience_type")
-            target_ids = notification.metadata.get("target_ids", [])
-            if audience == "all":
-                _broadcast("portal_users", payload)
-            elif audience in {"roles", "companies", "branches"}:
-                prefix = {
-                    "roles": "role",
-                    "companies": "company",
-                    "branches": "branch",
-                }[audience]
-                for target_id in target_ids:
-                    _broadcast(f"{prefix}_{target_id}", payload)
-            else:
-                for recipient_id in recipient_ids:
-                    _broadcast(f"user_{recipient_id}", payload)
-        elif recipient_ids:
+        if recipient_ids:
             for recipient_id in recipient_ids:
                 _broadcast(f"user_{recipient_id}", payload)
         else:

@@ -29,6 +29,15 @@ const { Text } = Typography;
 
 const SYSTEM_ADMIN_ALERT_MESSAGE = 'An alert has been issued by the System Administrator. Navigate to the notification section for more information.';
 
+function readDismissedAdminAlerts(storageKey: string): string[] {
+  try {
+    const value: unknown = JSON.parse(window.localStorage.getItem(storageKey) ?? '[]');
+    return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 export function AppShell() {
   const { notification: toast } = AntApp.useApp();
   const { user, logout } = useAuth();
@@ -46,8 +55,7 @@ export function AppShell() {
   const showSystemAdminAlert = useCallback((item: SystemNotification) => {
     if (!user || item.category !== 'custom') return;
     const storageKey = `qa-system-admin-alerts-dismissed:${user.id}`;
-    let dismissed: string[] = [];
-    try { dismissed = JSON.parse(window.localStorage.getItem(storageKey) ?? '[]') as string[]; } catch { dismissed = []; }
+    const dismissed = readDismissedAdminAlerts(storageKey);
     if (dismissed.includes(item.id)) return;
     toast.open({
       key: `system-admin-alert-${item.id}`,
@@ -57,8 +65,7 @@ export function AppShell() {
       className: 'system-admin-alert-toast',
       onClick: () => setNotificationsOpen(true),
       onClose: () => {
-        let current: string[] = [];
-        try { current = JSON.parse(window.localStorage.getItem(storageKey) ?? '[]') as string[]; } catch { current = []; }
+        const current = readDismissedAdminAlerts(storageKey);
         const next = Array.from(new Set([...current, item.id])).slice(-100);
         try { window.localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* Storage can be unavailable in hardened browsers. */ }
       },

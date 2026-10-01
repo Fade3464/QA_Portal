@@ -78,12 +78,6 @@ class NotificationConsumer(AsyncJsonWebsocketConsumer):
         self.group_names = [f"user_{user.pk}"]
         if user.is_superuser:
             self.group_names.append("system_admins")
-        else:
-            self.group_names.extend(
-                ["portal_users", f"role_{user.role}", f"company_{user.company_id}"]
-            )
-            if user.branch_id:
-                self.group_names.append(f"branch_{user.branch_id}")
         for group_name in self.group_names:
             await self.channel_layer.group_add(group_name, self.channel_name)
         await self.accept()

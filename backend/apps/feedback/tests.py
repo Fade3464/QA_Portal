@@ -7,6 +7,7 @@ from django.urls import reverse
 from PIL import Image
 
 from apps.accounts.models import User
+from apps.tenancy.models import Branch, Company
 
 from .models import Feedback
 
@@ -16,12 +17,17 @@ class FeedbackApiTests(TestCase):
         self.media = tempfile.TemporaryDirectory()
         self.override = override_settings(MEDIA_ROOT=self.media.name)
         self.override.enable()
+        company = Company.objects.create(name="Test Company", slug="test-company")
+        branch = Branch.objects.create(company=company, name="Test Branch", code="test")
         self.user = User.objects.create_user(
             email="user@example.com",
             password="StrongPassword123!",
             first_name="Portal",
             last_name="User",
             role=User.Role.QA,
+            company=company,
+            branch=branch,
+            must_change_password=False,
         )
         self.other = User.objects.create_user(
             email="other@example.com",
@@ -29,12 +35,16 @@ class FeedbackApiTests(TestCase):
             first_name="Other",
             last_name="User",
             role=User.Role.QA,
+            company=company,
+            branch=branch,
+            must_change_password=False,
         )
         self.admin = User.objects.create_superuser(
             email="admin@example.com",
             password="StrongPassword123!",
             first_name="System",
             last_name="Administrator",
+            must_change_password=False,
         )
 
     def tearDown(self):
@@ -51,7 +61,10 @@ class FeedbackApiTests(TestCase):
         self.client.force_login(self.user)
         response = self.client.post(
             reverse("feedback-submit"),
-            {"message": "The report filter is difficult to use.", "images": [self._image()]},
+            {
+                "message": "The report filter is difficult to use.",
+                "images": [self._image()],
+            },
         )
         self.assertEqual(response.status_code, 201, response.content)
         feedback = Feedback.objects.get()
@@ -60,9 +73,13 @@ class FeedbackApiTests(TestCase):
         self.assertTrue(feedback.images.first().image.name.endswith(".webp"))
 
     def test_only_system_administrator_can_review_feedback(self):
-        feedback = Feedback.objects.create(user=self.user, message="Please review this.")
+        feedback = Feedback.objects.create(
+            user=self.user, message="Please review this."
+        )
         self.client.force_login(self.other)
-        self.assertEqual(self.client.get(reverse("feedback-admin-list")).status_code, 403)
+        self.assertEqual(
+            self.client.get(reverse("feedback-admin-list")).status_code, 403
+        )
         self.assertEqual(
             self.client.patch(
                 reverse("feedback-admin-detail", kwargs={"pk": feedback.pk}),
@@ -95,7 +112,9 @@ class FeedbackApiTests(TestCase):
         )
         feedback = Feedback.objects.get(pk=response.json()["id"])
         image = feedback.images.get()
-        url = reverse("feedback-image", kwargs={"feedback_id": feedback.pk, "image_id": image.pk})
+        url = reverse(
+            "feedback-image", kwargs={"feedback_id": feedback.pk, "image_id": image.pk}
+        )
         self.assertEqual(self.client.get(url).status_code, 200)
 
         self.client.force_login(self.other)

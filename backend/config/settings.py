@@ -7,6 +7,8 @@ from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
 
+from .database import database_settings
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
@@ -63,6 +65,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "apps.tenancy.db_metrics.DatabaseMetricsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -94,22 +97,9 @@ TEMPLATES = [
     }
 ]
 
-if os.getenv("DATABASE_URL"):
-    from urllib.parse import urlparse
-
-    database_url = urlparse(os.environ["DATABASE_URL"])
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.postgresql",
-            "NAME": database_url.path.lstrip("/"),
-            "USER": database_url.username,
-            "PASSWORD": database_url.password,
-            "HOST": database_url.hostname,
-            "PORT": database_url.port or 5432,
-            "CONN_MAX_AGE": 60,
-            "CONN_HEALTH_CHECKS": True,
-        }
-    }
+postgres_database = database_settings(os.environ, production=PRODUCTION)
+if postgres_database:
+    DATABASES = {"default": postgres_database}
 else:
     DATABASES = {
         "default": {
@@ -166,7 +156,11 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
     "EXCEPTION_HANDLER": "apps.accounts.exceptions.api_exception_handler",
-    "DEFAULT_THROTTLE_RATES": {"login": "10/minute", "password_reset": "5/hour"},
+    "DEFAULT_THROTTLE_RATES": {
+        "login": "10/minute",
+        "password_reset": "5/hour",
+        "custom_notifications": "20/hour",
+    },
 }
 
 CACHES = {
@@ -181,6 +175,10 @@ CACHES = {
 }
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+DB_METRICS_ENABLED = env_bool("DB_METRICS_ENABLED", True)
+# Share HTTP/worker telemetry in the cache Redis database, away from queues.
+DB_METRICS_REDIS_URL = os.getenv("DB_METRICS_REDIS_URL") or os.getenv("CACHE_URL", "")
+DB_METRICS_SLOW_MS = max(1, int(os.getenv("DB_METRICS_SLOW_MS", "100")))
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer"

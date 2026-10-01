@@ -32,6 +32,55 @@ docker compose logs -f backend worker
 
 Open <http://localhost:8080>. The initial administrator comes from `ADMIN_EMAIL` and `ADMIN_PASSWORD`; it is created once and is not overwritten on later boots.
 
+## PostgreSQL connection pooling
+
+Docker routes web requests and Celery database traffic through an internal-only PgBouncer 1.25.1 service in transaction mode. The Celery queues, concurrency, task rate limits, retries, and row-lock claims are unchanged. Startup migrations and administrator bootstrap explicitly use PostgreSQL directly. No data volume or database schema changes are needed.
+
+Defaults are 20 normal server connections plus 5 reserve connections (hard maximum 25 for the configured database), 200 client connections, and a 30-second pool wait timeout. Tune `PGBOUNCER_POOL_SIZE`, `PGBOUNCER_RESERVE_POOL_SIZE` (zero is allowed), `PGBOUNCER_MAX_CLIENT_CONN` (maximum 900 with the supplied file-descriptor limit), and `PGBOUNCER_QUERY_WAIT_TIMEOUT` in `.env`. Keep the server pool plus direct maintenance/other clients below PostgreSQL's `max_connections`; measure `SHOW POOLS` waiting clients before increasing limits. These defaults are a starting budget, not measured capacity.
+
+The pooler runs non-root with a read-only filesystem, no published ports, and SCRAM authentication. Its auth file is generated from the existing database password into mode-0600 files in a private tmpfs directory; no credentials are baked into an image or written to logs. Internal traffic is not TLS-encrypted: this setup assumes a trusted single-host Docker bridge. Use TLS before moving database traffic across hosts or untrusted networks.
+
+The generated configuration accepts database/user names containing letters, digits, underscores and hyphens (starting with a letter or underscore), and rejects newline/NUL characters in passwords. PgBouncer uses `SIGINT` with a five-minute grace period to finish active transactions on shutdown. Updating pool settings recreates this single pooler and briefly interrupts new connections; schedule that change during a quiet period. There is no transparent database failover or zero-downtime pooler upgrade in this single-instance setup.
+
+Compose passes PostgreSQL connection fields separately, so passwords containing URL-reserved characters are supported. Native deployments may still use a percent-encoded `DATABASE_URL`; when enabling pooling there, it must describe the **direct** database, with `DB_USE_PGBOUNCER=true` and `PGBOUNCER_HOST`/`PGBOUNCER_PORT` specifying the pooler. Django uses `CONN_MAX_AGE=0`; pooled connections disable server-side cursors and automatic prepared statements. Do not add session advisory locks, `LISTEN`, persistent temporary tables, or session `SET` dependencies through the transaction pool. Transaction-local row locks and `SET LOCAL` remain supported. See [Django pooling compatibility](https://docs.djangoproject.com/en/5.2/ref/databases/#transaction-pooling-and-server-side-cursors) and [PgBouncer configuration](https://www.pgbouncer.org/config.html).
+
+Deploy without shutting down PostgreSQL/Redis or removing volumes:
+
+```bash
+docker compose build pgbouncer backend worker
+docker compose up -d --wait pgbouncer
+docker compose up -d --no-deps --wait backend
+docker compose up -d --no-deps worker
+docker compose ps
+docker compose logs --tail=100 pgbouncer backend worker
+```
+
+The backend restarts briefly during deployment; the worker retains its five-minute graceful shutdown. Existing PostgreSQL installations must already have the password in `.env`: changing `POSTGRES_PASSWORD` does **not** rotate a role password in an existing data volume.
+
+Verify the runtime and direct routing without printing credentials:
+
+```bash
+docker compose exec -T backend python manage.py shell -c 'from django.db import connection; print(connection.settings_dict["HOST"], connection.settings_dict["PORT"]); c=connection.cursor(); c.execute("SELECT 1"); print(c.fetchone())'
+docker compose exec -T -e DB_DIRECT=true backend python manage.py shell -c 'from django.db import connection; print(connection.settings_dict["HOST"], connection.settings_dict["PORT"]); c=connection.cursor(); c.execute("SELECT 1"); print(c.fetchone())'
+docker compose exec -T pgbouncer sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -w -h 127.0.0.1 -p 6432 -U "$POSTGRES_USER" -d pgbouncer -c "SHOW POOLS;" -c "SHOW STATS;"'
+```
+
+Watch `cl_waiting` and `maxwait` in pools and average wait time in stats, alongside the Administration Database dashboard's latency/errors and PostgreSQL connection count. The configured application user has read-only PgBouncer `SHOW` access, not pooler admin/reload access. Run manual schema maintenance and PostgreSQL-backed tests with direct routing, e.g. `docker compose exec -T -e DB_DIRECT=true backend python manage.py migrate --noinput`. Test database creation needs a suitable PostgreSQL role and must not go through the single-database pool mapping.
+
+Rollback routing by setting `DB_USE_PGBOUNCER=false` in `.env` and recreating only backend/worker with `docker compose up -d --no-deps backend worker`. PgBouncer can remain running but unused; never use `down -v` for this rollout or rollback.
+
+## Administrator database performance
+
+Open **Administration → Database** as a system administrator to view read/write query latency, approximate P95, maximum latency, queries/second, errors, historical comparisons, and sampled slow/failed operations. Filter by web requests or Celery workers and export trends as CSV. PostgreSQL health shows connections, lock waiters, cache hits, and cumulative server counters. Times are displayed in Eastern Time.
+
+Collection uses the existing `CACHE_URL` Redis database in Docker; no database migrations, extra services, queue changes, or synthetic database benchmarks are needed. Set `DB_METRICS_ENABLED=false` to disable collection, `DB_METRICS_SLOW_MS=100` to adjust the slow-query threshold, or `DB_METRICS_REDIS_URL` to override the telemetry Redis connection. Redis failures are fail-open with short connection timeouts and a per-process 60-second circuit breaker.
+
+History begins after deployment: minute aggregates last 48 hours and hourly aggregates 90 days. Redis persistence/backups determine durability. The UI shows completed intervals, refreshes every 30 seconds only while visible, and compares equal-length periods only when each contains at least 20 queries. P95 is a histogram upper bound, not an exact percentile. The most recent 200 slow/failed samples are retained, with a maximum of five per request/task; SQL text, parameters, exception messages, and user identifiers are never stored.
+
+These are application SQL execution timings, including network and lock waits—not disk MB/s or end-to-end request latency. Result iteration, explicit connection commits, streaming response work, WebSocket consumers, management commands, and abruptly terminated tasks are not included. `executemany` counts as one execution. PostgreSQL block timing is shown only when `track_io_timing` is enabled; the application does not change that server setting. Query-mix changes can affect period comparisons.
+
+Deploy with `docker compose up -d --build backend worker frontend`. Preserve the existing Redis data volume to retain history.
+
 ## Timezone policy
 
 CallLens uses `America/New_York` for all business dates and user-facing times. This IANA timezone automatically applies EST/EDT daylight-saving transitions. Datetimes remain timezone-aware and are stored as UTC instants in PostgreSQL; the API sends offset-bearing ISO 8601 values, and the frontend converts them to Eastern Time instead of using the browser's local timezone.

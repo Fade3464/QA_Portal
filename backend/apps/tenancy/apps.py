@@ -4,3 +4,6 @@ from django.apps import AppConfig
 class TenancyConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "apps.tenancy"
+
+    def ready(self):
+        from . import db_metrics_signals  # noqa: F401

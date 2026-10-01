@@ -94,7 +94,7 @@ class CustomNotificationApiTests(TestCase):
         self.assertEqual(response.json()["recipient_count"], 1)
         broadcast.assert_called_once()
         group_name, payload = broadcast.call_args.args
-        self.assertEqual(group_name, "role_qa")
+        self.assertEqual(group_name, f"user_{self.qa.pk}")
         self.assertEqual(payload["notification"]["id"], str(notification.pk))
 
     def test_all_users_excludes_inactive_users_and_system_administrators(self):
@@ -123,6 +123,7 @@ class CustomNotificationApiTests(TestCase):
         qa_list = self.client.get(reverse("notification-list"))
         self.assertEqual(qa_list.status_code, 200)
         self.assertEqual(qa_list.json()["results"][0]["id"], str(notification.pk))
+        self.assertEqual(qa_list.json()["results"][0]["metadata"], {"target_path": "/"})
 
         self.client.force_login(self.manager)
         manager_list = self.client.get(reverse("notification-list"))
@@ -144,6 +145,39 @@ class CustomNotificationApiTests(TestCase):
         self.client.force_login(self.admin)
         response = self._send(audience="roles", target_ids=[User.Role.SUPERVISOR])
         self.assertEqual(response.status_code, 400)
+        self.assertFalse(
+            SystemNotification.objects.filter(
+                category=SystemNotification.Category.CUSTOM
+            ).exists()
+        )
+
+    def test_oversized_target_list_is_rejected(self):
+        self.client.force_login(self.admin)
+        response = self._send(
+            audience="users",
+            target_ids=[
+                f"00000000-0000-0000-0000-{index:012d}" for index in range(501)
+            ],
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(
+            SystemNotification.objects.filter(
+                category=SystemNotification.Category.CUSTOM
+            ).exists()
+        )
+
+    @patch(
+        "apps.notifications.admin_views.CustomNotificationThrottle.allow_request",
+        return_value=False,
+    )
+    @patch(
+        "apps.notifications.admin_views.CustomNotificationThrottle.wait",
+        return_value=60,
+    )
+    def test_broadcast_posts_are_throttled(self, _wait, _allow_request):
+        self.client.force_login(self.admin)
+        response = self._send()
+        self.assertEqual(response.status_code, 429)
         self.assertFalse(
             SystemNotification.objects.filter(
                 category=SystemNotification.Category.CUSTOM

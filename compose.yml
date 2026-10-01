@@ -15,6 +15,40 @@ services:
       retries: 10
     networks: [internal]
 
+  pgbouncer:
+    build: ./pgbouncer
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-qa_portal}
+      POSTGRES_USER: ${POSTGRES_USER:-qa_portal}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-qa_portal_dev_only}
+      PGHOST: db
+      PGPORT: 5432
+      PGBOUNCER_POOL_SIZE: ${PGBOUNCER_POOL_SIZE:-20}
+      PGBOUNCER_RESERVE_POOL_SIZE: ${PGBOUNCER_RESERVE_POOL_SIZE:-5}
+      PGBOUNCER_MAX_CLIENT_CONN: ${PGBOUNCER_MAX_CLIENT_CONN:-200}
+      PGBOUNCER_QUERY_WAIT_TIMEOUT: ${PGBOUNCER_QUERY_WAIT_TIMEOUT:-30}
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    ulimits:
+      nofile: { soft: 1024, hard: 1024 }
+    depends_on:
+      db: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python3", "/opt/pgbouncer/healthcheck.py"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    # Finish active transactions without waiting for idle worker clients.
+    stop_signal: SIGINT
+    stop_grace_period: 5m
+    networks: [internal]
+
   redis:
     image: redis:8-alpine
     restart: unless-stopped
@@ -36,7 +70,16 @@ services:
         required: false
     environment:
       PRODUCTION: ${PRODUCTION:-false}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-qa_portal}:${POSTGRES_PASSWORD:-qa_portal_dev_only}@db:5432/${POSTGRES_DB:-qa_portal}
+      PGDATABASE: ${POSTGRES_DB:-qa_portal}
+      PGUSER: ${POSTGRES_USER:-qa_portal}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-qa_portal_dev_only}
+      PGHOST: db
+      PGPORT: 5432
+      PGAPPNAME: calllens-web
+      DB_USE_PGBOUNCER: ${DB_USE_PGBOUNCER:-true}
+      DB_DIRECT: "false"
+      PGBOUNCER_HOST: pgbouncer
+      PGBOUNCER_PORT: 6432
       REDIS_URL: redis://redis:6379/0
       CACHE_URL: redis://redis:6379/2
       CELERY_BROKER_URL: redis://redis:6379/0
@@ -56,6 +99,7 @@ services:
       - no-new-privileges:true
     depends_on:
       db: { condition: service_healthy }
+      pgbouncer: { condition: service_healthy }
       redis: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/', timeout=3)"]
@@ -76,7 +120,16 @@ services:
         required: false
     environment:
       PRODUCTION: ${PRODUCTION:-false}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-qa_portal}:${POSTGRES_PASSWORD:-qa_portal_dev_only}@db:5432/${POSTGRES_DB:-qa_portal}
+      PGDATABASE: ${POSTGRES_DB:-qa_portal}
+      PGUSER: ${POSTGRES_USER:-qa_portal}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-qa_portal_dev_only}
+      PGHOST: db
+      PGPORT: 5432
+      PGAPPNAME: calllens-worker
+      DB_USE_PGBOUNCER: ${DB_USE_PGBOUNCER:-true}
+      DB_DIRECT: "false"
+      PGBOUNCER_HOST: pgbouncer
+      PGBOUNCER_PORT: 6432
       REDIS_URL: redis://redis:6379/0
       CACHE_URL: redis://redis:6379/2
       CELERY_BROKER_URL: redis://redis:6379/0

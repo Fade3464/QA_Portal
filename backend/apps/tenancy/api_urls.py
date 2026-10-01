@@ -1,5 +1,6 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
+from .db_metrics_views import DatabasePerformanceView
 
 from .api_views import (
     AdministrationSummaryView,
@@ -20,6 +21,7 @@ router.register("users", UserViewSet, basename="administration-user")
 router.register("security-events", AuthenticationEventViewSet, basename="administration-security-event")
 
 urlpatterns = [
+    path("database-performance/", DatabasePerformanceView.as_view(), name="administration-database-performance"),
     path("summary/", AdministrationSummaryView.as_view(), name="administration-summary"),
     path("", include(router.urls)),
 ]

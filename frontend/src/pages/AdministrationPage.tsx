@@ -5,6 +5,7 @@ import {
   CheckCircleFilled,
   ClusterOutlined,
   CopyOutlined,
+  DatabaseOutlined,
   EditOutlined,
   KeyOutlined,
   MinusCircleOutlined,
@@ -43,6 +44,7 @@ import {
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { AdminNotificationCenter } from '../components/AdminNotificationCenter';
 import { AdminFeedbackCenter } from '../components/AdminFeedbackCenter';
+import { DatabasePerformance } from '../components/DatabasePerformance';
 import { api, ApiError } from '../lib/api';
 import { appDate } from '../lib/datetime';
 import { MaterialSymbol } from '../components/MaterialSymbol';
@@ -254,6 +256,7 @@ export function AdministrationPage() {
 
   const tabs = [
     { key: 'overview', label: 'Overview', children: <AdministrationOverview summary={summary} events={summary?.recent_security_events ?? []} loading={loading} onNavigate={setActiveTab} /> },
+    { key: 'database', label: <Space size={6}><DatabaseOutlined />Database</Space>, children: <DatabasePerformance active={activeTab === 'database'} /> },
     { key: 'companies', label: <TabLabel label="Companies" count={companies.length} />, children: <ResourceTable resource="companies" query={query} onQuery={setQuery} loading={loading} onAdd={() => openEditor('companies')} columns={companyColumns} data={filter(companies, ['name', 'slug'])} /> },
     { key: 'branches', label: <TabLabel label="Branches" count={branches.length} />, children: <ResourceTable resource="branches" query={query} onQuery={setQuery} loading={loading} onAdd={() => openEditor('branches')} columns={branchColumns} data={filter(branches, ['name', 'code', 'company_name'])} /> },
     { key: 'teams', label: <TabLabel label="Teams" count={teams.length} />, children: <ResourceTable resource="teams" query={query} onQuery={setQuery} loading={loading} onAdd={() => openEditor('teams')} columns={teamColumns} data={filter(teams, ['name', 'team_leader_name', 'team_leader_email', 'company_name', 'branch_name'])} /> },
