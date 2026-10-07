@@ -68,6 +68,14 @@ def scoped_calls(user):
     ).annotate(project_name=Subquery(project))
     if user.is_superuser:
         return queryset
+    if user.role == User.Role.SUPERVISOR:
+        if not user.company_id or not user.branch_id:
+            return queryset.none()
+        return queryset.filter(
+            branch_id=user.branch_id,
+            branch__company_id=user.company_id,
+            dialer__branch_id=user.branch_id,
+        )
     queryset = queryset.filter(branch_id=user.branch_id)
     if user.role not in {
         User.Role.QA,
@@ -465,6 +473,14 @@ def scoped_reports(user):
         return queryset
     if user.role == User.Role.QA:
         return queryset.filter(reviewer=user)
+    if user.role == User.Role.SUPERVISOR:
+        if not user.company_id or not user.branch_id:
+            return queryset.none()
+        return queryset.filter(
+            call__branch_id=user.branch_id,
+            call__branch__company_id=user.company_id,
+            call__dialer__branch_id=user.branch_id,
+        )
     completed = (Review.Status.COMPLETED, Review.Status.DISPUTED)
     if user.role == User.Role.TEAM_LEADER:
         allowed_project = QAProjectAssignment.objects.filter(
@@ -835,12 +851,12 @@ class ReviewReportSummaryView(APIView):
         completed_queryset = scope.filter(
             status__in=(Review.Status.COMPLETED, Review.Status.DISPUTED)
         )
-        is_project_manager = (
-            request.user.role == User.Role.PROJECT_MANAGER
+        is_project_oversight = (
+            request.user.role in {User.Role.PROJECT_MANAGER, User.Role.SUPERVISOR}
             and not request.user.is_superuser
         )
         is_qa = request.user.role == User.Role.QA and not request.user.is_superuser
-        queryset = scope if is_project_manager or is_qa else completed_queryset
+        queryset = scope if is_project_oversight or is_qa else completed_queryset
         now = timezone.now()
         open_queryset = completed_queryset.exclude(
             leader_status=Review.LeaderStatus.CLOSED

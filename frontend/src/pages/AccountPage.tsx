@@ -98,11 +98,11 @@ export function AccountPage() {
           <Form.Item label="Branch" className="account-readonly-field">
             <Input size="large" variant="filled" readOnly value={user?.branch?.name ?? 'All organizations'} prefix={<ApartmentOutlined />} />
           </Form.Item>
-          <Form.Item label="Assigned projects" className="account-readonly-field account-readonly-field--wide">
-            <div className="account-readonly-projects" role="group" aria-label="Assigned projects">
+          <Form.Item label={user?.role === 'supervisor' ? 'All branch projects' : 'Assigned projects'} className="account-readonly-field account-readonly-field--wide">
+            <div className="account-readonly-projects" role="group" aria-label={user?.role === 'supervisor' ? 'All branch projects' : 'Assigned projects'}>
               <ProjectOutlined />
               <Space wrap size={[6, 6]}>
-                {user?.assigned_projects.length ? user.assigned_projects.map((project) => <Tag key={project.id} color="blue">{project.name}</Tag>) : <Text type="secondary">No project-specific assignment</Text>}
+                {user?.assigned_projects.length ? user.assigned_projects.map((project) => <Tag key={project.id} color="blue">{project.name}</Tag>) : <Text type="secondary">{user?.role === 'supervisor' ? 'Branch projects will appear here automatically' : 'No project-specific assignment'}</Text>}
               </Space>
             </div>
           </Form.Item>

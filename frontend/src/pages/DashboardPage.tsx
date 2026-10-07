@@ -39,7 +39,7 @@ export function DashboardPage() {
   const { user } = useAuth();
   if (user?.role === 'qa' && !user.is_superuser) return <QAAnalystCommandCenter />;
   if (user?.role === 'team_leader' && !user.is_superuser) return <TeamLeaderCommandCenter />;
-  if (user?.role === 'project_manager' && !user.is_superuser) return <ProjectPerformancePage overview />;
+  if ((user?.role === 'project_manager' || user?.role === 'supervisor') && !user.is_superuser) return <ProjectPerformancePage overview />;
   return <OperationsDashboard />;
 }
 

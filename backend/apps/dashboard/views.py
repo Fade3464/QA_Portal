@@ -14,6 +14,7 @@ from apps.calls.serializers import CallEventSerializer
 from apps.calls.views import scoped_calls
 from apps.calls.views import scoped_reports
 from apps.accounts.models import User
+from apps.tenancy.access import branch_projects
 from apps.tenancy.models import DialerCampaign, QAProjectAssignment
 
 
@@ -92,9 +93,7 @@ class ProjectPerformanceView(APIView):
         else:
             campaign_scope = DialerCampaign.objects.all()
             if not request.user.is_superuser:
-                campaign_scope = campaign_scope.filter(
-                    dialer__branch_id=request.user.branch_id
-                )
+                campaign_scope = branch_projects(request.user)
             available_projects = list(
                 campaign_scope.order_by("project_name")
                 .values_list("project_name", flat=True)

@@ -4,6 +4,7 @@ from django.db import transaction
 from rest_framework import serializers
 
 from apps.accounts.models import AuthenticationEvent, User
+from .access import branch_projects
 
 from .models import (
     Branch,
@@ -471,6 +472,17 @@ class UserAdminSerializer(serializers.ModelSerializer):
         return instance
 
     def get_assigned_projects(self, obj):
+        if obj.role == User.Role.SUPERVISOR and not obj.is_superuser:
+            return [
+                {
+                    "id": str(project.pk),
+                    "dialer_id": str(project.dialer_id),
+                    "dialer_name": project.dialer.name,
+                    "campaign": project.campaign,
+                    "project_name": project.project_name,
+                }
+                for project in branch_projects(obj)
+            ]
         return [
             {
                 "id": str(assignment.dialer_campaign_id),

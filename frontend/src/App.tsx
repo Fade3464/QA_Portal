@@ -35,13 +35,13 @@ function AdministratorRoute() {
 
 function TeamPerformanceRoute() {
   const { user } = useAuth();
-  if (user?.role === 'project_manager') return <ProjectPerformancePage />;
-  return user && ['supervisor', 'administrator'].includes(user.role) ? <PlaceholderPage /> : <Navigate to="/" replace />;
+  if (user?.role === 'project_manager' || user?.role === 'supervisor') return <ProjectPerformancePage />;
+  return user?.role === 'administrator' ? <PlaceholderPage /> : <Navigate to="/" replace />;
 }
 
 function ManagementRoute() {
   const { user } = useAuth();
-  return user && ['supervisor', 'administrator'].includes(user.role) ? <PlaceholderPage /> : <Navigate to="/" replace />;
+  return user?.role === 'administrator' ? <PlaceholderPage /> : <Navigate to="/" replace />;
 }
 
 export default function App() {

@@ -10,6 +10,7 @@ import { Alert, Button, Card, Empty, Progress, Segmented, Select, Statistic, Tab
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ContentLoader } from '../components/LoadingStates';
+import { useAuth } from '../auth/AuthContext';
 import { MaterialSymbol } from '../components/MaterialSymbol';
 import { api, ApiError } from '../lib/api';
 import { appCalendarDate, appDate } from '../lib/datetime';
@@ -75,6 +76,7 @@ function QualityTrend({ data }: { data: ProjectPerformance['trend'] }) {
 }
 
 export function ProjectPerformancePage({ overview = false }: { overview?: boolean }) {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [data, setData] = useState<ProjectPerformance | null>(null);
   const [days, setDays] = useState<WindowDays>(30);
@@ -109,7 +111,7 @@ export function ProjectPerformancePage({ overview = false }: { overview?: boolea
       <div className="pm-performance__actions"><Button icon={<FileSearchOutlined />} onClick={() => navigate('/calls')}>Call library</Button><Button type="primary" icon={<AuditOutlined />} onClick={() => navigate('/queue')}>QA reports</Button></div>
     </div>
     <div className="pm-performance__filters">
-      <Select className="pm-project-select" allowClear showSearch={{ optionFilterProp: 'label' }} value={project || undefined} placeholder="All assigned projects" options={projectOptions} onChange={(value) => setProject(value ?? '')} aria-label="Filter by project" />
+      <Select className="pm-project-select" allowClear showSearch={{ optionFilterProp: 'label' }} value={project || undefined} placeholder={user?.role === 'supervisor' ? 'All branch projects' : 'All assigned projects'} options={projectOptions} onChange={(value) => setProject(value ?? '')} aria-label="Filter by project" />
       <Segmented<WindowDays> value={days} onChange={setDays} options={[{ label: 'Today', value: 1 }, { label: '7 days', value: 7 }, { label: '30 days', value: 30 }, { label: '90 days', value: 90 }]} />
       {data && <Text className="pm-performance__freshness" type="secondary">Updated {appDate(data.generated_at).format('DD MMM, h:mm A')} ET</Text>}
     </div>

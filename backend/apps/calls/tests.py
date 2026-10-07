@@ -1011,6 +1011,155 @@ class WebhookTests(TestCase):
         self.assertIsNotNone(SystemNotification.objects.get().resolved_at)
 
 
+class SupervisorAccessTests(TestCase):
+    def setUp(self):
+        self.company = Company.objects.create(name="Supervisor", slug="supervisor")
+        self.branch = Branch.objects.create(
+            company=self.company, name="Main", code="main"
+        )
+        self.supervisor = User.objects.create_user(
+            email="supervisor@example.com", password="a-very-strong-password",
+            first_name="Branch", last_name="Supervisor", role=User.Role.SUPERVISOR,
+            company=self.company, branch=self.branch, must_change_password=False,
+        )
+        reviewer = User.objects.create_user(
+            email="supervisor-qa@example.com", password="a-very-strong-password",
+            first_name="Quality", last_name="Analyst", role=User.Role.QA,
+            company=self.company, branch=self.branch, must_change_password=False,
+        )
+        sibling = Branch.objects.create(
+            company=self.company, name="Sibling", code="sibling"
+        )
+        other_company = Company.objects.create(name="Outside", slug="outside")
+        outside = Branch.objects.create(
+            company=other_company, name="Outside", code="outside"
+        )
+        self.calls = []
+        self.reports = []
+        self.projects = []
+        for index, branch in enumerate([self.branch, self.branch, sibling, outside]):
+            dialer = Dialer.objects.create(
+                branch=branch, name=f"Dialer {index}",
+                api_url="https://dialer.example.com/non_agent_api.php",
+                api_username="api",
+            )
+            project = DialerCampaign.objects.create(
+                dialer=dialer, campaign=f"CAMPAIGN-{index}",
+                project_name=f"Project {index}",
+            )
+            call = CallEvent.objects.create(
+                dialer=dialer, branch=branch, campaign=project.campaign,
+                event_key=f"supervisor-{index}".ljust(64, "0"),
+                event_type=CallEvent.EventType.DISPOSITION,
+            )
+            report = Review.objects.create(
+                call=call, reviewer=reviewer,
+                status=Review.Status.IN_PROGRESS if index == 1 else Review.Status.COMPLETED,
+                score=None if index == 1 else 90,
+                completed_at=None if index == 1 else timezone.now(),
+            )
+            self.calls.append(call)
+            self.reports.append(report)
+            self.projects.append(project)
+        self.client.force_login(self.supervisor)
+
+    def test_all_branch_projects_and_report_states_are_visible_without_assignments(self):
+        self.assertFalse(self.supervisor.qa_project_assignments.exists())
+        for endpoint, expected in [
+            ("call-list", self.calls[:2]),
+            ("review-report-list", self.reports[:2]),
+        ]:
+            response = self.client.get(reverse(endpoint))
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertEqual(
+                {row["id"] for row in response.json()["results"]},
+                {str(item.pk) for item in expected},
+            )
+        summary = self.client.get(reverse("review-report-summary")).json()
+        self.assertEqual(summary["total"], 2)
+        self.assertEqual(summary["qa_active"], 1)
+        self.assertEqual(summary["filters"]["projects"], ["Project 0", "Project 1"])
+        active = self.client.get(reverse("review-report-list"), {"segment": "qa_active"})
+        self.assertEqual([row["id"] for row in active.json()["results"]], [str(self.reports[1].pk)])
+        self.reports[1].status = Review.Status.REVISION_REQUIRED
+        self.reports[1].save(update_fields=["status"])
+        revision = self.client.get(reverse("review-report-list"), {"segment": "revision"})
+        self.assertEqual([row["id"] for row in revision.json()["results"]], [str(self.reports[1].pk)])
+
+    def test_other_branches_and_companies_are_inaccessible(self):
+        for report in self.reports[2:]:
+            self.assertEqual(self.client.get(reverse(
+                "review-report-detail", kwargs={"pk": report.pk}
+            )).status_code, 404)
+            self.assertEqual(self.client.get(reverse(
+                "call-recording", kwargs={"pk": report.call_id}
+            )).status_code, 404)
+        filters = self.client.get(reverse("call-filter-options")).json()
+        self.assertEqual(filters["projects"], ["Project 0", "Project 1"])
+        self.assertEqual(filters["dialers"], ["Dialer 0", "Dialer 1"])
+        hidden = self.client.get(reverse("project-performance"), {"project": "Project 2"})
+        self.assertEqual(hidden.status_code, 400)
+        # Fail closed even if inconsistent tenant membership exists in old data.
+        User.objects.filter(pk=self.supervisor.pk).update(company=self.projects[3].dialer.branch.company)
+        self.assertEqual(self.client.get(reverse("call-list")).json()["count"], 0)
+        self.assertEqual(self.client.get(reverse("review-report-list")).json()["count"], 0)
+        self.assertEqual(self.client.get(reverse("project-performance")).json()["projects"], [])
+
+    def test_analytics_and_project_filter_match_project_manager_reporting(self):
+        response = self.client.get(reverse("project-performance"), {"days": 1})
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["projects"], ["Project 0", "Project 1"])
+        self.assertEqual(response.json()["metrics"]["evaluated"], 1)
+        self.assertEqual(response.json()["metrics"]["average_score"], 90.0)
+        filtered = self.client.get(reverse("review-report-list"), {"project": "Project 1"})
+        self.assertEqual([row["id"] for row in filtered.json()["results"]], [str(self.reports[1].pk)])
+        scored = self.client.get(reverse("review-report-list"), {
+            "score_rules": json.dumps([
+                {"scope": "total", "operator": "gte", "value": 85}
+            ]),
+        })
+        self.assertEqual(scored.status_code, 200, scored.content)
+        self.assertEqual([row["id"] for row in scored.json()["results"]], [str(self.reports[0].pk)])
+
+    def test_project_access_is_dynamic_and_branch_changes_revoke_old_access(self):
+        new_project = DialerCampaign.objects.create(
+            dialer=self.projects[0].dialer, campaign="NEW", project_name="New Project"
+        )
+        new_call = CallEvent.objects.create(
+            dialer=new_project.dialer, branch=self.branch, campaign=new_project.campaign,
+            event_key="supervisor-new".ljust(64, "0"),
+            event_type=CallEvent.EventType.DISPOSITION,
+        )
+        calls = self.client.get(reverse("call-list")).json()["results"]
+        self.assertIn(str(new_call.pk), {row["id"] for row in calls})
+        self.assertIn("New Project", self.client.get(reverse("project-performance")).json()["projects"])
+        from apps.accounts.serializers import CurrentUserSerializer
+        from apps.tenancy.api_serializers import UserAdminSerializer
+
+        for serializer in (CurrentUserSerializer, UserAdminSerializer):
+            project_ids = {row["id"] for row in serializer(self.supervisor).data["assigned_projects"]}
+            self.assertEqual(project_ids, {str(p.pk) for p in [*self.projects[:2], new_project]})
+        User.objects.filter(pk=self.supervisor.pk).update(branch=self.projects[2].dialer.branch)
+        self.supervisor.refresh_from_db()
+        response = self.client.get(reverse("call-list"))
+        self.assertEqual([row["id"] for row in response.json()["results"]], [str(self.calls[2].pk)])
+        projects = CurrentUserSerializer(self.supervisor).data["assigned_projects"]
+        self.assertEqual([row["id"] for row in projects], [str(self.projects[2].pk)])
+
+    def test_supervisor_cannot_take_qa_or_team_leader_actions(self):
+        report = self.reports[0]
+        detail = self.client.get(reverse("review-report-detail", kwargs={"pk": report.pk}))
+        self.assertEqual(detail.status_code, 200)
+        action = self.client.post(
+            reverse("review-report-action", kwargs={"pk": report.pk}),
+            {"leader_status": Review.LeaderStatus.ACKNOWLEDGED},
+            content_type="application/json",
+        )
+        self.assertEqual(action.status_code, 403)
+        reserve = self.client.post(reverse("call-reserve", kwargs={"pk": report.call_id}))
+        self.assertEqual(reserve.status_code, 403)
+
+
 @override_settings(DIALER_CREDENTIAL_KEY=Fernet.generate_key().decode())
 class AnalysisReservationTests(TestCase):
     def setUp(self):

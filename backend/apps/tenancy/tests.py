@@ -340,6 +340,43 @@ class AdministrationApiTests(TestCase):
             ).exists()
         )
 
+    def test_supervisor_projects_are_automatic_without_manual_assignments(self):
+        dialer = Dialer.objects.create(
+            branch=self.branch, name="Supervisor dialer",
+            api_url="https://dialer.example.com/non_agent_api.php", api_username="api",
+        )
+        project = DialerCampaign.objects.create(
+            dialer=dialer, campaign="SUPERVISED", project_name="Supervised Project"
+        )
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse("administration-user-list"),
+            {
+                "email": "supervisor@example.com", "first_name": "Branch",
+                "last_name": "Supervisor", "role": User.Role.SUPERVISOR,
+                "company": str(self.company.pk), "branch": str(self.branch.pk),
+                "password": "temporary-strong-password",
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        supervisor = User.objects.get(email="supervisor@example.com")
+        self.assertFalse(supervisor.qa_project_assignments.exists())
+        self.assertEqual(response.json()["assigned_projects"][0]["id"], str(project.pk))
+        manual = self.client.patch(
+            reverse("administration-user-detail", kwargs={"pk": supervisor.pk}),
+            {"project_assignment_ids": [str(project.pk)]},
+            content_type="application/json",
+        )
+        self.assertEqual(manual.status_code, 400)
+        other_branch = Branch.objects.create(company=self.company, name="New", code="new")
+        moved = self.client.patch(
+            reverse("administration-user-detail", kwargs={"pk": supervisor.pk}),
+            {"branch": str(other_branch.pk)}, content_type="application/json",
+        )
+        self.assertEqual(moved.status_code, 200, moved.content)
+        self.assertEqual(moved.json()["assigned_projects"], [])
+
     def test_qa_project_assignment_rejects_another_branch(self):
         other_branch = Branch.objects.create(
             company=self.company, name="Lahore", code="lhe"

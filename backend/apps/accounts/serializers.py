@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from .models import User
+from apps.tenancy.access import branch_projects
 
 
 class LoginSerializer(serializers.Serializer):
@@ -82,6 +83,16 @@ class CurrentUserSerializer(serializers.ModelSerializer):
         }
 
     def get_assigned_projects(self, obj):
+        if obj.role == User.Role.SUPERVISOR and not obj.is_superuser:
+            return [
+                {
+                    "id": str(project.pk),
+                    "name": project.project_name,
+                    "campaign": project.campaign,
+                    "dialer": project.dialer.name,
+                }
+                for project in branch_projects(obj)
+            ]
         assignments = obj.qa_project_assignments.select_related(
             "dialer_campaign__dialer"
         ).all()

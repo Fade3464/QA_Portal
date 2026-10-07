@@ -121,7 +121,7 @@ function isOverdue(report: QAReport) {
 export function ReportsPage() {
   const { user } = useAuth();
   if (user?.role === 'qa' && !user.is_superuser) return <ManagedReports canManage={false} personal />;
-  if (user?.role === 'team_leader' || user?.role === 'project_manager') return <ManagedReports canManage={user.role === 'team_leader'} />;
+  if (user?.role === 'team_leader' || user?.role === 'project_manager' || user?.role === 'supervisor') return <ManagedReports canManage={user.role === 'team_leader'} />;
   return <BasicReports />;
 }
 
