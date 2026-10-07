@@ -1088,6 +1088,119 @@ class AnalysisReservationTests(TestCase):
             recording_path="/recordings/analysis.wav",
         )
 
+    def test_qa_report_detail_returns_the_complete_saved_submission(self):
+        from .scorecard import scorecard_payload
+
+        snapshot = scorecard_payload()
+        snapshot["categories"][0]["criteria"][0]["label"] = "Original submitted criterion"
+        evidence = {
+            "comment": "The greeting omitted the company name.",
+            "patches": [
+                {"id": "first", "start_ms": 1000, "end_ms": 4000, "comment": "Greeting"},
+                {"id": "second", "start_ms": 6000, "end_ms": 9000, "comment": "Follow-up"},
+            ],
+        }
+        review = Review.objects.create(
+            call=self.call, reviewer=self.qa_one, team_leader=self.team_leader,
+            status=Review.Status.COMPLETED, completed_at=timezone.now(),
+            scores={**self.full_scores(), "professional_greeting": 0}, score=98,
+            scorecard_snapshot=snapshot, criterion_evidence={"professional_greeting": evidence},
+            category_applicability={"closing": "not_reached"},
+            category_applicability_reasons={"closing": "caller_disconnected"},
+            criterion_applicability={"professional_greeting": "applicable"},
+            evaluation_type="partial", evaluation_reason="Caller disconnected before closing.",
+            feedback_summary="Submitted summary", strengths="Submitted strengths",
+            expected_behavior="Submitted expected behavior", coaching_plan="Submitted follow-up",
+        )
+        self.client.force_login(self.qa_one)
+        url = reverse("review-report-detail", kwargs={"pk": review.pk})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200, response.content)
+        data = response.json()
+        for field in ("scores", "scorecard_snapshot", "criterion_evidence", "category_applicability",
+                      "category_applicability_reasons", "criterion_applicability", "evaluation_reason",
+                      "feedback_summary", "strengths", "expected_behavior", "coaching_plan"):
+            self.assertEqual(data[field], getattr(review, field), field)
+        self.assertEqual(data["scores"]["professional_greeting"], 0)
+        self.assertEqual(data["call"]["id"], str(self.call.pk))
+        self.assertIn("workflow_events", data)
+        critical = snapshot["critical_errors"][0]["value"]
+        review.critical_errors = [critical]
+        review.critical_error_evidence = {critical: evidence}
+        review.score = None
+        review.save(update_fields=["critical_errors", "critical_error_evidence", "score"])
+        data = self.client.get(url).json()
+        self.assertEqual(data["critical_error_evidence"], {critical: evidence})
+        self.assertIsNone(data["score"])
+
+    def test_qa_report_filters_and_details_cannot_expose_another_qa_or_management_actions(self):
+        review = Review.objects.create(call=self.call, reviewer=self.qa_two, team_leader=self.team_leader,
+                                       status=Review.Status.COMPLETED, score=100)
+        self.client.force_login(self.qa_one)
+        response = self.client.get(reverse("review-report-list"), {"reviewer": str(self.qa_two.pk)})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 0)
+        self.assertEqual(self.client.get(reverse("review-report-detail", kwargs={"pk": review.pk})).status_code, 404)
+        # Even the owner must not gain Team Leader write access from a read-only drawer.
+        review.reviewer = self.qa_one
+        review.save(update_fields=["reviewer"])
+        response = self.client.post(reverse("review-report-action", kwargs={"pk": review.pk}),
+                                    {"leader_status": "acknowledged"}, content_type="application/json")
+        self.assertEqual(response.status_code, 403)
+        review.refresh_from_db()
+        self.assertEqual(review.leader_status, Review.LeaderStatus.PENDING)
+
+    def test_qa_summary_and_quick_views_include_drafts_and_revisions_without_other_qa_data(self):
+        Review.objects.create(call=self.call, reviewer=self.qa_one, status=Review.Status.COMPLETED, score=100)
+        DialerCampaign.objects.create(dialer=self.dialer, campaign="DRAFT", project_name="Draft-only project")
+        draft_call = CallEvent.objects.create(dialer=self.dialer, branch=self.branch,
+                                             event_key="draft-only-project".ljust(64, "0"), campaign="DRAFT")
+        draft = Review.objects.create(call=draft_call, reviewer=self.qa_one, status=Review.Status.IN_PROGRESS)
+        other_call = CallEvent.objects.create(dialer=self.dialer, branch=self.branch,
+                                             event_key="other-qa-report".ljust(64, "0"), agent_name="Private other agent")
+        Review.objects.create(call=other_call, reviewer=self.qa_two, status=Review.Status.COMPLETED, score=100)
+        self.client.force_login(self.qa_one)
+        summary = self.client.get(reverse("review-report-summary")).json()
+        self.assertEqual(summary["total"], 2)
+        self.assertEqual(summary["qa_active"], 1)
+        self.assertIn("Draft-only project", summary["filters"]["projects"])
+        self.assertNotIn("Private other agent", summary["filters"]["agents"])
+        self.assertEqual([item["reviewer_id"] for item in summary["filters"]["reviewers"]], [str(self.qa_one.pk)])
+        for segment, count in (("all", 2), ("submitted", 1), ("qa_active", 1), ("revision", 0)):
+            response = self.client.get(reverse("review-report-list"), {"segment": segment})
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertEqual(response.json()["count"], count)
+        draft.status = Review.Status.REVISION_REQUIRED
+        draft.save(update_fields=["status"])
+        self.assertEqual(self.client.get(reverse("review-report-list"), {"segment": "revision"}).json()["count"], 1)
+
+    def test_qa_filters_combine_total_heading_and_subheading_scores_with_pagination(self):
+        Review.objects.create(call=self.call, reviewer=self.qa_one, status=Review.Status.COMPLETED,
+                              score=98, scores={**self.full_scores(), "professional_greeting": 0}, completed_at=timezone.now())
+        perfect_call = CallEvent.objects.create(dialer=self.dialer, branch=self.branch,
+                                               event_key="qa-perfect-report".ljust(64, "0"), campaign="analysis")
+        Review.objects.create(call=perfect_call, reviewer=self.qa_one, status=Review.Status.COMPLETED,
+                              score=100, scores=self.full_scores(), completed_at=timezone.now())
+        rules = [
+            {"scope": "total", "key": "total", "operator": "gte", "value": 90, "unit": "points"},
+            {"scope": "category", "key": "opening", "operator": "lt", "value": 9, "unit": "points"},
+            {"scope": "criterion", "key": "professional_greeting", "operator": "eq", "value": 0, "unit": "points"},
+        ]
+        self.client.force_login(self.qa_one)
+        filters = {"segment": "submitted", "project": "Analysis Project", "score_rules": json.dumps(rules),
+                   "score_match": "all", "page_size": 1, "ordering": "-completed_at"}
+        response = self.client.get(reverse("review-report-list"), filters)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["call_id"], str(self.call.pk))
+        response = self.client.get(reverse("review-report-list"), {**filters, "score_match": "any"})
+        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertIsNotNone(response.json()["next"])
+        response = self.client.get(reverse("review-report-list"), {"search": "Analysis Project"})
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["count"], 2)
+
     def url(self, name):
         return reverse(name, kwargs={"pk": self.call.pk})
 

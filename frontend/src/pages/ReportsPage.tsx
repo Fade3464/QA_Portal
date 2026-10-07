@@ -34,7 +34,7 @@ import {
   type TableProps,
 } from 'antd';
 import type { Dayjs } from 'dayjs';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { AudioPlayer, type AudioRangeRequest } from '../components/AudioPlayerModal';
@@ -62,7 +62,7 @@ import type {
 const { Paragraph, Text, Title } = Typography;
 const { TextArea, Search } = Input;
 
-type ReportSegment = 'all' | 'qa_active' | 'attention' | 'critical' | 'coaching' | 'closed';
+type ReportSegment = 'all' | 'qa_active' | 'submitted' | 'revision' | 'attention' | 'critical' | 'coaching' | 'closed';
 
 const WORKFLOW_COLORS: Record<TeamLeaderReportStatus, string> = {
   pending: 'warning',
@@ -120,11 +120,13 @@ function isOverdue(report: QAReport) {
 
 export function ReportsPage() {
   const { user } = useAuth();
+  if (user?.role === 'qa' && !user.is_superuser) return <ManagedReports canManage={false} personal />;
   if (user?.role === 'team_leader' || user?.role === 'project_manager') return <ManagedReports canManage={user.role === 'team_leader'} />;
   return <BasicReports />;
 }
 
-function ManagedReports({ canManage }: { canManage: boolean }) {
+function ManagedReports({ canManage, personal = false }: { canManage: boolean; personal?: boolean }) {
+  const navigate = useNavigate();
   const { message } = AntApp.useApp();
   const [summary, setSummary] = useState<QAReportSummary | null>(null);
   const [reports, setReports] = useState<QAReport[]>([]);
@@ -146,6 +148,14 @@ function ManagedReports({ canManage }: { canManage: boolean }) {
   const [actionNote, setActionNote] = useState('');
   const [coachingDue, setCoachingDue] = useState<Dayjs | null>(null);
   const [rangeRequest, setRangeRequest] = useState<AudioRangeRequest | null>(null);
+  const detailRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => detailRequest.current?.abort(), []);
+  const closeReport = () => {
+    detailRequest.current?.abort();
+    setSelected(null);
+    setDetailLoading(false);
+    setRangeRequest(null);
+  };
 
   const loadSummary = useCallback(async () => {
     try {
@@ -218,17 +228,26 @@ function ManagedReports({ canManage }: { canManage: boolean }) {
   }, [ordering, page, pageSize, reportFilters, search, segment]);
 
   const openReport = async (report: QAReport) => {
+    if (personal && ['assigned', 'in_progress', 'revision_required'].includes(report.status)) {
+      navigate(`/calls?analysis=${encodeURIComponent(report.call_id)}`);
+      return;
+    }
+    detailRequest.current?.abort();
+    const controller = new AbortController();
+    detailRequest.current = controller;
     setDetailLoading(true);
     setSelected(null);
+    setRangeRequest(null);
     setActionStatus(undefined);
     setActionNote('');
     setCoachingDue(null);
     try {
-      setSelected(await api<QAReportDetail>(`/api/v1/calls/reports/${report.id}/`));
+      const detail = await api<QAReportDetail>(`/api/v1/calls/reports/${report.id}/`, { signal: controller.signal });
+      if (!controller.signal.aborted) setSelected(detail);
     } catch (requestError) {
-      void message.error(requestError instanceof Error ? requestError.message : 'The report could not be opened.');
+      if (!controller.signal.aborted) void message.error(requestError instanceof Error ? requestError.message : 'The report could not be opened.');
     } finally {
-      setDetailLoading(false);
+      if (!controller.signal.aborted) setDetailLoading(false);
     }
   };
 
@@ -260,7 +279,11 @@ function ManagedReports({ canManage }: { canManage: boolean }) {
     }
   };
 
-  const clearAllReportFilters = () => { setReportFilters(EMPTY_TEAM_LEADER_FILTERS); setPage(1); };
+  const clearAllReportFilters = () => {
+    setReportFilters(EMPTY_TEAM_LEADER_FILTERS);
+    if (personal) { setSegment('all'); setSearch(''); setSearchInput(''); }
+    setPage(1);
+  };
   const clearFilterGroup = (key: keyof TeamLeaderReportFilterValue) => {
     setReportFilters((current) => ({ ...current, [key]: EMPTY_TEAM_LEADER_FILTERS[key] }));
     setPage(1);
@@ -285,7 +308,15 @@ function ManagedReports({ canManage }: { canManage: boolean }) {
     { title: 'Updated', key: 'updated', width: 155, render: (_, row) => { const updated = row.revision_requested_at || row.leader_updated_at || row.completed_at || row.assigned_at; return <span className="tl-date"><strong>{appDate(updated).format('DD MMM YYYY')}</strong><small>{appDate(updated).format('h:mm A')} ET</small></span>; } },
     { title: '', key: 'action', width: 58, align: 'center', render: (_, row) => <Button type="text" shape="circle" icon={<ArrowRightOutlined />} aria-label={`Inspect ${row.agent_name}`} onClick={(event) => { event.stopPropagation(); void openReport(row); }} /> },
   ];
-  const columns = canManage ? teamLeaderColumns : projectManagerColumns;
+  const personalColumns: TableProps<QAReport>['columns'] = [
+    projectManagerColumns[0], projectManagerColumns[1],
+    { title: 'Status', key: 'status', width: 160, render: (_, row) => <Tag color={row.status === 'revision_required' ? 'orange' : ['completed', 'disputed'].includes(row.status) ? 'success' : 'processing'}>{row.status_label}</Tag> },
+    { ...projectManagerColumns[3], title: 'Result' },
+    { ...projectManagerColumns[4], title: 'Review workflow' },
+    projectManagerColumns[6],
+    { title: '', key: 'action', width: 140, align: 'right', render: (_, row) => <Button type="link" icon={['completed', 'disputed'].includes(row.status) ? <EyeOutlined /> : <ArrowRightOutlined />} onClick={(event) => { event.stopPropagation(); void openReport(row); }}>{row.status === 'revision_required' ? 'Reassess' : ['completed', 'disputed'].includes(row.status) ? 'View report' : 'Continue'}</Button> },
+  ];
+  const columns = personal ? personalColumns : canManage ? teamLeaderColumns : projectManagerColumns;
 
   const advancedFilterCount = teamLeaderFilterCount(reportFilters);
   const summarize = (label: string, values: string[]) => `${label}: ${values[0]}${values.length > 1 ? ` +${values.length - 1}` : ''}`;
@@ -316,7 +347,12 @@ function ManagedReports({ canManage }: { canManage: boolean }) {
   if (reportFilters.leaderActivity !== 'all') appliedFilterChips.push({ key: 'leaderActivity', label: reportFilters.leaderActivity === 'with_activity' ? 'Has Team Leader activity' : 'No Team Leader activity' });
   if (reportFilters.dateRange) appliedFilterChips.push({ key: 'dateRange', label: `${appCalendarDate(reportFilters.dateRange[0]).format('DD MMM')} – ${appCalendarDate(reportFilters.dateRange[1]).format('DD MMM')}` });
   if (reportFilters.scoreRules.length) appliedFilterChips.push({ key: 'scoreRules', label: `${reportFilters.scoreRules.length} score condition${reportFilters.scoreRules.length === 1 ? '' : 's'}` });
-  const segmentOptions = [
+  const segmentOptions = personal ? [
+    { label: `All ${summary?.total ?? 0}`, value: 'all' as const },
+    { label: `Submitted ${Math.max(0, (summary?.total ?? 0) - (summary?.qa_active ?? 0))}`, value: 'submitted' as const },
+    { label: `Active ${summary?.qa_active ?? 0}`, value: 'qa_active' as const },
+    { label: `Needs revision ${summary?.revision_required ?? 0}`, value: 'revision' as const },
+  ] : [
     { label: `All ${summary?.total ?? 0}`, value: 'all' as const },
     ...(!canManage ? [{ label: `QA active ${summary?.qa_active ?? 0}`, value: 'qa_active' as const }] : []),
     { label: `Needs review ${summary?.pending ?? 0}`, value: 'attention' as const },
@@ -324,14 +360,14 @@ function ManagedReports({ canManage }: { canManage: boolean }) {
     { label: `Coaching ${summary?.coaching_open ?? 0}`, value: 'coaching' as const },
     { label: `Closed ${summary?.closed ?? 0}`, value: 'closed' as const },
   ];
-  const pageTitle = canManage ? 'QA reports' : 'Project QA reports';
+  const pageTitle = personal ? 'My QA reports' : canManage ? 'QA reports' : 'Project QA reports';
   return <div className="tl-reports-page">
-    <div className="page-heading tl-page-heading"><div><Title level={2}>{pageTitle}</Title></div></div>
+    <div className="page-heading tl-page-heading"><div><Title level={2}>{pageTitle}</Title></div>{personal && <Button type="primary" icon={<SearchOutlined />} onClick={() => navigate('/calls')}>Find a call</Button>}</div>
     {error && <Alert type="error" showIcon closable={{ onClose: () => setError('') }} title="Reports could not be loaded" description={error} />}
     <Card className="tl-inbox-card">
       <div className="tl-inbox-head"><Segmented<ReportSegment> className="tl-report-segments" value={segment} onChange={(value) => { setSegment(value); setPage(1); }} options={segmentOptions} /><Text type="secondary">{total} matching reports</Text></div>
       <div className="tl-filter-toolbar">
-        <Search prefix={<SearchOutlined />} allowClear enterButton="Search" placeholder="Agent, phone, team, or QA" value={searchInput} onChange={(event) => { const value = event.target.value; setSearchInput(value); if (!value) { setSearch(''); setPage(1); } }} onSearch={(value) => { setSearch(value.trim()); setPage(1); }} className="tl-filter-search" />
+        <Search prefix={<SearchOutlined />} allowClear enterButton="Search" placeholder={personal ? 'Agent, phone, team, or project' : 'Agent, phone, team, or QA'} value={searchInput} onChange={(event) => { const value = event.target.value; setSearchInput(value); if (!value) { setSearch(''); setPage(1); } }} onSearch={(value) => { setSearch(value.trim()); setPage(1); }} className="tl-filter-search" />
         <div className="tl-filter-toolbar__actions">
           <Select aria-label="Sort reports" value={ordering} onChange={(value) => { setOrdering(value); setPage(1); }} options={[{ value: '-assigned_at', label: 'Recently assigned' }, { value: 'assigned_at', label: 'Oldest assigned' }, { value: '-completed_at', label: 'Newest submitted' }, { value: 'completed_at', label: 'Oldest submitted' }, { value: 'score', label: 'Lowest score' }, { value: '-score', label: 'Highest score' }, { value: 'coaching_due_at', label: 'Coaching due' }, { value: '-leader_updated_at', label: 'Recent leader activity' }]} />
           <Badge count={advancedFilterCount} size="small" offset={[-4, 4]}><Button type={filtersOpen ? 'primary' : 'default'} icon={<FilterOutlined />} onClick={() => setFiltersOpen(true)}>Filters</Button></Badge>
@@ -340,8 +376,8 @@ function ManagedReports({ canManage }: { canManage: boolean }) {
       {appliedFilterChips.length > 0 && <div className="tl-filter-status"><div>{appliedFilterChips.map((chip) => <Tag key={chip.key} closable onClose={(event) => { event.preventDefault(); clearFilterGroup(chip.key); }}>{chip.label}</Tag>)}</div><Button type="link" size="small" onClick={clearAllReportFilters}>Clear all</Button></div>}
       {loading ? <TableSkeleton rows={Math.min(pageSize, 8)} columns={canManage ? 7 : 8} label="Loading QA reports" /> : <Table<QAReport> rowKey="id" columns={columns} dataSource={reports} rowClassName={(row) => `tl-report-row${row.critical_errors.length ? ' is-critical' : ''}${row.leader_status === 'pending' ? ' is-pending' : ''}`} onRow={(row) => ({ onClick: () => void openReport(row) })} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No reports match this view" /> }} scroll={{ x: 1120 }} pagination={{ current: page, pageSize, total, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], showTotal: (count) => `${count} reports` }} onChange={(pagination) => { setLoading(true); setPage(pagination.current ?? 1); setPageSize(pagination.pageSize ?? 20); }} />}
     </Card>
-    <TeamLeaderReportFilters open={filtersOpen} value={reportFilters} options={summary?.filters} oversight={!canManage} onClose={() => setFiltersOpen(false)} onApply={(next) => { setReportFilters(next); setPage(1); setFiltersOpen(false); }} />
-    <ReportManagementDrawer report={selected} loading={detailLoading} canManage={canManage} oversight={!canManage} actionStatus={actionStatus} actionNote={actionNote} coachingDue={coachingDue} saving={savingAction} rangeRequest={rangeRequest} onClose={() => { setSelected(null); setRangeRequest(null); }} onStatusChange={setActionStatus} onNoteChange={setActionNote} onDueChange={setCoachingDue} onSubmit={() => void submitAction()} onPlayPatch={(startSeconds, endSeconds) => setRangeRequest({ startSeconds, endSeconds, requestId: Date.now() })} />
+    <TeamLeaderReportFilters open={filtersOpen} value={reportFilters} options={summary?.filters} oversight={!canManage} personal={personal} onClose={() => setFiltersOpen(false)} onApply={(next) => { setReportFilters(next); setPage(1); setFiltersOpen(false); }} />
+    <ReportManagementDrawer report={selected} loading={detailLoading} canManage={canManage} oversight={!canManage && !personal} personal={personal} actionStatus={actionStatus} actionNote={actionNote} coachingDue={coachingDue} saving={savingAction} rangeRequest={rangeRequest} onClose={closeReport} onStatusChange={setActionStatus} onNoteChange={setActionNote} onDueChange={setCoachingDue} onSubmit={() => void submitAction()} onPlayPatch={(startSeconds, endSeconds) => setRangeRequest({ startSeconds, endSeconds, requestId: Date.now() })} />
   </div>;
 }
 
@@ -350,6 +386,7 @@ interface ReportManagementDrawerProps {
   loading: boolean;
   canManage: boolean;
   oversight: boolean;
+  personal?: boolean;
   actionStatus?: TeamLeaderReportStatus;
   actionNote: string;
   coachingDue: Dayjs | null;
@@ -363,9 +400,9 @@ interface ReportManagementDrawerProps {
   onPlayPatch: (startSeconds: number, endSeconds: number) => void;
 }
 
-function EvidencePatches({ patches, onPlay }: { patches: QAEvidencePatch[]; onPlay: (startSeconds: number, endSeconds: number) => void }) {
+function EvidencePatches({ patches, onPlay, recordingAvailable = true }: { patches: QAEvidencePatch[]; onPlay: (startSeconds: number, endSeconds: number) => void; recordingAvailable?: boolean }) {
   if (!patches.length) return null;
-  return <div className="tl-patch-list">{patches.map((patch, index) => <Button type="text" className="tl-patch" key={patch.id} onClick={() => onPlay(patch.start_ms / 1000, patch.end_ms / 1000)}>
+  return <div className="tl-patch-list">{patches.map((patch, index) => <Button type="text" disabled={!recordingAvailable} className="tl-patch" key={patch.id} onClick={() => onPlay(patch.start_ms / 1000, patch.end_ms / 1000)}>
     <span className="tl-patch__play"><PlayCircleOutlined /></span>
     <span className="tl-patch__body"><strong>Evidence {index + 1}</strong>{patch.comment && <small>{patch.comment}</small>}</span>
     <span className="tl-patch__time"><strong>{formatEvidenceTime(patch.start_ms)} – {formatEvidenceTime(patch.end_ms)}</strong><small>{Math.max(1, Math.round((patch.end_ms - patch.start_ms) / 1000))} sec</small></span>
@@ -379,7 +416,7 @@ function criterionScoreColor(percent: number) {
   return '#e05260';
 }
 
-function EvaluationEntry({ label, score, maximum, evidence, critical = false, notReached = false, onPlay }: { label: string; score?: number; maximum?: number; evidence?: QACriterionEvidence; critical?: boolean; notReached?: boolean; onPlay: (startSeconds: number, endSeconds: number) => void }) {
+function EvaluationEntry({ label, score, maximum, evidence, critical = false, notReached = false, recordingAvailable = true, onPlay }: { label: string; score?: number; maximum?: number; evidence?: QACriterionEvidence; critical?: boolean; notReached?: boolean; recordingAvailable?: boolean; onPlay: (startSeconds: number, endSeconds: number) => void }) {
   const hasScore = score !== undefined && maximum !== undefined && !notReached;
   const scorePercent = hasScore && maximum > 0 ? Math.max(0, Math.min(100, (score / maximum) * 100)) : 0;
   const evidenceSummary = evidence?.patches.length
@@ -388,13 +425,13 @@ function EvaluationEntry({ label, score, maximum, evidence, critical = false, no
       ? 'No timestamp evidence attached'
       : null;
   return <article className={`tl-evaluation-entry${critical ? ' is-critical' : ''}`}>
-    <div className="tl-evaluation-entry__head"><span><strong>{label}</strong>{evidenceSummary && <small>{evidenceSummary}</small>}</span>{critical ? <Tag color="error" variant="filled">Critical violation</Tag> : notReached ? <Tag>Not reached</Tag> : hasScore && <div className="tl-criterion-score"><strong>{score}/{maximum}</strong><Progress percent={scorePercent} showInfo={false} size="small" strokeColor={criterionScoreColor(scorePercent)} /></div>}</div>
+    <div className="tl-evaluation-entry__head"><span><strong>{label}</strong>{evidenceSummary && <small>{evidenceSummary}</small>}</span>{critical ? <Tag color="error" variant="filled">Critical violation</Tag> : notReached ? <Tag>Not reached</Tag> : hasScore ? <div className="tl-criterion-score"><strong>{score}/{maximum}</strong><Progress percent={scorePercent} showInfo={false} size="small" strokeColor={criterionScoreColor(scorePercent)} /></div> : score !== undefined && <Tag>Saved score: {score}</Tag>}</div>
     {evidence?.comment && <p className="tl-evaluation-entry__comment">{evidence.comment}</p>}
-    <EvidencePatches patches={evidence?.patches ?? []} onPlay={onPlay} />
+    <EvidencePatches patches={evidence?.patches ?? []} onPlay={onPlay} recordingAvailable={recordingAvailable} />
   </article>;
 }
 
-function ReportManagementDrawer({ report, loading, canManage, oversight, actionStatus, actionNote, coachingDue, saving, rangeRequest, onClose, onStatusChange, onNoteChange, onDueChange, onSubmit, onPlayPatch }: ReportManagementDrawerProps) {
+function ReportManagementDrawer({ report, loading, canManage, oversight, personal = false, actionStatus, actionNote, coachingDue, saving, rangeRequest, onClose, onStatusChange, onNoteChange, onDueChange, onSubmit, onPlayPatch }: ReportManagementDrawerProps) {
   const snapshot = report?.scorecard_snapshot as QAScorecard | undefined;
   const isSubmitted = Boolean(report && ['completed', 'disputed'].includes(report.status));
   const actionNeedsNote = actionStatus && ['coaching_planned', 'coaching_completed', 'escalated', 'returned_to_qa'].includes(actionStatus);
@@ -413,26 +450,29 @@ function ReportManagementDrawer({ report, loading, canManage, oversight, actionS
     return {
       key: category.key,
       label: <div className="tl-category-label"><span><strong>{category.label}</strong>{patchCount > 0 && <small>{patchCount} evidence patch{patchCount === 1 ? '' : 'es'}</small>}</span><Tag color={applicability === 'missed_opportunity' ? 'warning' : undefined}>{categoryStatus}</Tag></div>,
-      children: applicability === 'not_reached'
-        ? <Alert type="info" showIcon title="Excluded from scoring" description={applicabilityReason || 'This stage was not reached during the call.'} />
-        : <div className="tl-evaluation-entries">{applicability === 'missed_opportunity' && <Alert type="warning" showIcon title="Missed opportunity" description={applicabilityReason || 'The agent had an opportunity to complete this stage.'} />}{entries.map((criterion) => <EvaluationEntry key={criterion.key} label={criterion.label} score={Object.hasOwn(report.scores, criterion.key) ? Number(report.scores[criterion.key]) : undefined} maximum={criterion.max_score} evidence={report.criterion_evidence?.[criterion.key]} notReached={report.criterion_applicability?.[criterion.key] === 'not_reached'} onPlay={onPlayPatch} />)}</div>,
+      children: <div className="tl-evaluation-entries">{applicability === 'not_reached' && <Alert type="info" showIcon title="Excluded from scoring" description={applicabilityReason || 'This stage was not reached during the call.'} />}{applicability === 'missed_opportunity' && <Alert type="warning" showIcon title="Missed opportunity" description={applicabilityReason || 'The agent had an opportunity to complete this stage.'} />}{entries.map((criterion) => <EvaluationEntry key={criterion.key} label={criterion.label} score={Object.hasOwn(report.scores, criterion.key) ? Number(report.scores[criterion.key]) : undefined} maximum={criterion.max_score} evidence={report.criterion_evidence?.[criterion.key]} notReached={applicability === 'not_reached' || report.criterion_applicability?.[criterion.key] === 'not_reached'} recordingAvailable={report.call.recording_available} onPlay={onPlayPatch} />)}</div>,
     };
   }).filter((item): item is NonNullable<typeof item> => Boolean(item)) : [];
   const criticalLabels = new Map(snapshot?.critical_errors?.map((item) => [item.value, item.label]) ?? []);
+  const mappedCriteria = new Set(snapshot?.categories?.flatMap((category) => category.criteria.map((criterion) => criterion.key)) ?? []);
+  const unmappedCriteria = report ? [...new Set([...Object.keys(report.scores), ...Object.keys(report.criterion_evidence ?? {}), ...Object.keys(report.criterion_applicability ?? {})])].filter((key) => !mappedCriteria.has(key)) : [];
   const evaluation = report ? <div className="tl-report-evaluation">
     {!isSubmitted && <Alert type={report.status === 'revision_required' ? 'warning' : 'info'} showIcon title={report.status === 'revision_required' ? 'QA reassessment required' : 'QA evaluation in progress'} description={report.status === 'revision_required' ? report.revision_reason || 'The Team Leader returned this evaluation to QA for revision.' : `${report.reviewer_name} is preparing this evaluation. Draft information below may still change.`} />}
-    {isSubmitted && <Alert type="info" showIcon title={`${report.evaluation_type.replaceAll('_', ' ')} · ${report.coverage ?? 0}% coverage`} description={report.score === null ? 'This interaction did not contain enough applicable material for a numeric quality score.' : `Quality is normalized across ${report.applicable_points ?? 0} applicable points.`} />}
+    {isSubmitted && <Alert type="info" showIcon title={`${snapshot?.evaluation_types?.find((item) => item.value === report.evaluation_type)?.label ?? report.evaluation_type.replaceAll('_', ' ')} · ${report.coverage ?? 0}% coverage`} description={report.critical_errors.length ? 'Numeric scoring was waived for this critical failure.' : report.score === null ? 'This interaction did not contain enough applicable material for a numeric quality score.' : `Quality is normalized across ${report.applicable_points ?? 0} applicable points.`} />}
+    {!report.call.recording_available && <Text type="secondary">Recording is currently unavailable. Saved evidence timestamps remain visible.</Text>}
     {report.critical_errors.length > 0 && <Alert type="error" showIcon icon={<WarningFilled />} title="Automatic fail · immediate escalation" description={`${report.critical_errors.length} critical violation${report.critical_errors.length === 1 ? '' : 's'} recorded.`} />}
-    {report.critical_errors.length > 0 && <section className="tl-critical-evidence"><div className="tl-section-heading"><span><strong>Critical violations</strong></span><Tag color="error">{report.critical_errors.length}</Tag></div><div className="tl-evaluation-entries">{report.critical_errors.map((criticalKey) => <EvaluationEntry key={criticalKey} label={criticalLabels.get(criticalKey) ?? criticalKey} evidence={report.critical_error_evidence?.[criticalKey]} critical onPlay={onPlayPatch} />)}</div></section>}
-    {scorecardItems.length > 0 && <section className="tl-scorecard-review"><div className="tl-section-heading"><span><strong>Scorecard breakdown</strong></span></div><Collapse items={scorecardItems} defaultActiveKey={scorecardItems.filter((item) => report && snapshot?.categories.find((category) => category.key === item.key)?.criteria.some((criterion) => Boolean(report.criterion_evidence?.[criterion.key]))).map((item) => item.key)} expandIconPlacement="end" /></section>}
-    <div className="tl-narrative-grid"><ReportText label="Summary" value={report.feedback_summary} /><ReportText label="Strengths" value={report.strengths} /><ReportText label="Expected behavior" value={report.expected_behavior} /><ReportText label="Coaching / follow-up" value={report.coaching_plan} /></div>
+    {report.critical_errors.length > 0 && <section className="tl-critical-evidence"><div className="tl-section-heading"><span><strong>Critical violations</strong></span><Tag color="error">{report.critical_errors.length}</Tag></div><div className="tl-evaluation-entries">{report.critical_errors.map((criticalKey) => <EvaluationEntry key={criticalKey} label={criticalLabels.get(criticalKey) ?? criticalKey} evidence={report.critical_error_evidence?.[criticalKey]} critical recordingAvailable={report.call.recording_available} onPlay={onPlayPatch} />)}</div></section>}
+    {scorecardItems.length > 0 && <section className="tl-scorecard-review"><div className="tl-section-heading"><span><strong>Scorecard breakdown</strong></span></div><Collapse key={report.id} items={scorecardItems} defaultActiveKey={scorecardItems.filter((item) => personal || snapshot?.categories.find((category) => category.key === item.key)?.criteria.some((criterion) => Boolean(report.criterion_evidence?.[criterion.key]))).map((item) => item.key)} expandIconPlacement="end" /></section>}
+    {unmappedCriteria.length > 0 && <section className="tl-scorecard-review"><div className="tl-section-heading"><strong>Additional saved criteria</strong></div><div className="tl-evaluation-entries">{unmappedCriteria.map((key) => <EvaluationEntry key={key} label={key.replaceAll('_', ' ')} score={Object.hasOwn(report.scores, key) ? Number(report.scores[key]) : undefined} evidence={report.criterion_evidence?.[key]} notReached={report.criterion_applicability?.[key] === 'not_reached'} recordingAvailable={report.call.recording_available} onPlay={onPlayPatch} />)}</div></section>}
+    {report.evaluation_reason && <ReportText label="Evaluation reason" value={report.evaluation_reason} />}
+    <div className="tl-narrative-grid">{report.feedback_summary && <ReportText label="Summary" value={report.feedback_summary} />}{report.strengths && <ReportText label="Strengths" value={report.strengths} />}{report.improvement_areas && <ReportText label="Improvement areas" value={report.improvement_areas} />}{report.expected_behavior && <ReportText label="Expected behavior" value={report.expected_behavior} />}{report.coaching_plan && <ReportText label="Coaching / follow-up" value={report.coaching_plan} />}</div>
   </div> : null;
   const activity = report ? <div className="tl-activity"><div className="tl-call-facts"><div><small>Phone</small><strong>{report.phone_number || 'Not available'}</strong></div><div><small>Call date</small><strong>{report.call_date ? `${appDate(report.call_date).format('DD MMM YYYY, h:mm A')} ET` : 'Not available'}</strong></div><div><small>Disposition</small><strong>{report.call.disposition || 'Not available'}</strong></div><div><small>Talk time</small><strong>{Math.floor(report.call.talk_time / 60)}m {report.call.talk_time % 60}s</strong></div><div><small>QA analyst</small><strong>{report.reviewer_name}</strong></div><div><small>Team Leader</small><strong>{report.team_leader_name || 'Not assigned'}</strong></div></div><Timeline items={[...report.workflow_events.map((event) => ({ color: event.to_status === 'escalated' ? 'red' : event.to_status === 'returned_to_qa' ? 'orange' : event.to_status === 'closed' ? 'green' : 'blue', children: <div className="tl-timeline-entry"><strong>{event.event_type === 'note_added' ? 'Management note added' : `${event.from_status_label} → ${event.to_status_label}`}</strong><span>{event.note || 'No additional note'}</span>{event.coaching_due_at && <small>Coaching due {appDate(event.coaching_due_at).format('DD MMM YYYY, h:mm A')} ET</small>}<small>{event.actor_name} · {appDate(event.created_at).format('DD MMM YYYY, h:mm A')} ET</small></div> })), { color: 'gray', children: <div className="tl-timeline-entry"><strong>{isSubmitted ? 'QA report submitted' : report.status === 'revision_required' ? 'Returned to QA' : 'QA evaluation assigned'}</strong><span>{isSubmitted ? `${report.rating_label} · ${report.critical_errors.length ? 'Scorecard waived' : scoreDisplay(report)}` : report.status_label}</span><small>{report.reviewer_name} · {appDate(report.completed_at || report.revision_requested_at || report.assigned_at).format('DD MMM YYYY, h:mm A')} ET</small></div> }]} /></div> : null;
   return <Drawer open={Boolean(report) || loading} onClose={onClose} size="min(900px, calc(100vw - 24px))" destroyOnHidden classNames={{ body: 'tl-report-drawer__body' }} title={report ? <div className="tl-drawer-title"><Avatar size={38}>{initials(report.agent_name || report.agent_user)}</Avatar><span><strong>{report.agent_name || report.agent_user}</strong><small>{report.team_name} · {report.project_name || 'Unmapped project'}</small></span></div> : 'QA report'} extra={report && <Tag color={isSubmitted ? WORKFLOW_COLORS[report.leader_status] : report.status === 'revision_required' ? 'orange' : 'processing'}>{isSubmitted ? report.leader_status_label : report.status_label}</Tag>}>
     {loading ? <ContentLoader label="Opening QA report" minHeight={480} /> : report && <div className="tl-report-detail data-reveal">
       <div className={`tl-report-hero${report.critical_errors.length ? ' is-critical' : ''}`}><Progress type="circle" percent={isSubmitted ? Number(report.score ?? 0) : 0} size={94} status={isSubmitted && report.critical_errors.length ? 'exception' : isSubmitted && report.score !== null && Number(report.score) >= 85 ? 'success' : 'normal'} format={() => isSubmitted ? scoreDisplay(report) : 'Draft'} /><div><Tag color={isSubmitted ? outcomeColor(report) : report.status === 'revision_required' ? 'orange' : 'processing'} variant="filled">{isSubmitted ? report.rating_label : report.status_label}</Tag><Title level={4}>{isSubmitted ? report.outcome_label : 'QA evaluation underway'}</Title><Text type="secondary">{isSubmitted ? 'Submitted' : 'Assigned'} to {report.reviewer_name} · {appDate(report.completed_at || report.assigned_at).format('DD MMM YYYY, h:mm A')} ET</Text></div></div>
       {report.call.recording_available && <Card size="small" className="tl-recording-card" title="Call recording"><AudioPlayer call={report.call} rangeRequest={rangeRequest} /></Card>}
-      <Tabs items={[{ key: 'evaluation', label: oversight ? 'QA evaluation' : 'Evaluation', children: evaluation }, { key: 'activity', label: `${oversight ? 'Team Leader activity' : 'Activity'} (${report.workflow_events.length})`, children: activity }]} />
+      <Tabs key={report.id} items={[{ key: 'evaluation', label: personal ? 'Your evaluation' : oversight ? 'QA evaluation' : 'Evaluation', children: evaluation }, { key: 'activity', label: `${oversight || personal ? 'Team Leader activity' : 'Activity'} (${report.workflow_events.length})`, children: activity }]} />
       {canManage && <Card size="small" className="tl-action-card" title={<span><strong>Management decision</strong></span>}>
         <Form layout="vertical">
           <div className="tl-action-grid"><Form.Item label="Next action"><Select allowClear placeholder="Add note only" value={actionStatus} onChange={onStatusChange} options={NEXT_ACTIONS[report.leader_status].map((value) => ({ value, label: WORKFLOW_LABELS[value] }))} /></Form.Item>{actionStatus === 'coaching_planned' && <Form.Item label="Coaching deadline (ET)" required><DatePicker showTime value={coachingDue} minDate={appDate().startOf('day')} onChange={onDueChange} className="tl-action-date" /></Form.Item>}</div>

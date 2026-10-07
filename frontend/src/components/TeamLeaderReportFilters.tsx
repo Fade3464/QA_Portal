@@ -116,11 +116,12 @@ interface Props {
   value: TeamLeaderReportFilterValue;
   options?: QAReportSummary['filters'];
   oversight?: boolean;
+  personal?: boolean;
   onClose: () => void;
   onApply: (value: TeamLeaderReportFilterValue) => void;
 }
 
-export function TeamLeaderReportFilters({ open, value, options, oversight = false, onClose, onApply }: Props) {
+export function TeamLeaderReportFilters({ open, value, options, oversight = false, personal = false, onClose, onApply }: Props) {
   const [draft, setDraft] = useState(() => cloneFilters(value));
   const [panel, setPanel] = useState<'filters' | 'scores'>('filters');
   useEffect(() => {
@@ -141,7 +142,7 @@ export function TeamLeaderReportFilters({ open, value, options, oversight = fals
 
   const mainFilters = <div className="tl-filter-grid">
     <label><span>Project</span><Select mode="multiple" maxTagCount="responsive" allowClear placeholder="Any project" value={draft.projects} onChange={(next) => update('projects', next)} options={multiOptions(options?.projects ?? [])} /></label>
-    <label><span>QA analyst</span><Select mode="multiple" maxTagCount="responsive" allowClear placeholder="Any analyst" value={draft.reviewers} onChange={(next) => update('reviewers', next)} options={(options?.reviewers ?? []).map((item) => ({ value: item.reviewer_id, label: `${item.reviewer__first_name} ${item.reviewer__last_name}`.trim() }))} /></label>
+    {!personal && <label><span>QA analyst</span><Select mode="multiple" maxTagCount="responsive" allowClear placeholder="Any analyst" value={draft.reviewers} onChange={(next) => update('reviewers', next)} options={(options?.reviewers ?? []).map((item) => ({ value: item.reviewer_id, label: `${item.reviewer__first_name} ${item.reviewer__last_name}`.trim() }))} /></label>}
     {oversight && <label><span>QA stage</span><Select mode="multiple" maxTagCount="responsive" allowClear placeholder="Any stage" value={draft.qaStatuses} onChange={(next) => update('qaStatuses', next)} options={QA_STATUSES} /></label>}
     {oversight && <label><span>Team Leader</span><Select mode="multiple" maxTagCount="responsive" allowClear placeholder="Any leader" value={draft.teamLeaders} onChange={(next) => update('teamLeaders', next)} options={(options?.team_leaders ?? []).map((item) => ({ value: item.team_leader_id, label: `${item.team_leader__first_name} ${item.team_leader__last_name}`.trim() }))} /></label>}
     <label><span>Agent</span><Select mode="multiple" showSearch={{ optionFilterProp: 'label' }} maxTagCount="responsive" allowClear placeholder="Any agent" value={draft.agents} onChange={(next) => update('agents', next)} options={multiOptions(options?.agents ?? [])} /></label>

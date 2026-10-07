@@ -628,6 +628,7 @@ def _report_filters(queryset, params):
             | Q(call__agent_user__icontains=search)
             | Q(call__phone_number__icontains=search)
             | Q(call__team__name__icontains=search)
+            | Q(project_name__icontains=search)
             | Q(reviewer__first_name__icontains=search)
             | Q(reviewer__last_name__icontains=search)
         )
@@ -685,6 +686,10 @@ def _report_filters(queryset, params):
                 Review.Status.REVISION_REQUIRED,
             )
         )
+    elif segment == "submitted":
+        queryset = queryset.filter(status__in=completed)
+    elif segment == "revision":
+        queryset = queryset.filter(status=Review.Status.REVISION_REQUIRED)
     elif segment == "attention":
         queryset = queryset.filter(
             status__in=completed, leader_status=Review.LeaderStatus.PENDING
@@ -834,7 +839,8 @@ class ReviewReportSummaryView(APIView):
             request.user.role == User.Role.PROJECT_MANAGER
             and not request.user.is_superuser
         )
-        queryset = scope if is_project_manager else completed_queryset
+        is_qa = request.user.role == User.Role.QA and not request.user.is_superuser
+        queryset = scope if is_project_manager or is_qa else completed_queryset
         now = timezone.now()
         open_queryset = completed_queryset.exclude(
             leader_status=Review.LeaderStatus.CLOSED
