@@ -789,6 +789,7 @@ a { color: var(--qa-primary); font-weight: 600; }
 .pm-performance__actions { display: flex; gap: 10px; }
 .pm-performance__filters { display: flex; align-items: center; gap: 12px; min-height: 54px; padding: 7px 9px; border: 1px solid var(--qa-border-soft); border-radius: 14px; background: var(--qa-surface); box-shadow: var(--qa-shadow-soft); }
 .pm-project-select { width: min(340px, 34vw); }
+.pm-project-dialer { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
 .pm-performance__freshness { margin-left: auto; padding-right: 8px; font-size: 11px; white-space: nowrap; }
 .pm-performance__content { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; opacity: 1; transition: opacity 180ms ease; }
 .pm-performance__content.is-refreshing { opacity: .58; pointer-events: none; }

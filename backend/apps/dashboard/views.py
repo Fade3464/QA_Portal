@@ -84,25 +84,40 @@ class ProjectPerformanceView(APIView):
             raise ValidationError({"days": "Choose today or a 7, 30, or 90 day window."})
 
         if request.user.role == User.Role.PROJECT_MANAGER and not request.user.is_superuser:
-            available_projects = list(
-                QAProjectAssignment.objects.filter(qa=request.user)
-                .order_by("dialer_campaign__project_name")
-                .values_list("dialer_campaign__project_name", flat=True)
-                .distinct()
+            campaign_scope = DialerCampaign.objects.filter(
+                pk__in=QAProjectAssignment.objects.filter(qa=request.user)
+                .values("dialer_campaign_id"),
+                dialer__branch_id=request.user.branch_id,
+                dialer__branch__company_id=request.user.company_id,
             )
         else:
             campaign_scope = DialerCampaign.objects.all()
             if not request.user.is_superuser:
                 campaign_scope = branch_projects(request.user)
-            available_projects = list(
-                campaign_scope.order_by("project_name")
-                .values_list("project_name", flat=True)
-                .distinct()
-            )
+        project_groups = {}
+        for mapping in campaign_scope.order_by("dialer__name", "project_name").values(
+            "dialer_id", "dialer__name", "project_name"
+        ).distinct():
+            dialer_id = str(mapping["dialer_id"])
+            group = project_groups.setdefault(dialer_id, {
+                "dialer_id": dialer_id,
+                "dialer_name": mapping["dialer__name"],
+                "projects": [],
+            })
+            group["projects"].append(mapping["project_name"])
+        available_projects = sorted({
+            name for group in project_groups.values() for name in group["projects"]
+        })
 
         project = request.query_params.get("project", "").strip()
         if project and project not in available_projects:
             raise ValidationError({"project": "Choose a project assigned to you."})
+        dialer_id = request.query_params.get("dialer", "").strip()
+        if dialer_id and (
+            dialer_id not in project_groups
+            or (project and project not in project_groups[dialer_id]["projects"])
+        ):
+            raise ValidationError({"dialer": "Choose an available dialer and project."})
 
         end_date = timezone.localdate()
         start_date = end_date - timedelta(days=days - 1)
@@ -113,6 +128,8 @@ class ProjectPerformanceView(APIView):
         )
         if project:
             queryset = queryset.filter(project_name=project)
+        if dialer_id:
+            queryset = queryset.filter(call__dialer_id=dialer_id)
 
         totals = queryset.aggregate(
             evaluated=Count("id"),
@@ -204,7 +221,9 @@ class ProjectPerformanceView(APIView):
             {
                 "window": {"days": days, "from": start_date, "to": end_date},
                 "selected_project": project or None,
+                "selected_dialer": dialer_id or None,
                 "projects": available_projects,
+                "project_groups": list(project_groups.values()),
                 "metrics": {
                     "evaluated": evaluated,
                     "scored": scored,

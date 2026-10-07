@@ -6,15 +6,17 @@ import {
   SafetyCertificateOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
-import { Alert, Button, Card, Empty, Progress, Segmented, Select, Statistic, Table, Typography, type TableProps } from 'antd';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Alert, Button, Card, Empty, Progress, Segmented, Statistic, Table, Typography, type TableProps } from 'antd';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ContentLoader } from '../components/LoadingStates';
+import { DialerProjectFilter } from '../components/DialerProjectFilter';
 import { useAuth } from '../auth/AuthContext';
 import { MaterialSymbol } from '../components/MaterialSymbol';
 import { api, ApiError } from '../lib/api';
 import { appCalendarDate, appDate } from '../lib/datetime';
 import type { ProjectPerformance } from '../types';
+import type { ProjectSelection } from '../lib/projectPreferences';
 
 const { Text, Title } = Typography;
 type WindowDays = 1 | 7 | 30 | 90;
@@ -80,7 +82,7 @@ export function ProjectPerformancePage({ overview = false }: { overview?: boolea
   const navigate = useNavigate();
   const [data, setData] = useState<ProjectPerformance | null>(null);
   const [days, setDays] = useState<WindowDays>(30);
-  const [project, setProject] = useState('');
+  const [project, setProject] = useState<ProjectSelection>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -88,7 +90,10 @@ export function ProjectPerformancePage({ overview = false }: { overview?: boolea
     let active = true;
     queueMicrotask(() => { if (active) setLoading(true); });
     const params = new URLSearchParams({ days: String(days) });
-    if (project) params.set('project', project);
+    if (project) {
+      params.set('project', project.project);
+      params.set('dialer', project.dialer);
+    }
     api<ProjectPerformance>(`/api/v1/dashboard/project-performance/?${params}`)
       .then((result) => { if (active) { setData(result); setError(''); } })
       .catch((requestError: unknown) => { if (active) setError(requestError instanceof ApiError ? requestError.message : 'Project performance could not be loaded.'); })
@@ -96,7 +101,7 @@ export function ProjectPerformancePage({ overview = false }: { overview?: boolea
     return () => { active = false; };
   }, [days, project]);
 
-  const projectOptions = useMemo(() => (data?.projects ?? []).map((value) => ({ value, label: value })), [data?.projects]);
+  const preferenceKey = `calllens:project-filter:v1:${user?.id}:${user?.company?.id}:${user?.branch?.id}`;
   const columns: TableProps<ProjectPerformance['teams'][number]>['columns'] = [
     { title: 'Team', key: 'team', render: (_, row) => <div className="pm-team"><MaterialSymbol name={row.avatar} label="" /><span><strong>{row.name}</strong><small>{row.team_leader}</small></span></div> },
     { title: 'Evaluations', dataIndex: 'evaluated', key: 'evaluated', width: 120, align: 'center' },
@@ -111,7 +116,7 @@ export function ProjectPerformancePage({ overview = false }: { overview?: boolea
       <div className="pm-performance__actions"><Button icon={<FileSearchOutlined />} onClick={() => navigate('/calls')}>Call library</Button><Button type="primary" icon={<AuditOutlined />} onClick={() => navigate('/queue')}>QA reports</Button></div>
     </div>
     <div className="pm-performance__filters">
-      <Select className="pm-project-select" allowClear showSearch={{ optionFilterProp: 'label' }} value={project || undefined} placeholder={user?.role === 'supervisor' ? 'All branch projects' : 'All assigned projects'} options={projectOptions} onChange={(value) => setProject(value ?? '')} aria-label="Filter by project" />
+      <DialerProjectFilter key={preferenceKey} storageKey={preferenceKey} groups={data?.project_groups ?? []} value={project} onChange={setProject} placeholder={user?.role === 'supervisor' ? 'All branch projects' : 'All assigned projects'} loading={loading} />
       <Segmented<WindowDays> value={days} onChange={setDays} options={[{ label: 'Today', value: 1 }, { label: '7 days', value: 7 }, { label: '30 days', value: 30 }, { label: '90 days', value: 90 }]} />
       {data && <Text className="pm-performance__freshness" type="secondary">Updated {appDate(data.generated_at).format('DD MMM, h:mm A')} ET</Text>}
     </div>

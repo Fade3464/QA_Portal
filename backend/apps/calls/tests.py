@@ -406,6 +406,10 @@ class WebhookTests(TestCase):
         performance = self.client.get(reverse("project-performance"))
         self.assertEqual(performance.status_code, 200, performance.content)
         self.assertEqual(performance.json()["projects"], ["Managed Project"])
+        self.assertEqual(performance.json()["project_groups"], [{
+            "dialer_id": str(self.dialer.pk), "dialer_name": self.dialer.name,
+            "projects": ["Managed Project"],
+        }])
         self.assertEqual(performance.json()["metrics"]["evaluated"], 1)
         self.assertEqual(performance.json()["metrics"]["average_score"], 92.0)
         self.assertEqual(performance.json()["metrics"]["critical"], 0)
@@ -1145,6 +1149,37 @@ class SupervisorAccessTests(TestCase):
         self.assertEqual([row["id"] for row in response.json()["results"]], [str(self.calls[2].pk)])
         projects = CurrentUserSerializer(self.supervisor).data["assigned_projects"]
         self.assertEqual([row["id"] for row in projects], [str(self.projects[2].pk)])
+
+    def test_grouped_project_filter_separates_same_names_on_different_dialers(self):
+        self.projects[1].project_name = self.projects[0].project_name
+        self.projects[1].save(update_fields=["project_name"])
+        # Multiple campaign mappings for the same dialer/project stay one option.
+        DialerCampaign.objects.create(
+            dialer=self.projects[0].dialer, campaign="EXTRA", project_name="Project 0"
+        )
+        self.reports[1].status = Review.Status.COMPLETED
+        self.reports[1].score = 50
+        self.reports[1].completed_at = timezone.now()
+        self.reports[1].save()
+        response = self.client.get(reverse("project-performance"), {
+            "project": "Project 0", "dialer": str(self.projects[0].dialer_id),
+        })
+        self.assertEqual(response.status_code, 200, response.content)
+        payload = response.json()
+        self.assertEqual(payload["metrics"]["evaluated"], 1)
+        self.assertEqual(payload["metrics"]["average_score"], 90)
+        self.assertEqual(payload["selected_dialer"], str(self.projects[0].dialer_id))
+        self.assertEqual(payload["project_groups"], [
+            {"dialer_id": str(project.dialer_id), "dialer_name": project.dialer.name, "projects": ["Project 0"]}
+            for project in self.projects[:2]
+        ])
+        for dialer, project in [
+            (str(self.projects[2].dialer_id), "Project 2"),
+            ("not-a-uuid", "Project 0"),
+            (str(self.projects[0].dialer_id), "Project 2"),
+        ]:
+            rejected = self.client.get(reverse("project-performance"), {"dialer": dialer, "project": project})
+            self.assertEqual(rejected.status_code, 400)
 
     def test_supervisor_cannot_take_qa_or_team_leader_actions(self):
         report = self.reports[0]

@@ -288,6 +288,8 @@ export interface ProjectPerformance {
   window: { days: number; from: string; to: string };
   selected_project: string | null;
   projects: string[];
+  project_groups: Array<{ dialer_id: string; dialer_name: string; projects: string[] }>;
+  selected_dialer: string | null;
   metrics: {
     evaluated: number;
     scored: number;
