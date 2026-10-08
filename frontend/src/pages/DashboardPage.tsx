@@ -166,7 +166,7 @@ function TeamLeaderCommandCenter() {
   return <div className="page-stack leader-command">
     <div className="page-heading leader-command__heading">
       <Title level={2} className="page-title">Good {greeting()}, {user?.first_name}.</Title>
-      <Button type="primary" className="page-heading__action" icon={<InboxOutlined />} onClick={() => navigate('/queue')}>Open QA inbox</Button>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><Button onClick={() => navigate('/ai')}>Ask AI Insights</Button><Button type="primary" className="page-heading__action" icon={<InboxOutlined />} onClick={() => navigate('/queue')}>Open QA inbox</Button></div>
     </div>
     {error && <Alert type="error" showIcon title="Unable to load command center" description={error} action={<Button onClick={retry}>Try again</Button>} />}
     {loading ? <ContentLoader label="Loading team command center" minHeight={480} /> : !error && <div className="leader-command__content data-reveal">

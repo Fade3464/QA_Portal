@@ -35,7 +35,7 @@ import {
 } from 'antd';
 import type { Dayjs } from 'dayjs';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { AudioPlayer, type AudioRangeRequest } from '../components/AudioPlayerModal';
 import { formatEvidenceTime } from '../components/CriterionEvidenceEditor';
@@ -127,6 +127,8 @@ export function ReportsPage() {
 
 function ManagedReports({ canManage, personal = false }: { canManage: boolean; personal?: boolean }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const linkedReportId = new URLSearchParams(location.search).get('review');
   const { message } = AntApp.useApp();
   const [summary, setSummary] = useState<QAReportSummary | null>(null);
   const [reports, setReports] = useState<QAReport[]>([]);
@@ -150,7 +152,19 @@ function ManagedReports({ canManage, personal = false }: { canManage: boolean; p
   const [rangeRequest, setRangeRequest] = useState<AudioRangeRequest | null>(null);
   const detailRequest = useRef<AbortController | null>(null);
   useEffect(() => () => detailRequest.current?.abort(), []);
+  // AI evidence links use the same scoped report-detail API as the report table.
+  useEffect(() => {
+    if (!linkedReportId || !/^[0-9a-f-]{36}$/i.test(linkedReportId)) return;
+    const controller = new AbortController();
+    setDetailLoading(true);
+    api<QAReportDetail>(`/api/v1/calls/reports/${encodeURIComponent(linkedReportId)}/`, { signal: controller.signal })
+      .then((detail) => { if (!controller.signal.aborted) setSelected(detail); })
+      .catch((reason: unknown) => { if (!controller.signal.aborted) void message.error(reason instanceof Error ? reason.message : 'The linked QA report cannot be opened.'); })
+      .finally(() => { if (!controller.signal.aborted) setDetailLoading(false); });
+    return () => controller.abort();
+  }, [linkedReportId, message]);
   const closeReport = () => {
+    if (linkedReportId) navigate('/queue', { replace: true });
     detailRequest.current?.abort();
     setSelected(null);
     setDetailLoading(false);
@@ -488,6 +502,8 @@ function ReportManagementDrawer({ report, loading, canManage, oversight, persona
 function BasicReports() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const linkedReportId = new URLSearchParams(location.search).get('review');
   const isQa = user?.role === 'qa' && !user.is_superuser;
   const [reports, setReports] = useState<QAReport[]>([]);
   const [selected, setSelected] = useState<QAReport | null>(null);
@@ -496,6 +512,14 @@ function BasicReports() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
+  useEffect(() => {
+    if (!linkedReportId || !/^[0-9a-f-]{36}$/i.test(linkedReportId)) return;
+    const controller = new AbortController();
+    api<QAReportDetail>(`/api/v1/calls/reports/${encodeURIComponent(linkedReportId)}/`, { signal: controller.signal })
+      .then((detail) => { if (!controller.signal.aborted) setSelected(detail); })
+      .catch((reason: unknown) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'The linked report could not be opened.'); });
+    return () => controller.abort();
+  }, [linkedReportId]);
   useEffect(() => { let active = true; api<PaginatedResponse<QAReport>>(`/api/v1/calls/reports/?page=${page}&page_size=${pageSize}`).then((data) => { if (active) { setReports(data.results); setTotal(data.count); setError(''); } }).catch((requestError: unknown) => { if (active) setError(requestError instanceof ApiError ? requestError.message : 'QA reports could not be loaded.'); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [page, pageSize]);
   const sharedColumns: TableProps<QAReport>['columns'] = [
     { title: 'Agent', key: 'agent', render: (_, row) => <span className="report-agent"><strong>{row.agent_name || row.agent_user}</strong><small>{row.team_name || 'Unassigned team'}</small></span> },
@@ -516,7 +540,7 @@ function BasicReports() {
     { title: '', key: 'actions', width: 56, align: 'center', render: (_, row) => <Button type="text" shape="circle" icon={<EyeOutlined />} aria-label="View report" onClick={() => setSelected(row)} /> },
   ];
   const snapshot = selected?.scorecard_snapshot as QAScorecard | undefined;
-  return <div className="reports-page"><div className="page-heading"><Title level={2}>{isQa ? 'My QA reports' : 'Team reports'}</Title>{isQa && <Button type="primary" className="page-heading__action" icon={<SearchOutlined />} onClick={() => navigate('/calls')}>Find a call</Button>}</div><Card className="reports-card">{error && <Alert type="error" showIcon title="Unable to load reports" description={error} />}{loading ? <TableSkeleton rows={Math.min(pageSize, 8)} columns={isQa ? 6 : 7} label="Loading QA reports" /> : <Table<QAReport> rowKey="id" columns={columns} dataSource={reports} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No QA reports yet" /> }} scroll={{ x: isQa ? 820 : 980 }} pagination={{ current: page, pageSize, total, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], showTotal: (count) => `${count} reports` }} onChange={(pagination) => { setLoading(true); setPage(pagination.current ?? 1); setPageSize(pagination.pageSize ?? 20); }} />}</Card><Drawer open={Boolean(selected)} onClose={() => setSelected(null)} size="large" destroyOnHidden title={<Space><FileDoneOutlined /><span>QA report</span></Space>}>{selected && <ReportContents report={selected} snapshot={snapshot} />}</Drawer></div>;
+  return <div className="reports-page"><div className="page-heading"><Title level={2}>{isQa ? 'My QA reports' : 'Team reports'}</Title>{isQa && <Button type="primary" className="page-heading__action" icon={<SearchOutlined />} onClick={() => navigate('/calls')}>Find a call</Button>}</div><Card className="reports-card">{error && <Alert type="error" showIcon title="Unable to load reports" description={error} />}{loading ? <TableSkeleton rows={Math.min(pageSize, 8)} columns={isQa ? 6 : 7} label="Loading QA reports" /> : <Table<QAReport> rowKey="id" columns={columns} dataSource={reports} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No QA reports yet" /> }} scroll={{ x: isQa ? 820 : 980 }} pagination={{ current: page, pageSize, total, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], showTotal: (count) => `${count} reports` }} onChange={(pagination) => { setLoading(true); setPage(pagination.current ?? 1); setPageSize(pagination.pageSize ?? 20); }} />}</Card><Drawer open={Boolean(selected)} onClose={() => { setSelected(null); if (linkedReportId) navigate('/queue', { replace: true }); }} size="large" destroyOnHidden title={<Space><FileDoneOutlined /><span>QA report</span></Space>}>{selected && <ReportContents report={selected} snapshot={snapshot} />}</Drawer></div>;
 }
 
 function ReportContents({ report, snapshot }: { report: QAReport; snapshot?: QAScorecard }) {

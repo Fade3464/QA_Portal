@@ -6,6 +6,7 @@ import { AppShell } from './components/AppShell';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { ContentLoader } from './components/LoadingStates';
 import { useThemeSettings } from './theme/ThemeContext';
+import { canUseAI } from './lib/ai';
 
 const CallsPage = lazy(() => import('./pages/CallsPage').then((module) => ({ default: module.CallsPage })));
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })));
@@ -18,6 +19,7 @@ const AdministrationPage = lazy(() => import('./pages/AdministrationPage').then(
 const ReportsPage = lazy(() => import('./pages/ReportsPage').then((module) => ({ default: module.ReportsPage })));
 const ProjectPerformancePage = lazy(() => import('./pages/ProjectPerformancePage').then((module) => ({ default: module.ProjectPerformancePage })));
 const AccountPage = lazy(() => import('./pages/AccountPage').then((module) => ({ default: module.AccountPage })));
+const AIInsightsPage = lazy(() => import('./pages/AIInsightsPage').then((module) => ({ default: module.AIInsightsPage })));
 
 function ProtectedLayout() {
   const { user, loading } = useAuth();
@@ -37,6 +39,11 @@ function TeamPerformanceRoute() {
   const { user } = useAuth();
   if (user?.role === 'project_manager' || user?.role === 'supervisor') return <ProjectPerformancePage />;
   return user?.role === 'administrator' ? <PlaceholderPage /> : <Navigate to="/" replace />;
+}
+
+function AIInsightsRoute() {
+  const { user } = useAuth();
+  return canUseAI(user) ? <AIInsightsPage /> : <Navigate to="/" replace />;
 }
 
 function ManagementRoute() {
@@ -115,6 +122,7 @@ export default function App() {
               <Route path="queue" element={<ReportsPage />} />
               <Route path="team" element={<TeamPerformanceRoute />} />
               <Route path="insights" element={<ManagementRoute />} />
+              <Route path="ai" element={<AIInsightsRoute />} />
               <Route path="admin" element={<AdministratorRoute />} />
               <Route path="administration" element={<AdministratorRoute />} />
               <Route path="account" element={<AccountPage />} />

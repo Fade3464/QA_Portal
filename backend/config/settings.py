@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     "apps.dashboard",
     "apps.notifications",
     "apps.feedback",
+    "apps.ai_assistant",
 ]
 
 MIDDLEWARE = [
@@ -160,6 +161,7 @@ REST_FRAMEWORK = {
         "login": "10/minute",
         "password_reset": "5/hour",
         "custom_notifications": "20/hour",
+        "ai_chat": "15/hour",
     },
 }
 
@@ -293,3 +295,15 @@ LOGGING = {
         },
     },
 }
+
+# QA AI is opt-in. The provider endpoint is deployment configuration, never model input.
+AI_ENABLED = env_bool("AI_ENABLED", False)
+AI_LLM_PROVIDER = os.getenv("AI_LLM_PROVIDER", "openai_compatible")
+AI_LLM_BASE_URL = os.getenv("AI_LLM_BASE_URL", "").rstrip("/")
+AI_LLM_MODEL = os.getenv("AI_LLM_MODEL", "")
+AI_LLM_API_KEY = os.getenv("AI_LLM_API_KEY", "")
+AI_LLM_API_KEY_FILE = os.getenv("AI_LLM_API_KEY_FILE", "")
+AI_LLM_ALLOW_HTTP = env_bool("AI_LLM_ALLOW_HTTP", False)
+AI_EXTERNAL_DATA_EGRESS_ALLOWED = env_bool("AI_EXTERNAL_DATA_EGRESS_ALLOWED", False)
+AI_LLM_TIMEOUT_SECONDS = min(120, max(5, int(os.getenv("AI_LLM_TIMEOUT_SECONDS", "45"))))
+AI_LLM_MAX_OUTPUT_TOKENS = min(2048, max(128, int(os.getenv("AI_LLM_MAX_OUTPUT_TOKENS", "900"))))

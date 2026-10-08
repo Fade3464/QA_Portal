@@ -19,5 +19,6 @@ urlpatterns = [
     path("api/v1/calls/", include("apps.calls.urls")),
     path("api/v1/notifications/", include("apps.notifications.urls")),
     path("api/v1/feedback/", include("apps.feedback.urls")),
+    path("api/v1/ai/", include("apps.ai_assistant.urls")),
     path("api/v1/webhooks/vicidial/", include("apps.calls.webhook_urls")),
 ]

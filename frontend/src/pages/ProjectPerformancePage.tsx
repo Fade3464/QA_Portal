@@ -113,7 +113,7 @@ export function ProjectPerformancePage({ overview = false }: { overview?: boolea
   return <div className={`page-stack pm-performance${overview ? ' pm-performance--overview' : ''}`}>
     <div className="page-heading pm-performance__heading">
       <Title level={2} className="page-title">{overview ? 'Project quality overview' : 'Team performance'}</Title>
-      <div className="pm-performance__actions"><Button icon={<FileSearchOutlined />} onClick={() => navigate('/calls')}>Call library</Button><Button type="primary" icon={<AuditOutlined />} onClick={() => navigate('/queue')}>QA reports</Button></div>
+      <div className="pm-performance__actions"><Button onClick={() => navigate('/ai')}>Ask AI Insights</Button><Button icon={<FileSearchOutlined />} onClick={() => navigate('/calls')}>Call library</Button><Button type="primary" icon={<AuditOutlined />} onClick={() => navigate('/queue')}>QA reports</Button></div>
     </div>
     <div className="pm-performance__filters">
       <DialerProjectFilter key={preferenceKey} storageKey={preferenceKey} groups={data?.project_groups ?? []} value={project} onChange={setProject} placeholder={user?.role === 'supervisor' ? 'All branch projects' : 'All assigned projects'} loading={loading} />

@@ -10,6 +10,7 @@ import {
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  RobotOutlined,
   SettingOutlined,
   UserOutlined,
 } from '@ant-design/icons';
@@ -18,6 +19,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { api } from '../lib/api';
+import { canUseAI } from '../lib/ai';
 import { browserNotificationPermission, requestBrowserNotificationPermission, showBrowserNotification } from '../lib/browserNotifications';
 import { appDate } from '../lib/datetime';
 import type { CallReservation, NotificationResponse, SystemNotification } from '../types';
@@ -199,12 +201,13 @@ export function AppShell() {
       { key: '/', icon: <DashboardOutlined />, label: <Link to="/">{isQa ? 'QA overview' : 'Command center'}</Link> },
       { key: '/queue', icon: <AuditOutlined />, label: <Link to="/queue">{isQa ? 'My reports' : user?.role === 'team_leader' ? 'QA inbox' : 'QA reports'}</Link> },
       { key: '/calls', icon: <CustomerServiceOutlined />, label: <Link to="/calls">{isQa ? 'Calls for review' : 'Call library'}</Link> },
+      { key: '/ai', icon: <RobotOutlined />, label: <Link to="/ai">AI Insights</Link>, allowAI: true },
       { key: '/insights', icon: <BarChartOutlined />, label: <Link to="/insights">Quality insights</Link>, roles: ['administrator'] },
       { key: '/admin', icon: <SettingOutlined />, label: <Link to="/admin">Administration</Link>, roles: ['administrator'] },
       { key: '/account', icon: <UserOutlined />, label: <Link to="/account">Account</Link> },
     ];
-    return all.filter((item) => !item.roles || item.roles.includes(user?.role ?? ''));
-  }, [isQa, user?.role]);
+    return all.filter((item) => ('allowAI' in item ? canUseAI(user ?? null) : (!item.roles || item.roles.includes(user?.role ?? ''))));
+  }, [isQa, user]);
 
   const accountMenu: MenuProps['items'] = [
     { key: 'profile', label: 'My account', icon: <UserOutlined />, onClick: () => navigate('/account') },
