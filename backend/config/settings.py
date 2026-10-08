@@ -207,7 +207,6 @@ CELERY_TASK_TIME_LIMIT = 300
 # Python module path.
 CELERY_TASK_ROUTES = {
     "calls.*": {"queue": "recordings"},
-    "notifications.*": {"queue": "celery"},
 }
 
 AXES_ENABLED = True
@@ -241,6 +240,8 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_REFERRER_POLICY = "same-origin"
 X_FRAME_OPTIONS = "DENY"
 
+# Mail transport is retained for password resets only. Notification email
+# delivery has been removed and will be configured separately in the future.
 EMAIL_BACKEND = os.getenv(
     "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
 )
@@ -251,8 +252,6 @@ EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
 EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "20"))
-QA_REPORT_EMAIL_ENABLED = env_bool("QA_REPORT_EMAIL_ENABLED", False)
-QA_RETURN_EMAIL_ENABLED = env_bool("QA_RETURN_EMAIL_ENABLED", False)
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 DIALER_CREDENTIAL_KEY = os.getenv("DIALER_CREDENTIAL_KEY", "")
 if not DIALER_CREDENTIAL_KEY:

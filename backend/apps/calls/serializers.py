@@ -69,8 +69,6 @@ class ReviewSerializer(serializers.ModelSerializer):
             "team_leader_name",
             "assigned_at",
             "completed_at",
-            "email_status",
-            "email_sent_at",
             "leader_status",
             "leader_status_label",
             "coaching_due_at",
@@ -97,8 +95,6 @@ class ReviewSerializer(serializers.ModelSerializer):
             "team_leader",
             "assigned_at",
             "completed_at",
-            "email_status",
-            "email_sent_at",
             "leader_status",
             "coaching_due_at",
             "leader_reviewed_at",
@@ -201,8 +197,6 @@ class ReviewWorkflowEventSerializer(serializers.ModelSerializer):
             "to_status_label",
             "note",
             "coaching_due_at",
-            "email_status",
-            "email_sent_at",
             "created_at",
         )
 

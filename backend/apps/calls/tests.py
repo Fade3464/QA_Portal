@@ -13,7 +13,9 @@ from celery.exceptions import Retry
 from cryptography.fernet import Fernet
 from django.core.exceptions import ValidationError
 from django.core import mail
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
+from django.db import connection
+from django.db.migrations.executor import MigrationExecutor
 from django.urls import reverse
 from django.utils import timezone
 
@@ -48,10 +50,6 @@ from .tasks import (
     resolve_recording,
 )
 from .webhooks import infer_call_direction, infer_dial_method
-from apps.notifications.tasks import (
-    send_review_report_email,
-    send_review_returned_email,
-)
 
 
 class CallClassificationTests(SimpleTestCase):
@@ -1875,7 +1873,7 @@ class AnalysisReservationTests(TestCase):
         self.assertEqual(review.reviewer, self.qa_one)
         self.assertEqual(review.team_leader, self.team_leader)
         self.assertEqual(review.status, Review.Status.COMPLETED)
-        self.assertEqual(review.email_status, Review.EmailStatus.DISABLED)
+        self.assertNotIn("email_status", response.json())
 
         notification = SystemNotification.objects.get(
             category=SystemNotification.Category.QA_REPORT_READY
@@ -2264,66 +2262,111 @@ class AnalysisReservationTests(TestCase):
     @override_settings(
         QA_REPORT_EMAIL_ENABLED=True,
         EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
-        DEFAULT_FROM_EMAIL="qa@example.com",
-        FRONTEND_URL="https://qa.example.com",
     )
-    def test_completed_report_email_task_is_idempotent(self):
-        review = Review.objects.create(
-            call=self.call,
-            reviewer=self.qa_one,
-            team_leader=self.team_leader,
-            status=Review.Status.COMPLETED,
-            score=95,
-            rating=Review.Rating.EXCELLENT,
-            outcome=Review.Outcome.EXCEEDS_EXPECTATIONS,
-            feedback_summary="A strong call.",
-            improvement_areas="Ask one more discovery question.",
-            expected_behavior="Complete every discovery step.",
-            email_status=Review.EmailStatus.PENDING,
-            completed_at=timezone.now(),
+    def test_submission_keeps_push_notifications_without_legacy_email(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        with patch("celery.app.task.Task.apply_async") as enqueue:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(
+                    self.url("call-review-submit"), self.submission(),
+                    content_type="application/json",
+                )
+        self.assertEqual(response.status_code, 200, response.content)
+        enqueue.assert_not_called()
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertNotIn("email_status", response.json())
+        notification = SystemNotification.objects.get(
+            category=SystemNotification.Category.QA_REPORT_READY
         )
-        first = send_review_report_email.apply(args=[str(review.pk)]).get()
-        second = send_review_report_email.apply(args=[str(review.pk)]).get()
-        self.assertEqual(first["status"], "sent")
-        self.assertEqual(second["status"], "already_sent")
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertEqual(mail.outbox[0].to, [self.team_leader.email])
+        self.assertTrue(notification.recipients.filter(pk=self.team_leader.pk).exists())
 
     @override_settings(
         QA_RETURN_EMAIL_ENABLED=True,
         EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
-        DEFAULT_FROM_EMAIL="qa@example.com",
-        FRONTEND_URL="https://qa.example.com",
     )
-    def test_returned_report_email_task_is_idempotent_and_targets_qa(self):
+    def test_return_keeps_push_notifications_without_legacy_email(self):
         review = Review.objects.create(
-            call=self.call,
-            reviewer=self.qa_one,
-            team_leader=self.team_leader,
-            status=Review.Status.REVISION_REQUIRED,
-            leader_status=Review.LeaderStatus.RETURNED_TO_QA,
-            revision_reason="Recheck the compliance evidence.",
-            revision_count=1,
-            revision_requested_at=timezone.now(),
-            completed_at=timezone.now(),
+            call=self.call, reviewer=self.qa_one, team_leader=self.team_leader,
+            status=Review.Status.COMPLETED, completed_at=timezone.now(),
         )
-        event = ReviewWorkflowEvent.objects.create(
-            review=review,
-            actor=self.team_leader,
-            event_type=ReviewWorkflowEvent.EventType.STATUS_CHANGED,
-            from_status=Review.LeaderStatus.PENDING,
-            to_status=Review.LeaderStatus.RETURNED_TO_QA,
-            note=review.revision_reason,
-            email_status=Review.EmailStatus.PENDING,
+        self.client.force_login(self.team_leader)
+        with patch("celery.app.task.Task.apply_async") as enqueue:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(
+                    reverse("review-report-action", kwargs={"pk": review.pk}),
+                    {"leader_status": Review.LeaderStatus.RETURNED_TO_QA,
+                     "note": "Recheck the compliance evidence."},
+                    content_type="application/json",
+                )
+        self.assertEqual(response.status_code, 200, response.content)
+        enqueue.assert_not_called()
+        self.assertEqual(len(mail.outbox), 0)
+        event = ReviewWorkflowEvent.objects.get(review=review)
+        self.assertEqual(event.to_status, Review.LeaderStatus.RETURNED_TO_QA)
+        self.assertNotIn("email_status", response.json()["workflow_events"][0])
+        notification = SystemNotification.objects.get(
+            category=SystemNotification.Category.QA_REPORT_RETURNED
         )
-        first = send_review_returned_email.apply(args=[str(event.pk)]).get()
-        second = send_review_returned_email.apply(args=[str(event.pk)]).get()
-        self.assertEqual(first["status"], "sent")
-        self.assertEqual(second["status"], "already_sent")
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertEqual(mail.outbox[0].to, [self.qa_one.email])
-        self.assertIn(review.revision_reason, mail.outbox[0].body)
-        self.assertIn(f"/calls?analysis={self.call.pk}", mail.outbox[0].body)
+        self.assertTrue(notification.recipients.filter(pk=self.qa_one.pk).exists())
+
+
+class NotificationMailRemovalTests(SimpleTestCase):
+    def test_old_notification_mail_tasks_are_not_registered(self):
+        celery_app.loader.import_default_modules()
+        self.assertNotIn("notifications.send_review_report_email", celery_app.tasks)
+        self.assertNotIn("notifications.send_review_returned_email", celery_app.tasks)
+
+    def test_legacy_delivery_fields_are_removed_from_both_models(self):
+        for model in (Review, ReviewWorkflowEvent):
+            fields = {field.name for field in model._meta.get_fields()}
+            self.assertTrue(fields.isdisjoint({"email_status", "email_sent_at", "email_last_error"}))
+
+
+class NotificationMailMigrationTests(TransactionTestCase):
+    def test_retirement_preserves_existing_report_and_workflow(self):
+        previous = [("calls", "0014_review_criterion_applicability")]
+        current = [("calls", "0015_remove_legacy_notification_email")]
+        executor = MigrationExecutor(connection)
+        executor.migrate(previous)
+        try:
+            old_apps = executor.loader.project_state(previous).apps
+            company = Company.objects.create(name="Migration", slug="mail-migration")
+            branch = Branch.objects.create(company=company, name="Main", code="main")
+            reviewer = User.objects.create_user(
+                email="migration@example.com", first_name="QA", last_name="Analyst",
+                role=User.Role.QA, company=company, branch=branch,
+            )
+            dialer = Dialer.objects.create(
+                branch=branch, name="Migration dialer",
+                api_url="https://dialer.example.com/non_agent_api.php", api_username="api",
+            )
+            call = CallEvent.objects.create(
+                dialer=dialer, branch=branch, event_key="mail-migration".ljust(64, "0"),
+                event_type=CallEvent.EventType.DISPOSITION,
+            )
+            old_review = old_apps.get_model("calls", "Review").objects.create(
+                call_id=call.pk, reviewer_id=reviewer.pk, status="completed",
+                score=92, feedback_summary="Preserve the evaluation.",
+                email_status="sent", email_sent_at=timezone.now(),
+            )
+            old_event = old_apps.get_model("calls", "ReviewWorkflowEvent").objects.create(
+                review_id=old_review.pk, actor_id=reviewer.pk,
+                event_type="note_added", note="Preserve the workflow note.",
+                email_status="failed", email_last_error="Old transport error",
+            )
+            MigrationExecutor(connection).migrate(current)
+            review = Review.objects.get(pk=old_review.pk)
+            self.assertEqual(review.score, 92)
+            self.assertEqual(review.feedback_summary, "Preserve the evaluation.")
+            self.assertEqual(review.reviewer_id, reviewer.pk)
+            self.assertEqual(ReviewWorkflowEvent.objects.get(pk=old_event.pk).note, "Preserve the workflow note.")
+            with connection.cursor() as cursor:
+                for model in (Review, ReviewWorkflowEvent):
+                    columns = {column.name for column in connection.introspection.get_table_description(cursor, model._meta.db_table)}
+                    self.assertTrue(columns.isdisjoint({"email_status", "email_sent_at", "email_last_error"}))
+        finally:
+            MigrationExecutor(connection).migrate(current)
 
 
 class RecordingTaskConfigurationTests(TestCase):

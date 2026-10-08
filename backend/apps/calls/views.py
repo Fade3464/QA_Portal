@@ -8,7 +8,6 @@ from uuid import UUID
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
-from django.conf import settings
 from django.db import transaction
 from django.db.models import (
     Avg,
@@ -379,11 +378,6 @@ class CallReviewSubmitView(APIView):
             score = evaluation.score
         rating, outcome = rating_for(score, bool(critical_errors))
         now = timezone.now()
-        email_status = (
-            Review.EmailStatus.PENDING
-            if settings.QA_REPORT_EMAIL_ENABLED
-            else Review.EmailStatus.DISABLED
-        )
         for field, value in merged.items():
             setattr(review, field, value)
         review.critical_errors = critical_errors
@@ -405,8 +399,6 @@ class CallReviewSubmitView(APIView):
         review.team_leader = team_leader
         review.status = Review.Status.COMPLETED
         review.completed_at = now
-        review.email_status = email_status
-        review.email_last_error = ""
         if is_resubmission:
             review.leader_status = Review.LeaderStatus.PENDING
             review.leader_reviewed_at = None
@@ -434,12 +426,6 @@ class CallReviewSubmitView(APIView):
             resolve_review_returned_notifications(review)
         notification = queue_review_report_notification(review)
         transaction.on_commit(lambda: _broadcast_reservation(call, review))
-        if settings.QA_REPORT_EMAIL_ENABLED:
-            from apps.notifications.tasks import send_review_report_email
-
-            transaction.on_commit(
-                lambda: send_review_report_email.delay(str(review.pk))
-            )
         response = ReviewSerializer(review).data
         response["notification_id"] = str(notification.pk)
         return Response(response)
@@ -1134,12 +1120,6 @@ class ReviewReportActionView(APIView):
             to_status=target,
             note=note,
             coaching_due_at=review.coaching_due_at,
-            email_status=(
-                Review.EmailStatus.PENDING
-                if target == Review.LeaderStatus.RETURNED_TO_QA
-                and settings.QA_RETURN_EMAIL_ENABLED
-                else Review.EmailStatus.DISABLED
-            ),
         )
         from apps.notifications.services import (
             queue_review_returned_notification,
@@ -1149,12 +1129,6 @@ class ReviewReportActionView(APIView):
         resolve_review_report_notification(review, request.user)
         if target == Review.LeaderStatus.RETURNED_TO_QA:
             queue_review_returned_notification(review, workflow_event)
-            if settings.QA_RETURN_EMAIL_ENABLED:
-                from apps.notifications.tasks import send_review_returned_email
-
-                transaction.on_commit(
-                    lambda: send_review_returned_email.delay(str(workflow_event.pk))
-                )
         review = (
             _report_base_queryset()
             .prefetch_related("workflow_events__actor")

@@ -2,6 +2,7 @@ import io
 import tempfile
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core import mail
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from PIL import Image
@@ -39,6 +40,17 @@ class AuthenticationTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 403)
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_password_reset_email_remains_available(self):
+        response = self.client.post(
+            reverse("password-reset"), {"email": self.user.email},
+            content_type="application/json", HTTP_X_CSRFTOKEN=self.csrf(),
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, [self.user.email])
+        self.assertIn("/reset-password?uid=", mail.outbox[0].body)
 
     def test_login_and_logout(self):
         token = self.csrf()

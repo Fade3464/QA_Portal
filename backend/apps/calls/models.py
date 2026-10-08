@@ -360,12 +360,6 @@ class Review(models.Model):
         )
         IMMEDIATE_ESCALATION = "immediate_escalation", "Immediate Escalation"
 
-    class EmailStatus(models.TextChoices):
-        DISABLED = "disabled", "Disabled"
-        PENDING = "pending", "Pending"
-        SENT = "sent", "Sent"
-        FAILED = "failed", "Failed"
-
     class LeaderStatus(models.TextChoices):
         PENDING = "pending", "Needs review"
         ACKNOWLEDGED = "acknowledged", "Reviewed"
@@ -462,13 +456,6 @@ class Review(models.Model):
         null=True,
         blank=True,
     )
-    email_status = models.CharField(
-        max_length=16,
-        choices=EmailStatus.choices,
-        default=EmailStatus.DISABLED,
-    )
-    email_sent_at = models.DateTimeField(null=True, blank=True)
-    email_last_error = models.TextField(blank=True)
     leader_status = models.CharField(
         max_length=24,
         choices=LeaderStatus.choices,
@@ -536,13 +523,6 @@ class ReviewWorkflowEvent(models.Model):
     to_status = models.CharField(max_length=24, blank=True)
     note = models.TextField(blank=True)
     coaching_due_at = models.DateTimeField(null=True, blank=True)
-    email_status = models.CharField(
-        max_length=16,
-        choices=Review.EmailStatus.choices,
-        default=Review.EmailStatus.DISABLED,
-    )
-    email_sent_at = models.DateTimeField(null=True, blank=True)
-    email_last_error = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

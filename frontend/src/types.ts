@@ -114,8 +114,6 @@ export interface ReviewWorkflowEvent {
   to_status_label: string;
   note: string;
   coaching_due_at: string | null;
-  email_status: 'disabled' | 'pending' | 'sent' | 'failed';
-  email_sent_at: string | null;
   created_at: string;
 }
 
@@ -154,8 +152,6 @@ export interface QAReview {
   team_leader_name: string | null;
   assigned_at: string;
   completed_at: string | null;
-  email_status: 'disabled' | 'pending' | 'sent' | 'failed';
-  email_sent_at: string | null;
   leader_status: TeamLeaderReportStatus;
   leader_status_label: string;
   coaching_due_at: string | null;

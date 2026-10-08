@@ -131,7 +131,28 @@ The endpoint responds immediately after the call is stored. A Celery worker perf
 - Recording downloads require HTTPS, an explicit host allowlist, supported audio types, and a size cap.
 - Login, logout, failures, and password reset operations are audited.
 
-For public deployment, set `PRODUCTION=true`, configure trusted HTTPS origins/hosts, terminate TLS at the load balancer, use managed secrets, configure SMTP, and rotate the bootstrap administrator password out of the environment after first use. Production mode forces debug off and HTTPS redirects on; the edge proxy must preserve `X-Forwarded-Proto: https`.
+For public deployment, set `PRODUCTION=true`, configure trusted HTTPS origins/hosts, terminate TLS at the load balancer, use managed secrets, configure SMTP for password resets, and rotate the bootstrap administrator password out of the environment after first use. Production mode forces debug off and HTTPS redirects on; the edge proxy must preserve `X-Forwarded-Proto: https`.
+
+## Retiring legacy Gmail notification delivery
+
+Report-submission and report-return email senders have been removed. In-app and browser notifications remain active; password-reset emails still use the generic Django `EMAIL_*` transport. Remove obsolete `QA_REPORT_EMAIL_ENABLED` and `QA_RETURN_EMAIL_ENABLED` entries from deployment environments. Do not remove shared SMTP credentials if password resets use them. No replacement notification mail scheme is enabled yet.
+
+Migration `calls.0015_remove_legacy_notification_email` removes only the old delivery status, sent timestamp, and error columns from reports/workflow events. Reports, scores, recipients, and workflow history remain. Reversing the migration recreates empty/default columns; old delivery metadata can only be recovered from a database backup.
+
+Deploy during a maintenance window: stop old application/worker processes before applying this migration, so they cannot query removed columns or send old notifications. Build first, then back up and migrate:
+
+```bash
+docker compose build backend worker frontend
+docker compose stop -t 300 backend worker
+mail_removal_backup="calllens-before-mail-removal-$(date -u +%Y%m%dT%H%M%SZ).dump"
+docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$mail_removal_backup"
+docker compose exec -T db pg_restore --list < "$mail_removal_backup"
+docker compose run --rm --no-deps -e DB_DIRECT=true --entrypoint python backend manage.py migrate --noinput
+docker compose up -d --no-deps backend worker frontend
+docker compose logs --tail=100 backend worker
+```
+
+Check that the backup command succeeds and the backup is usable before migrating. Workers must restart on the new image. Previously queued `notifications.send_review_report_email` / `notifications.send_review_returned_email` messages are no longer registered and will be discarded by Celery (with an unregistered-task log); they cannot send mail. Do not purge Redis or the recording queue. Recording task limits, worker concurrency, and queue topology are unchanged.
 
 ## Checks
 
