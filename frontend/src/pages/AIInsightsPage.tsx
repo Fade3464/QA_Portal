@@ -18,6 +18,7 @@ import { useAuth } from '../auth/AuthContext';
 import { ApiError } from '../lib/api';
 import { aiApi, aiSuggestedQuestions, type AIConversation, type AIEvidence, type AIMessage, type AIMetadata } from '../lib/ai';
 import { appDate } from '../lib/datetime';
+import { SafeAIText } from '../components/SafeAIText';
 
 const { Text, Title } = Typography;
 
@@ -62,8 +63,7 @@ function Transcript({ messages, waiting }: { messages: AIMessage[]; waiting: boo
           <div className="ai-message__avatar" aria-hidden="true">{item.role === 'assistant' ? <RobotOutlined /> : 'You'}</div>
           <div className="ai-message__body">
             <div className="ai-message__meta"><strong>{item.role === 'assistant' ? 'QA Assistant' : 'You'}</strong><span>{appDate(item.created_at).format('DD MMM, h:mm A')}</span></div>
-            {/* Deliberately render model output as plain text, never HTML. */}
-            <div className="ai-message__content">{item.content}</div>
+            <div className="ai-message__content">{item.role === 'assistant' ? <SafeAIText content={item.content} /> : item.content}</div>
             {item.role === 'assistant' && item.interpretation?.intent && (
               <div className="ai-interpretation" aria-label="Reporting interpretation">
                 <Tag color="default">{item.interpretation.intent.replaceAll('_', ' ')}</Tag>

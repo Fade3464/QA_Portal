@@ -303,6 +303,8 @@ if AI_ENGINE_VERSION not in {'v1', 'v2', 'v3'}:
 
 # QA AI is opt-in. The provider endpoint is deployment configuration, never model input.
 AI_ENABLED = env_bool("AI_ENABLED", False)
+# Opt-in only after securing the model transport; free-text QA feedback may contain personal data.
+AI_SEND_REVIEW_FEEDBACK = env_bool("AI_SEND_REVIEW_FEEDBACK", False)
 AI_LLM_PROVIDER = os.getenv("AI_LLM_PROVIDER", "openai_compatible")
 AI_LLM_BASE_URL = os.getenv("AI_LLM_BASE_URL", "").rstrip("/")
 AI_LLM_MODEL = os.getenv("AI_LLM_MODEL", "")

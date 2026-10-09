@@ -17,7 +17,7 @@ from .core import (
 
 def find_pending_reviews(*, user, mode='current_backlog', older_than_days=0, limit=20,
                          date_from=None, date_to=None, company_id=None, branch_id=None,
-                         team_id=None, project_name=None, agent_user=None, team_leader_id=None):
+                         team_id=None, project_name=None, agent_user=None, dialer_id=None, team_leader_id=None):
     """Current outstanding ≠ submissions in period. No default 30-day exclusion.
 
     A historical snapshot cannot be derived from current leader_status; current_backlog
@@ -26,7 +26,7 @@ def find_pending_reviews(*, user, mode='current_backlog', older_than_days=0, lim
     if mode not in {'current_backlog', 'submitted_in_period'}:
         raise ValidationError({'mode': 'Unsupported backlog interpretation.'})
     filters = dict(company_id=company_id, branch_id=branch_id, team_id=team_id,
-                   project_name=project_name, agent_user=agent_user)
+                   project_name=project_name, agent_user=agent_user, dialer_id=dialer_id)
     all_pending = _base(user, all_time=True, **filters).filter(
         leader_status=Review.LeaderStatus.PENDING
     )

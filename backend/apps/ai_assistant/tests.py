@@ -469,3 +469,186 @@ class V3InvestigationIntegrationTests(TestCase):
             result = run_ai(self.pm, 'How many reports pending?')
         self.assertNotIn('999', result['answer'])
         self.assertIn('replaced', result['warnings'][0])
+
+
+class V3ContextAndConversationTests(SimpleTestCase):
+    """Static domain intent constraints: Qwen cannot reinterpret known metrics."""
+    def test_typo_normalization_does_not_change_business_names(self):
+        from .investigation import _normalize_question, _requires_tool, _rubric_outline
+        q = _normalize_question('how many evalutions for ArenMedicare dialr yesteray?')
+        self.assertIn('evaluations', q)
+        self.assertIn('ArenMedicare', q)
+        self.assertIn('dialer', q)
+        self.assertIn('yesterday', q)
+        self.assertEqual(_requires_tool(q), 'list_visible_dialers')
+        self.assertIn('Active listening', _rubric_outline())
+
+    def test_never_use_an_error_type_table_to_identify_worst_agent(self):
+        from .investigation import _requires_tool, _safe_fallback, _followup
+        self.assertEqual(_requires_tool('which agent had the most critical violations?'), 'rank_agents')
+        self.assertEqual(_requires_tool('how many calls were received in Call Library this week'),
+                         'get_call_library_overview')
+        self.assertFalse(_followup('How many evaluations for our projects?'))
+        self.assertTrue(_followup('and Asim Jamal?'))
+        self.assertIn('does not identify', _safe_fallback([{
+            'name': 'get_critical_error_summary', 'arguments': {},
+            'data': {'reviews_with_critical_errors': 7}}]))
+
+    def test_safe_answer_fallback_for_volumes_and_rankings(self):
+        from .investigation import _safe_fallback, _is_greeting
+        self.assertTrue(_is_greeting('are you there?'))
+        self.assertIn('2 call-library records', _safe_fallback([{
+            'name': 'get_call_library_overview', 'arguments': {}, 'data': {'calls_received':2}}]))
+        self.assertIn('agent001', _safe_fallback([{
+            'name': 'rank_agents', 'arguments': {}, 'data': {'metric': 'critical_error_reviews',
+                'agents': [{'agent_name':'Agent 001', 'agent_user':'agent001', 'critical_error_reviews':2}]}}]))
+
+
+@override_settings(AI_ENABLED=True, AI_ENGINE_VERSION='v3')
+class V3AuthorizedContextTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        AIAccessIntegrationTests.setUpTestData.__func__(cls)
+
+    def test_dialer_is_not_project_and_exact_filter_narrows_reports(self):
+        from apps.analytics.services.context import list_visible_dialers
+        found = list_visible_dialers(user=self.pm, search='Dialer One')
+        self.assertEqual(len(found['dialers']), 1)
+        self.assertEqual(found['dialers'][0]['evaluations'], 2)
+        self.assertEqual(found['dialers'][0]['match'], 'exact')
+        self.assertEqual(invoke('get_qa_overview', self.pm, {
+            'dialer_id': str(self.dialer.id)})['metrics']['evaluations'], 2)
+        self.assertFalse(list_visible_dialers(user=self.other_supervisor,
+                                             search='Dialer One')['dialers'])
+        self.assertFalse(list_visible_dialers(user=self.pm,
+                                              search='Unknown Dialer')['dialers'])
+
+    def test_typo_person_search_only_within_authorized_report_scope(self):
+        from .person_tools import lookup_visible_people
+        found = lookup_visible_people(user=self.pm, search='tl1 Tset', role='team_leader')
+        self.assertEqual(len(found['matches']), 1)
+        self.assertEqual(found['matches'][0]['match_type'], 'approximate')
+        self.assertEqual(found['matches'][0]['id'], str(self.tl1.id))
+        invisible = lookup_visible_people(user=self.pm, search='tl2 Tset', role='team_leader')
+        self.assertFalse(invisible['matches'])
+
+    def test_call_library_uses_existing_visibility_and_counts_unreviewed_calls(self):
+        from apps.analytics.services.context import get_call_library_overview
+        extra = CallEvent.objects.create(
+            dialer=self.dialer, branch=self.branch, team=self.team1, campaign='CAMP-A',
+            event_key='additional-unreviewed-call', event_type=CallEvent.EventType.DISPOSITION)
+        result = get_call_library_overview(user=self.pm)
+        self.assertEqual(result['calls_received'], 3)
+        self.assertEqual(get_call_library_overview(user=self.tl1)['calls_received'], 3)
+        self.assertEqual(get_call_library_overview(user=self.other_supervisor)['calls_received'], 0)
+        with self.assertRaises(PermissionDenied):
+            get_call_library_overview(user=self.qa)
+
+    @override_settings(AI_SEND_REVIEW_FEEDBACK=False)
+    def test_qa_heading_context_by_review_id_is_scoped_and_redacted_by_default(self):
+        from apps.analytics.services.context import get_review_qa_context, get_qa_feedback_examples
+        report = self.reviews[0]
+        report.improvement_areas = 'Tell caller +1 (202) 555-0123 to say yes.'
+        report.save(update_fields=['improvement_areas'])
+        detail = get_review_qa_context(user=self.pm, review_id=str(report.pk))
+        self.assertTrue(detail['found'])
+        self.assertTrue(detail['headings'])
+        self.assertIn('disabled', detail['reviewer_feedback'])
+        self.assertFalse(get_review_qa_context(user=self.other_supervisor,
+                                                review_id=str(report.pk))['found'])
+        self.assertEqual(get_qa_feedback_examples(user=self.pm)['examples'], [])
+
+    @override_settings(AI_SEND_REVIEW_FEEDBACK=True)
+    def test_review_written_improvement_context_is_bounded_and_redacted(self):
+        from apps.analytics.services.context import get_review_qa_context, get_qa_feedback_examples
+        review = self.reviews[0]
+        review.improvement_areas = 'Coach opening. Contact 2025550123 or coach@example.org.'
+        review.expected_behavior = 'Use professional greeting.'
+        review.save(update_fields=['improvement_areas', 'expected_behavior'])
+        detail = get_review_qa_context(user=self.pm, review_id=str(review.pk))
+        self.assertIn('Coach opening', detail['reviewer_feedback']['improvement_areas'])
+        self.assertNotIn('2025550123', detail['reviewer_feedback']['improvement_areas'])
+        self.assertNotIn('coach@example.org', detail['reviewer_feedback']['improvement_areas'])
+        sample = get_qa_feedback_examples(user=self.pm)
+        self.assertEqual(len(sample['examples']), 1)
+        self.assertTrue(sample['sample_only'])
+        self.assertFalse(get_qa_feedback_examples(user=self.other_supervisor)['examples'])
+
+    @override_settings(AI_SEND_REVIEW_FEEDBACK=False)
+    def test_historical_scorecard_snapshot_is_preferred_over_current_policy(self):
+        from apps.analytics.services.context import get_review_qa_context
+        review = self.reviews[0]
+        review.scorecard_snapshot = {'categories': [
+            {'key': 'opening', 'label': 'Historical Opening', 'criteria': [
+                {'key': 'professional_greeting', 'label': 'Historical Greeting', 'max_score': 7}]}]}
+        review.scorecard_version = 'old-version'
+        review.save(update_fields=['scorecard_snapshot', 'scorecard_version'])
+        detail = get_review_qa_context(user=self.pm, review_id=str(review.pk))
+        self.assertEqual(detail['rubric_source'], 'review_snapshot')
+        self.assertEqual(detail['headings'][0]['heading'], 'Historical Opening')
+        self.assertEqual(detail['headings'][0]['subheadings'][0]['max_points'], 7)
+
+    def test_singular_our_project_does_not_expand_to_other_projects(self):
+        from unittest.mock import Mock
+        from .investigation import run_ai
+        from .provider import Completion
+        def tc(name, args, identifier):
+            return {'type': 'function', 'id': identifier,
+                    'function': {'name': name, 'arguments': json.dumps(args)}}
+        provider = Mock()
+        provider.complete.side_effect = [
+            Completion(message={'tool_calls': [tc('select_qa_tools',
+                {'names': ['get_qa_overview']}, 'sel')]}, finish_reason='tool_calls'),
+            Completion(message={'tool_calls': [tc('get_qa_overview',
+                {'project_name': 'Project B'}, 'overview')]}, finish_reason='tool_calls'),
+            Completion(message={'content': 'There were 2 completed evaluations for the project.'},
+                       finish_reason='stop'),
+        ]
+        with patch('apps.ai_assistant.investigation.get_provider', return_value=provider), \
+             patch('apps.ai_assistant.investigation.invoke', wraps=invoke) as database_tool:
+            result = run_ai(self.pm, 'How many evaluations were submitted in total for our project?')
+        self.assertEqual(database_tool.call_args.args[2]['project_name'], 'Project A')
+        self.assertIn('2', result['answer'])
+
+    def test_model_wrong_violation_ranking_metric_is_corrected_by_django(self):
+        from unittest.mock import Mock
+        from .investigation import run_ai
+        from .provider import Completion
+        def tc(name, args, identifier):
+            return {'type': 'function', 'id': identifier,
+                    'function': {'name': name, 'arguments': json.dumps(args)}}
+        provider = Mock()
+        provider.complete.side_effect = [
+            Completion(message={'tool_calls': [tc('select_qa_tools',
+                {'names': ['rank_agents']}, 'sel')]}, finish_reason='tool_calls'),
+            Completion(message={'tool_calls': [tc('rank_agents',
+                {'metric': 'average_score', 'order': 'best'}, 'rank')]}, finish_reason='tool_calls'),
+            Completion(message={'content': 'Agent agent001 had 2 critical error reviews.'},
+                       finish_reason='stop'),
+        ]
+        with patch('apps.ai_assistant.investigation.get_provider', return_value=provider), \
+             patch('apps.ai_assistant.investigation.invoke', wraps=invoke) as database_tool:
+            run_ai(self.pm, 'Which agent had the most violations?')
+        self.assertEqual(database_tool.call_args.args[2]['metric'], 'critical_error_reviews')
+        self.assertEqual(database_tool.call_args.args[2]['order'], 'worst')
+
+    def test_approximate_dialer_name_asks_confirmation_instead_of_guessing_total(self):
+        from unittest.mock import Mock
+        from .investigation import run_ai
+        from .provider import Completion
+        def tc(name, args, identifier):
+            return {'type': 'function', 'id': identifier,
+                    'function': {'name': name, 'arguments': json.dumps(args)}}
+        provider = Mock()
+        provider.complete.side_effect = [
+            Completion(message={'tool_calls': [tc('select_qa_tools',
+                {'names': ['list_visible_dialers']}, 'sel')]}, finish_reason='tool_calls'),
+            Completion(message={'tool_calls': [tc('list_visible_dialers',
+                {'search': 'Dialer On'}, 'dialer')]}, finish_reason='tool_calls'),
+        ]
+        with patch('apps.ai_assistant.investigation.get_provider', return_value=provider):
+            result = run_ai(self.pm, 'How many evaluations for Dialer On dialer?')
+        self.assertIn('Which dialer', result['answer'])
+        self.assertIn('Dialer One', result['answer'])
+        self.assertNotIn('2 evaluations', result['answer'])
+        self.assertEqual(result['interpretation']['intent'], 'clarification')

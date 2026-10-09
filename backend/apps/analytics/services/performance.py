@@ -74,7 +74,7 @@ def compare_periods(*, user, days=7, **kwargs):
     newer_start = end - timedelta(days=days - 1)
     older_end = newer_start - timedelta(days=1)
     older_start = older_end - timedelta(days=days - 1)
-    common = {k: kwargs.get(k) for k in ('company_id', 'branch_id', 'team_id', 'project_name', 'agent_user')}
+    common = {k: kwargs.get(k) for k in ('company_id', 'branch_id', 'team_id', 'project_name', 'agent_user', 'dialer_id')}
     newer = _base(user, date_from=newer_start.isoformat(), date_to=end.isoformat(), **common)
     older = _base(user, date_from=older_start.isoformat(), date_to=older_end.isoformat(), **common)
     a, b = _summary(older), _summary(newer)

@@ -1112,3 +1112,12 @@ circle.db-chart__write { fill: #13c2c2; stroke: none; }
 }
 .ai-prototype-banner .ant-alert-message { font-weight: 700; }
 .ai-prototype-banner .ant-alert-description { max-width: 100ch; line-height: 1.5; }
+
+/* Restricted AI Markdown, all elements are escaped React nodes (not HTML). */
+.ai-markdown p { margin: 0 0 7px; }
+.ai-markdown p:last-child { margin-bottom: 0; }
+.ai-markdown strong { font-weight: 750; }
+.ai-markdown ul, .ai-markdown ol { padding-left: 23px; margin: 5px 0 12px; }
+.ai-markdown li { margin: 2px 0; }
+.ai-markdown__heading { margin-top: 10px !important; }
+.ai-markdown code { font-size: .92em; padding: 1px 4px; border-radius: 4px; background: var(--qa-surface-soft); overflow-wrap: anywhere; }

@@ -75,4 +75,5 @@ DATES = {'date_from': S('Inclusive date YYYY-MM-DD', 10), 'date_to': S('Inclusiv
 FILTERS = {**DATES, 'company_id': S('Company UUID; cannot expand logged-in visibility', 36),
            'branch_id': S('Branch UUID; cannot expand logged-in visibility', 36), 'team_id': S('Team UUID, when explicitly selected', 36),
            'project_name': S('Exact project name, when requested'),
-           'agent_user': S('Dialer agent username. Prefer agent_user over name.')}
+           'agent_user': S('Dialer agent username. Prefer agent_user over name.'),
+           'dialer_id': S('Exact dialer UUID from list_visible_dialers, not a project', 36)}

@@ -36,7 +36,7 @@ def _uuid(value, label):
         raise ValidationError({label: 'Expected a valid UUID.'}) from exc
 
 def _base(user, *, date_from=None, date_to=None, company_id=None, branch_id=None,
-          team_id=None, project_name=None, agent_user=None, completed=True, date_field=None, all_time=False):
+          team_id=None, project_name=None, agent_user=None, dialer_id=None, completed=True, date_field=None, all_time=False):
     qs = permitted_reviews(user)
     if completed:
         qs = qs.filter(status__in=COMPLETE)
@@ -46,6 +46,8 @@ def _base(user, *, date_from=None, date_to=None, company_id=None, branch_id=None
         qs = qs.filter(call__branch_id=_uuid(branch_id, 'branch_id'))
     if team_id:
         qs = qs.filter(call__team_id=_uuid(team_id, 'team_id'))
+    if dialer_id:
+        qs = qs.filter(call__dialer_id=_uuid(dialer_id, 'dialer_id'))
     if project_name:
         qs = qs.filter(project_name__iexact=project_name.strip())
     if agent_user:
@@ -80,9 +82,9 @@ def _read_rows(qs, *, limit=SCAN_LIMIT):
 def _evidence(row):
     return {'review_id': str(row.pk), 'completed_at': row.completed_at.isoformat() if row.completed_at else None}
 
-def _period(user, *, date_from=None, date_to=None, company_id=None, branch_id=None, team_id=None, project_name=None, agent_user=None):
+def _period(user, *, date_from=None, date_to=None, company_id=None, branch_id=None, team_id=None, project_name=None, agent_user=None, dialer_id=None):
     return _base(user, date_from=date_from, date_to=date_to, company_id=company_id,
-                 branch_id=branch_id, team_id=team_id, project_name=project_name, agent_user=agent_user)
+                 branch_id=branch_id, team_id=team_id, project_name=project_name, agent_user=agent_user, dialer_id=dialer_id)
 
 def _summary(qs):
     stats = qs.aggregate(total=Count('pk'), scored=Count('pk', filter=Q(score__isnull=False)),

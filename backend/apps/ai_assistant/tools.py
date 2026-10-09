@@ -1,6 +1,6 @@
 """Model-facing typed tool declarations. All calculations live in apps.analytics.services."""
 from .registry import register, S, I, E, DATES, FILTERS
-from apps.analytics.services import discovery, performance, reviews, recurrence
+from apps.analytics.services import discovery, performance, reviews, recurrence, context
 from .person_tools import lookup_visible_people
 
 register('get_scorecard_policy', 'Return the currently configured QA criteria, scoring benchmark and critical-error definitions. This is code-defined policy, not RAG.')(discovery.get_scorecard_policy)
@@ -63,3 +63,13 @@ register('lookup_visible_people', 'Look up authorized team leaders or dialer age
          {'search': S('Person name or agent username', 120),
           'role': E('Expected organizational role, or any to search both', ('any','team_leader','agent')),
           'limit': I('Maximum matches', 1, 15)}, ('search',))(lookup_visible_people)
+
+# Narrow, authorized context and call-library tools for V3.
+register('list_visible_dialers', 'Resolve real dialer names/UUIDs separately from project names. Useful for ArenaMedicare dialer requests and fuzzy spelling.',
+         {**DATES, 'search': S('Optional dialer name or approximate spelling', 120), 'limit': I('Maximum matches', 1, 30)})(context.list_visible_dialers)
+register('get_call_library_overview', 'Count Call Library entries received in a date range using the same permissions as the Call Library UI; includes calls without QA reviews.',
+         {**DATES, 'dialer_id': S('Authorized dialer UUID, if requested', 36)})(context.get_call_library_overview)
+register('get_review_qa_context', 'For ONE visible QA review, return structured headings/subheadings, applicability, criterion scores, critical errors and redacted reviewer-written recommendations.',
+         {'review_id': S('Exact authorized review UUID', 36)}, ('review_id',))(context.get_review_qa_context)
+register('get_qa_feedback_examples', 'Limited examples of real QA reviewer improvements, expected behavior and coaching suggestions from accessible completed reports. This is NOT an aggregate trend.',
+         {**FILTERS, 'limit': I('Maximum example reports', 1, 8)})(context.get_qa_feedback_examples)
