@@ -47,6 +47,15 @@ def resolve_window(text, *, today=None, previous=None):
         ends_yesterday = bool(re.search(r'\b(?:full|complete|excluding today)\b', q))
         end = today-timedelta(days=1) if ends_yesterday else today
         return TimeWindow(end-timedelta(days=n-1), end, f'past {n} days', True)
+    week_match = re.search(r'\b(?:last|past|previous|over (?:the )?last|since (?:the )?past)\s+(\d{1,2}|' + '|'.join(numbers) + r')\s+weeks?\b', q)
+    if week_match:
+        n = int(week_match.group(1)) if week_match.group(1).isdigit() else numbers[week_match.group(1)]
+        if n < 1 or n * 7 > 366:
+            raise ValueError('Requested date window exceeds 366 days.')
+        # Rolling N-week window includes current day; "last week" alone is the prior calendar week.
+        return TimeWindow(today-timedelta(days=7*n-1), today, f'past {n} weeks', True)
+    if re.search(r'\b(?:fortnight|last fortnight)\b', q):
+        return TimeWindow(today-timedelta(days=13), today, 'past 2 weeks', True)
     if 'last week' in q or 'previous week' in q:
         return TimeWindow(monday-timedelta(days=7), monday-timedelta(days=1), 'last week', True)
     if 'this week' in q or 'current week' in q:

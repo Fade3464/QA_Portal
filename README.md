@@ -170,3 +170,8 @@ The V3 bounded investigation engine and a permanent prototype warning in the AI 
 See [`AI_ARCHITECTURE_V2.md`](AI_ARCHITECTURE_V2.md) for the provider-neutral semantic planner,
 shared analytics/authorization services, migration `0003`, staging tests and
 `AI_ENGINE_VERSION=v1|v2` rollout/rollback switch.
+
+
+### V3 conversational analytics changes
+
+See [AI_V3_CONVERSATIONAL_REFACTOR.md](AI_V3_CONVERSATIONAL_REFACTOR.md) for the latest V3 ranking, context and tool-use changes, bounded security model, and staging acceptance commands. V3 is a prototype and must be independently validated before management decisions.

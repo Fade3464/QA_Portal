@@ -680,3 +680,190 @@ class V3AuthorizedContextTests(TestCase):
         self.assertIn('Dialer One', result['answer'])
         self.assertNotIn('2 evaluations', result['answer'])
         self.assertEqual(result['interpretation']['intent'], 'clarification')
+
+
+class V3RankingSemanticsTests(SimpleTestCase):
+    """Pure, reproducible conversational answer contracts (no provider involved)."""
+    def test_past_two_weeks_is_14_days_not_thirty(self):
+        from datetime import date
+        from .timeframes import resolve_window
+        for phrase in ('past 2 weeks', 'last two weeks', 'over the last 2 weeks', 'last fortnight'):
+            window = resolve_window('agents with most problems ' + phrase,
+                                    today=date(2026, 10, 9))
+            self.assertEqual(window.start.isoformat(), '2026-09-26', phrase)
+            self.assertEqual(window.end.isoformat(), '2026-10-09', phrase)
+            self.assertTrue(window.explicit)
+
+    def test_ties_remain_ties_in_next_and_third_place_answers(self):
+        from .conversation_analysis import describe_ranking
+        ranking = {'metric': 'critical_error_reviews', 'order': 'worst', 'agents': [
+            {'agent_user': '8005', 'agent_name': 'Zaran', 'critical_error_reviews': 4},
+            {'agent_user': '8016', 'agent_name': 'Mubashir', 'critical_error_reviews': 4},
+            {'agent_user': '8098', 'agent_name': 'Shawn', 'critical_error_reviews': 4},
+            {'agent_user': '8102', 'agent_name': 'Ahmed TR', 'critical_error_reviews': 4},
+            {'agent_user': '8042', 'agent_name': 'Amir', 'critical_error_reviews': 3},
+            {'agent_user': '8051', 'agent_name': 'Sheryar', 'critical_error_reviews': 2},
+        ]}
+        next_answer = describe_ranking(ranking, "who's next to Zaran?")
+        self.assertIn('share rank 1', next_answer)
+        self.assertIn('Next distinct rank (5)', next_answer)
+        self.assertIn('Amir', next_answer)
+        third = describe_ranking(ranking, 'the third worst guy?')
+        self.assertIn('Distinct group #3 (competition rank 6)', third)
+        self.assertIn('Sheryar', third)
+        top = describe_ranking(ranking, 'top 10 worst agents')
+        self.assertIn('Zaran', top)
+        self.assertIn('Sheryar', top)
+        self.assertEqual(top.count('- Rank '), 6)
+
+    def test_new_subject_does_not_reuse_agent_ranking(self):
+        from .conversation_analysis import is_ranking_followup
+        prev = {'last_analysis': {'kind': 'agent_ranking',
+                                  'metric': 'critical_error_reviews', 'order': 'worst'}}
+        self.assertTrue(is_ranking_followup("and who's next after Zaran?", prev))
+        self.assertTrue(is_ranking_followup('and the 3rd worst?', prev))
+        self.assertFalse(is_ranking_followup('Who is the worst team leader?', prev))
+        self.assertFalse(is_ranking_followup('Who has the lowest average score?', prev))
+
+
+@override_settings(AI_ENABLED=True, AI_ENGINE_VERSION='v3')
+class V3ConversationalRegressionTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        AIAccessIntegrationTests.setUpTestData.__func__(cls)
+
+    def test_ranking_followup_requeries_authorized_reports_without_model(self):
+        from .investigation import run_ai
+        from .timeframes import resolve_window
+        window = resolve_window('past 2 weeks')
+        previous = {'last_analysis': {'kind': 'agent_ranking',
+                    'metric': 'critical_error_reviews', 'order': 'worst', 'filters': {},
+                    'period': {'date_from': window.start.isoformat(),
+                               'date_to': window.end.isoformat()}},
+                    'time_window': {'date_from': window.start.isoformat(),
+                                    'date_to': window.end.isoformat()}}
+        conversation = AIConversation.objects.create(
+            user=self.pm, scope_digest=scope_digest(self.pm), context_state=previous)
+        with patch('apps.ai_assistant.investigation.get_provider') as model:
+            result = run_ai(self.pm, 'who is the 2nd worst?', conversation=conversation)
+        model.assert_not_called()
+        self.assertIn('distinct', result['answer'].casefold())
+        self.assertEqual(result['interpretation']['date_from'], window.start.isoformat())
+        self.assertEqual(result['context_state']['last_analysis']['metric'], 'critical_error_reviews')
+        # The stored query specification cannot grant access to another branch.
+        other_conversation = AIConversation.objects.create(
+            user=self.other_supervisor, scope_digest=scope_digest(self.other_supervisor),
+            context_state=previous)
+        with patch('apps.ai_assistant.investigation.get_provider') as model:
+            other = run_ai(self.other_supervisor, 'the second worst?',
+                           conversation=other_conversation)
+        model.assert_not_called()
+        self.assertIn('No agents', other['answer'])
+
+    def test_ranked_summary_not_first_agent_only_when_provider_hallucinates(self):
+        from unittest.mock import Mock
+        from .investigation import run_ai
+        from .provider import Completion
+        def tc(name, params, key):
+            return {'id': key, 'type': 'function',
+                    'function': {'name': name, 'arguments': json.dumps(params)}}
+        model = Mock()
+        model.complete.side_effect = [
+            Completion(message={'tool_calls': [tc('select_qa_tools',
+                {'names': ['rank_agents']}, 'selected')]}, finish_reason='tool_calls'),
+            Completion(message={'tool_calls': [tc('rank_agents',
+                {'metric': 'critical_error_reviews', 'limit': 1}, 'rank')]}, finish_reason='tool_calls'),
+            Completion(message={'content': '999 agents were bad and all have 1000 critical reviews.'},
+                       finish_reason='stop'),
+        ]
+        with patch('apps.ai_assistant.investigation.get_provider', return_value=model):
+            result = run_ai(self.pm, 'Give me the top 10 worst agents in the past 2 weeks')
+        self.assertEqual(result['interpretation']['label'], 'past 2 weeks')
+        self.assertNotIn('999', result['answer'])
+        self.assertIn('Agent agent001', result['answer'])
+        self.assertIn('critical error', result['answer'])
+        self.assertEqual(result['context_state']['last_analysis']['metric'], 'critical_error_reviews')
+
+    def test_model_skipping_tools_uses_real_repeat_issue_data(self):
+        from unittest.mock import Mock
+        from .investigation import run_ai
+        from .provider import Completion
+        model = Mock()
+        model.complete.side_effect = [
+            Completion(message={'content': 'I cannot choose.'}, finish_reason='stop'),
+            Completion(message={'content': 'I do not know.'}, finish_reason='stop'),
+        ]
+        with patch('apps.ai_assistant.investigation.get_provider', return_value=model):
+            result = run_ai(self.pm, 'Which agent repeatedly made the same mistake again and again?')
+        self.assertIn('find_repeated_mistakes', result['tools_used'])
+        self.assertIn('Agent agent001', result['answer'])
+        self.assertTrue(result['evidence'])
+
+    def test_worst_team_leader_uses_current_pending_not_agent_ranking(self):
+        from unittest.mock import Mock
+        from .investigation import run_ai
+        from .provider import Completion
+        model = Mock()
+        model.complete.side_effect = [Completion(message={'content': ''}, finish_reason='stop'),
+                                      Completion(message={'content': ''}, finish_reason='stop')]
+        with patch('apps.ai_assistant.investigation.get_provider', return_value=model):
+            result = run_ai(self.pm, 'Who is the worst team leader at not reviewing submitted reports?')
+        self.assertIn('find_pending_reviews', result['tools_used'])
+        self.assertIn('tl1 Test', result['answer'])
+        self.assertIn('pending', result['answer'])
+
+    def test_specific_recorded_critical_violation_has_review_evidence(self):
+        from unittest.mock import Mock
+        from .investigation import run_ai
+        from .provider import Completion
+        model = Mock()
+        model.complete.side_effect = [Completion(message={'content': ''}, finish_reason='stop'),
+                                      Completion(message={'content': ''}, finish_reason='stop')]
+        with patch('apps.ai_assistant.investigation.get_provider', return_value=model):
+            result = run_ai(self.pm, 'What critical violation was recorded for Agent agent001?')
+        self.assertIn('get_agent_critical_violations', result['tools_used'])
+        self.assertIn('Wasted lead', result['answer'])
+        self.assertTrue(result['evidence'])
+        self.assertNotIn('phone_number', result['answer'])
+
+
+class V3TypedSemanticSelectionTests(SimpleTestCase):
+    def test_synonymous_semantic_intent_adds_authorized_tool_without_keyword_map(self):
+        from .investigation import _semantic_selection, _catalog
+        from .provider import Completion
+        catalog = _catalog()
+        result = Completion(message={'tool_calls': [{'type': 'function',
+            'function': {'name': 'select_qa_tools', 'arguments': json.dumps({
+                'names': ['get_qa_overview'], 'intent': 'repeated_criteria'})}}]},
+            finish_reason='tool_calls')
+        selection = _semantic_selection(result, catalog)
+        self.assertIn('find_repeated_mistakes', selection['names'])
+        self.assertEqual(selection['required'], 'find_repeated_mistakes')
+
+    def test_unsafe_semantic_tool_name_is_rejected(self):
+        from .investigation import _semantic_selection, _catalog
+        from .provider import Completion
+        reply = Completion(message={'tool_calls': [{'type': 'function',
+            'function': {'name': 'select_qa_tools', 'arguments': json.dumps({
+                'names': ['execute_sql'], 'intent': 'agent_ranking'})}}]},
+            finish_reason='tool_calls')
+        self.assertIsNone(_semantic_selection(reply, _catalog()))
+
+
+@override_settings(AI_ENABLED=True, AI_ENGINE_VERSION='v3')
+class V3RankingIdentityTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        AIAccessIntegrationTests.setUpTestData.__func__(cls)
+
+    def test_agent_display_name_changes_do_not_split_dialer_login(self):
+        # Grouping must be dialer+agent_user, not agent_name. A name edit or
+        # spelling variation cannot manufacture multiple ranking identities.
+        call = self.reviews[1].call
+        call.agent_name = 'Updated Display Name'
+        call.save(update_fields=['agent_name'])
+        ranking = invoke('rank_agents', self.pm,
+                         {'metric': 'critical_error_reviews', 'order': 'worst', 'limit': 25})
+        self.assertEqual(len(ranking['agents']), 1)
+        self.assertEqual(ranking['agents'][0]['agent_user'], 'agent001')
+        self.assertEqual(ranking['agents'][0]['critical_error_reviews'], 2)

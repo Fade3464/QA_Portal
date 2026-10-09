@@ -113,3 +113,45 @@ def get_criterion_failures(*, user, limit=15, **kwargs):
                           'failure_rate_pct': round(100 * n / applicable[key], 1)}
                          for key, n in failed.most_common(limit)],
             'definition': 'A score below maximum is counted as below-max, not necessarily a zero/fail.'}
+
+
+def get_agent_critical_violations(*, user, search, date_from=None, date_to=None,
+                                  company_id=None, branch_id=None, team_id=None,
+                                  project_name=None, dialer_id=None, limit=12):
+    """Exact authorized agent identity -> recorded critical categories and review IDs.
+
+    Never infer which *person* committed an error from category totals and never
+    combine identical display names or usernames across unrelated dialers.
+    """
+    term = (search or '').strip()
+    if len(term) < 2:
+        raise ValidationError({'search': 'Supply the exact agent username or display name.'})
+    qs = _period(user, date_from=date_from, date_to=date_to, company_id=company_id,
+                 branch_id=branch_id, team_id=team_id, project_name=project_name,
+                 dialer_id=dialer_id).filter(
+        Q(call__agent_name__iexact=term) | Q(call__agent_user__iexact=term))
+    identities = list(qs.values('call__dialer_id', 'call__agent_user', 'call__agent_name')
+                      .distinct()[:12])
+    if len(identities) > 1:
+        return {'ambiguous': True, 'candidates': [
+            {'dialer_id': str(a['call__dialer_id']), 'agent_user': a['call__agent_user'],
+             'agent_name': a['call__agent_name']} for a in identities[:10]],
+            'note': 'Choose an exact dialer-qualified agent identity.'}
+    if not identities:
+        return {'found': False, 'note': 'No exact agent identity with visible submitted QA reports matches that name.'}
+    agent = identities[0]
+    reviews = _read_rows(qs.filter(call__dialer_id=agent['call__dialer_id'],
+                                   call__agent_user=agent['call__agent_user']))
+    critical_reviews = [r for r in reviews if r.critical_errors]
+    counts = Counter(key for r in critical_reviews for key in set(r.critical_errors or []))
+    return {'found': True, 'agent': {'agent_name': agent['call__agent_name'],
+            'agent_user': agent['call__agent_user'], 'dialer_id': str(agent['call__dialer_id'])},
+            'evaluations': len(reviews), 'critical_error_reviews': len(critical_reviews),
+            'violations': [{'key': key, 'label': ERROR_LABELS.get(key, key), 'reviews': n}
+                           for key, n in counts.most_common()],
+            'reports': [{'review_id': str(r.pk),
+                         'recorded_violations': [ERROR_LABELS.get(k, k) for k in r.critical_errors],
+                         'completed_at': r.completed_at.isoformat() if r.completed_at else None}
+                        for r in critical_reviews[:limit]],
+            'detail_truncated': len(critical_reviews) > limit,
+            'definition': 'Explicitly recorded critical errors by distinct evaluation; not inferred from score deficits.'}

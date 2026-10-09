@@ -73,3 +73,10 @@ register('get_review_qa_context', 'For ONE visible QA review, return structured 
          {'review_id': S('Exact authorized review UUID', 36)}, ('review_id',))(context.get_review_qa_context)
 register('get_qa_feedback_examples', 'Limited examples of real QA reviewer improvements, expected behavior and coaching suggestions from accessible completed reports. This is NOT an aggregate trend.',
          {**FILTERS, 'limit': I('Maximum example reports', 1, 8)})(context.get_qa_feedback_examples)
+
+register('get_agent_critical_violations', 'For a named agent, obtain the exact explicitly recorded critical violation types and verifiable review IDs, not only aggregate counts. Exact name or dialer username; ask to disambiguate duplicate identities.',
+         {**DATES, 'search': S('Exact agent username or display name', 120),
+          'dialer_id': S('Optional authorized dialer UUID for duplicate names', 36),
+          'project_name': S('Exact project name if scoped'),
+          'team_id': S('Optional team UUID', 36),
+          'limit': I('Maximum linked reviews', 1, 20)}, ('search',))(recurrence.get_agent_critical_violations)

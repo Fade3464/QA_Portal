@@ -3,7 +3,7 @@ from collections import Counter, defaultdict
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from uuid import UUID
-from django.db.models import Avg, Count, Q
+from django.db.models import Avg, Count, Max, Q
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -35,16 +35,16 @@ def get_project_performance(*, user, **kwargs):
 
 def rank_agents(*, user, metric, limit=10, order='worst', **kwargs):
     qs = _period(user, **kwargs).exclude(call__agent_user='')
-    rows = (qs.values('call__dialer_id', 'call__agent_user', 'call__agent_name')
-            .annotate(evaluations=Count('pk'), scored=Count('pk', filter=Q(score__isnull=False)),
+    rows = (qs.values('call__dialer_id', 'call__agent_user')
+            .annotate(agent_name=Max('call__agent_name'), evaluations=Count('pk'), scored=Count('pk', filter=Q(score__isnull=False)),
                       average_score=Avg('score'), critical_error_reviews=Count('pk', filter=~Q(critical_errors=[]))))
     if metric == 'average_score':
-        rows = rows.filter(scored__gte=3).order_by('-average_score' if order == 'best' else 'average_score', '-scored')
+        rows = rows.filter(scored__gte=3).order_by('-average_score' if order == 'best' else 'average_score', '-scored', 'call__agent_user', 'call__dialer_id')
     else:
-        rows = rows.order_by(('-' if order == 'worst' else '') + ('evaluations' if metric == 'evaluation_count' else metric), 'call__agent_user')
+        rows = rows.order_by(('-' if order == 'worst' else '') + ('evaluations' if metric == 'evaluation_count' else metric), 'call__agent_user', 'call__dialer_id')
     return {'metric': metric, 'order': order, 'min_evaluations_for_score': 3,
             'agents': [{'dialer_id': str(r['call__dialer_id']), 'agent_user': r['call__agent_user'],
-                        'agent_name': r['call__agent_name'], 'evaluations': r['evaluations'],
+                        'agent_name': r['agent_name'], 'evaluations': r['evaluations'],
                         'scored': r['scored'], 'average_score': _number(r['average_score']),
                         'critical_error_reviews': r['critical_error_reviews']} for r in rows[:limit]]}
 

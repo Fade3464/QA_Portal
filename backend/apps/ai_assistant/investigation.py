@@ -21,6 +21,10 @@ from .models import AIToolAudit
 from .provider import get_provider, AIProviderError
 from .registry import definitions, invoke
 from .timeframes import resolve_window
+from .conversation_analysis import (
+    describe_ranking, is_ranking_followup, is_context_followup, ranking_context,
+    rank_focus,
+)
 from . import tools  # noqa: F401 - register tools
 from apps.calls.scorecard import SCORECARD, CRITICAL_ERRORS
 from apps.analytics.services.discovery import list_available_projects
@@ -38,7 +42,9 @@ SELECT_TOOLS = {'type': 'function', 'function': {
     'description': 'Select 1-5 approved read-only tools. For DIALER name use list_visible_dialers (not projects). For Call Library count use get_call_library_overview. For total QA evaluations use get_qa_overview. For agent with most critical violations use rank_agents metric critical_error_reviews (NOT error types). For QA suggestions use get_qa_feedback_examples or get_review_qa_context. For named leader use lookup_visible_people. You may request more tools.', 
     'parameters': {'type': 'object', 'additionalProperties': False,
                    'properties': {'names': {'type': 'array', 'items': {'type': 'string',
-                                             'enum': []}, 'minItems': 1, 'maxItems': 5}},
+                                             'enum': []}, 'minItems': 1, 'maxItems': 5},
+                                  'intent': {'type': 'string', 'enum': ['agent_ranking', 'repeated_criteria', 'repeated_critical', 'leader_backlog', 'agent_violation_details', 'other']},
+                                  'rank_metric': {'type': 'string', 'enum': ['critical_error_reviews', 'average_score', 'evaluation_count']}},
                    'required': ['names']}
 }}
 LOAD_MORE = {'type': 'function', 'function': {
@@ -65,6 +71,10 @@ Rules:
 - "How many calls in Call Library" requires get_call_library_overview, not completed QA evaluation counts.
 - Relative dates are authoritative. For follow-ups, do not confuse last period with this week unless the user requests it.
 - You cannot execute SQL, HTTP calls, code, messages, emails or mutations. Explain uncertainties, sampling limitations and missing data.
+- A ranking follow-up like "who is next after Zaran", "second worst", "third worst", or "other nine" uses the preceding ranking metric and date range, but ALWAYS re-query after authorization. Ties share rank.
+- Agent mistakes can mean below-maximum rubric criteria; explicit critical violations are a different measure. Disclose which metric you actually ranked.
+- For exact agent critical violation categories use get_agent_critical_violations; an error-type frequency cannot establish a person.
+- A team's review backlog can be analyzed with find_pending_reviews and get_team_leader_review_summary.
 - Once you have sufficient evidence, answer the CURRENT question directly in natural language. Do not copy an irrelevant list or hallucinate figures.
 """
 
@@ -101,13 +111,22 @@ def _followup(text):
 
 
 def _requires_tool(text):
-    """Minimal domain guardrails, not the tool execution planner."""
+    """Domain-level safety fallback. Qwen normally chooses the tool itself."""
     q = text.casefold()
     if re.search(r'\b(?:call library|calls (?:received|arrived)|incoming calls)\b', q):
         return 'get_call_library_overview'
     if re.search(r'\bdialer\b', q):
         return 'list_visible_dialers'
-    if re.search(r'\b(?:agent|agents)\b.*\b(?:most|highest|worst)\b.*\b(?:violations|critical errors)\b|\b(?:most|highest|worst)\b.*\b(?:violations|critical errors)\b.*\bagent', q):
+    if re.search(r'\b(?:leader|leaders|tl|tls)\b', q) and re.search(
+            r'\b(?:worst|most|pending|overdue|unreviewed|reviewing|reviewed|acknowledge)\b', q):
+        return 'find_pending_reviews'
+    if re.search(r'\b(?:critical call|violation (?:of|for|on)|violations (?:of|for|on))\b', q) or (
+            'critical' in q and 'violation' in q and re.search(r'\b(?:for|of|on|by)\s+\w', q)):
+        return 'get_agent_critical_violations'
+    if re.search(r'\b(?:repeated|repeat|recurring|constantly|again and again)\b', q):
+        return 'find_repeat_critical_errors' if re.search(r'\b(?:critical|violation)\b', q) else 'find_repeated_mistakes'
+    if re.search(r'\b(?:agent|agents|performer|performers|guy|guys)\b', q) and re.search(
+            r'\b(?:worst|best|most|least|highest|lowest|top|bottom|problems|errors|ranking)\b', q):
         return 'rank_agents'
     if re.search(r'\b(?:total|how many)\b.*\b(?:evaluations|qa reports)\b', q):
         return 'get_qa_overview'
@@ -133,7 +152,7 @@ def _names_from_call(completion, expected, catalog, max_names):
             parsed = json.loads(raw)
         except (ValueError, TypeError):
             break
-        if not isinstance(parsed, dict) or set(parsed) != {'names'}:
+        if not isinstance(parsed, dict) or not {'names'} <= set(parsed) or set(parsed) - {'names', 'intent', 'rank_metric'}:
             break
         names = parsed['names']
         if (not isinstance(names, list) or not 1 <= len(names) <= max_names
@@ -144,21 +163,50 @@ def _names_from_call(completion, expected, catalog, max_names):
     return None
 
 
+def _semantic_selection(completion, catalog):
+    """Optional typed LLM semantic intent; identifiers still server-authorized."""
+    allowed = {'agent_ranking': 'rank_agents',
+               'repeated_criteria': 'find_repeated_mistakes',
+               'repeated_critical': 'find_repeat_critical_errors',
+               'leader_backlog': 'find_pending_reviews',
+               'agent_violation_details': 'get_agent_critical_violations'}
+    tools = _names_from_call(completion, 'select_qa_tools', catalog, 5)
+    if not tools:
+        return None
+    intent, rank_metric = 'other', None
+    for tc in (completion.message.get('tool_calls') or []):
+        if tc.get('function', {}).get('name') == 'select_qa_tools':
+            try:
+                data = json.loads(tc['function']['arguments'])
+            except (KeyError, ValueError, TypeError):
+                break
+            if data.get('intent') in (*allowed, 'other'):
+                intent = data['intent']
+            if data.get('rank_metric') in ('critical_error_reviews', 'average_score', 'evaluation_count'):
+                rank_metric = data['rank_metric']
+            break
+    required = allowed.get(intent)
+    if required and required not in tools:
+        tools = (tools[:4] + [required])
+    return {'names': tools, 'intent': intent, 'rank_metric': rank_metric,
+            'required': required}
+
+
 def _chooser(provider, question, history, now, window, previous, catalog):
     meta = json.loads(json.dumps(SELECT_TOOLS))
     meta['function']['parameters']['properties']['names']['items']['enum'] = list(catalog)
     menu = '\n'.join(f"{name}: {schema['function']['description'][:160]}" for name, schema in catalog.items())
     prompt = (f"Today (branch timezone): {now}; authoritative QA date window: "
               f"{window.start} through {window.end} ({window.label}).\nAvailable tools:\n{menu}\n"
-              'Select the business tool that answers the entity and metric actually requested, including the required domain tool when indicated. No project/dialer substitution. '
-              'You MUST call select_qa_tools; do not answer yet.')
+              'Identify the semantic task, not only keyword matches. For ranked follow-ups reuse last_analysis ranking metric and filters, for same mistake use find_repeated_mistakes, for repeated critical violations use find_repeat_critical_errors, for team-leader backlog use find_pending_reviews, and for a named agent critical violation use get_agent_critical_violations. No project/dialer substitution. '
+              'Include intent and rank_metric where applicable (e.g. repeated QA criterion versus repeated critical violation, average score versus critical-error reviews). You MUST call select_qa_tools; do not answer yet.')
     prior = '\n'.join(f"{entry.get('role')}: {str(entry.get('content',''))[:450]}"
                       for entry in list(history)[-3:])
     if previous:
         prior += '\nPrior topic/context (not authorization): '+json.dumps(previous, default=str)[:550]
     response = provider.complete([{'role': 'system', 'content': prompt},
                                   {'role': 'user', 'content': prior+'\nCurrent question: '+question}], [meta])
-    return _names_from_call(response, 'select_qa_tools', catalog, 5)
+    return _semantic_selection(response, catalog)
 
 
 def _arguments(call):
@@ -180,8 +228,9 @@ def _bounded_data(data):
         raise AIProviderError('Unexpected analytics result shape.')
     result = dict(data)
     for field in ('reports','repeated_issues','matches','agents','teams','leaders','daily','criteria','projects','branches','events','dialers','examples','headings'):
-        if isinstance(result.get(field), list) and len(result[field]) > 12:
-            result[field] = result[field][:12]
+        limit = 25 if field == 'agents' else 12
+        if isinstance(result.get(field), list) and len(result[field]) > limit:
+            result[field] = result[field][:limit]
             result.setdefault('warnings', []).append(f'{field} details shortened; aggregate counts are unchanged.')
     if result.get('completeness', {}).get('aggregate_complete') is False:
         raise AIProviderError('Incomplete analytical aggregate; result withheld.')
@@ -247,7 +296,7 @@ def _unverified_numbers(answer, tool_results, *, window_days=None):
     return unmatched
 
 
-def _safe_fallback(outputs):
+def _safe_fallback(outputs, question="", previous=None):
     """Exact tool-backed summary when the model's narrative cannot be verified."""
     for item in reversed(outputs):
         data = item['data']
@@ -269,20 +318,44 @@ def _safe_fallback(outputs):
                       for m in leaders[:12]]
             return '\n'.join(lines)
         if name == 'rank_agents':
-            agents = data.get('agents') or []
-            if not agents:
-                return ('No eligible agents were found for that ranking during the selected period. '
-                        'Average-score rankings require at least three scored evaluations per agent.')
-            metric = data.get('metric')
-            field = {'average_score': 'average_score', 'critical_error_reviews':'critical_error_reviews',
-                     'evaluation_count':'evaluations'}.get(metric)
-            if not field:
-                continue
-            a = agents[0]
-            return (f"**{a['agent_name'] or a['agent_user']}** ({a['agent_user']}) ranks first for "
-                    f"{metric.replace('_', ' ')} ({a.get(field)}), among the eligible agents in the selected period. "
-                    + ('Ranking requires at least three scored evaluations per agent.' if metric == 'average_score' else
-                       'Critical error reviews count evaluations with any explicitly recorded critical errors, not individual error events.'))
+            answer = describe_ranking(data, question, previous=previous)
+            if answer:
+                return answer
+        if name in ('find_repeated_mistakes', 'find_repeat_critical_errors'):
+            issues = data.get('repeated_issues', data.get('matches', []))
+            if not issues:
+                return 'No agent repeated the same matching mistake in enough accessible submitted reviews for this period.'
+            lines = ['Most frequently repeated recorded ' +
+                     ('critical violations:' if name == 'find_repeat_critical_errors' else 'QA criterion deficits or critical errors:')]
+            for r in issues[:10]:
+                agent = r.get('agent') or {}
+                lines.append('- **%s** (%s): %s — %s distinct reviews' % (
+                    agent.get('agent_name') or agent.get('agent_user') or 'Unknown',
+                    agent.get('agent_user') or '?',
+                    r.get('mistake_label') or r.get('error_label') or 'Unspecified issue',
+                    r.get('occurrences', 0)))
+            if len(issues) > 10:
+                lines.append('Additional groups exist; narrow the question for review-specific detail.')
+            return '\n'.join(lines)
+        if name == 'get_agent_critical_violations':
+            if data.get('ambiguous'):
+                return 'Multiple authorized agents match this identity; specify a dialer and username before inspecting a review.'
+            if not data.get('found'):
+                return 'No exact matching agent with accessible submitted evaluations was found in that period. Confirm the agent name or username.'
+            person = data['agent']
+            lines = [f"**{person.get('agent_name') or person['agent_user']}** ({person['agent_user']}) has "
+                     f"{data['critical_error_reviews']} review(s) with recorded critical violations "
+                     f"among {data['evaluations']} evaluations in this period."]
+            for v in data.get('violations', []):
+                lines.append(f"- {v['label']}: {v['reviews']} distinct evaluation(s)")
+            return '\n'.join(lines)
+        if name == 'get_team_leader_review_summary':
+            leaders = data.get('leaders', [])
+            if not leaders:
+                return 'No team-leader review workflow records were found for this authorized period.'
+            return '\n'.join(['Submitted reports by team leader (pending versus acknowledged/progressed):'] +
+                             [f"- **{x['name']}**: {x['pending']} pending of {x['total']}; {x['reviewed_or_progressed']} reviewed/progressed"
+                              for x in leaders[:12]])
         if name == 'get_critical_error_summary':
             return (f"{data.get('reviews_with_critical_errors',0)} completed QA evaluations have "
                     'explicit critical errors in the selected period. This does not identify the agent with most violations.')
@@ -304,6 +377,60 @@ def _safe_fallback(outputs):
             'Try specifying a dialer, project, metric or reporting period.')
 
 
+def _recovery_args(name, question, window, project_scope_name=None):
+    """Minimal fail-safe query when the model fails to execute an essential tool.
+
+    This is not a replacement for semantic planning. It covers well-defined,
+    no-side-effect analytics only; guessed people/dialers and UUIDs are forbidden.
+    """
+    args = {'date_from': window.start.isoformat(), 'date_to': window.end.isoformat()}
+    if project_scope_name:
+        args['project_name'] = project_scope_name
+    q = question.casefold()
+    if name == 'rank_agents':
+        metric = 'average_score' if re.search(r'\b(?:score|scor(?:ed|ing)|average|quality|performance)\b', q) else 'critical_error_reviews'
+        return {**args, 'metric': metric, 'order': 'worst', 'limit': 25}
+    if name == 'find_pending_reviews':
+        return {**args, 'mode': 'current_backlog', 'limit': 20}
+    if name in ('find_repeated_mistakes', 'find_repeat_critical_errors'):
+        return {**args, 'minimum_occurrences': 2, 'limit': 20}
+    if name in ('get_qa_overview', 'get_critical_error_summary', 'get_team_leader_review_summary'):
+        return args
+    if name == 'get_agent_critical_violations':
+        match = re.search(r'\b(?:of|for|on|by)\s+([a-z][a-z0-9 .-]{1,70}?)(?:[?!.]|$)', q)
+        if match:
+            term = match.group(1).strip()
+            if term and not term.startswith(('the ', 'a ', 'an ')):
+                return {**args, 'search': term, 'limit': 12}
+    return None
+
+
+def _recover_required(user, conversation, required_tool, question, window, project_scope_name):
+    """Re-query accessible business data, never accept invented provider figures."""
+    args = _recovery_args(required_tool, question, window, project_scope_name)
+    if not args:
+        return None
+    started = time.monotonic()
+    outcome = 'ok'
+    try:
+        raw = invoke(required_tool, user, args)
+        data = _bounded_data(raw)
+        result = {'name': required_tool, 'arguments': args, 'data': data}
+    except PermissionDenied:
+        outcome = 'denied'
+        raise
+    except (FieldError, DatabaseError) as exc:
+        outcome = 'error'
+        logger.exception('V3 recovered analytic query failed: %s', required_tool)
+        raise AIProviderError('An authorized QA analytics tool is unavailable.') from exc
+    except (ValidationError, ValueError, TypeError, AIProviderError):
+        outcome = 'invalid'
+        return None
+    finally:
+        _audit(user, conversation, required_tool, outcome, time.monotonic()-started)
+    return result
+
+
 def _audit(user, conversation, name, outcome, elapsed):
     try:
         AIToolAudit.objects.create(conversation=conversation, user=user, tool_name=name[:90],
@@ -313,7 +440,8 @@ def _audit(user, conversation, name, outcome, elapsed):
         raise AIProviderError('Tool audit unavailable.') from exc
 
 
-def _context(outputs, window, chosen):
+def _context(outputs, window, chosen, previous=None, question=""):
+    """Minimal re-queryable analytical state; never persist raw tool responses."""
     person = None
     for out in outputs:
         if (out['name'] == 'lookup_visible_people' and
@@ -324,8 +452,21 @@ def _context(outputs, window, chosen):
             person = {k: m[k] for k in ('role','id','name','agent_user','dialer_id') if k in m}
     context = {'time_window': {'date_from': window.start.isoformat(), 'date_to': window.end.isoformat()},
                'last_tools': chosen[:8]}
+    for out in reversed(outputs):
+        context_plan = ranking_context(out, period=window)
+        if context_plan:
+            context['last_analysis'] = context_plan
+            break
+    if ('last_analysis' not in context and isinstance(previous, dict) and not outputs and
+            (_followup(question) or is_context_followup(question, previous))):
+        # Failed follow-up must not silently clear all prior conversation context.
+        if previous.get('last_analysis'):
+            context['last_analysis'] = previous['last_analysis']
     if person:
         context['last_person'] = person
+    elif (isinstance(previous, dict) and previous.get('last_person') and
+          (_followup(question) or is_context_followup(question, previous))):
+        context['last_person'] = previous['last_person']
     return context
 
 
@@ -336,14 +477,41 @@ def run_ai(user, question, *, conversation=None, history=()):
     if _is_greeting(question):
         return {'answer': 'Yes, I’m here. Ask me about your accessible QA evaluations, agents, review backlog, or call library.',
                 'evidence': [], 'tools_used': [], 'interpretation': {}, 'warnings': [], 'context_state': {}}
-    provider = get_provider()
     previous = conversation.context_state if conversation else {}
     try:
-        window = resolve_window(question, previous=previous if _followup(question) else None)
+        window = resolve_window(question, previous=previous if (_followup(question) or is_context_followup(question, previous)) else None)
     except ValueError:
         return {'answer': 'Please choose a reporting interval of at most 366 days.',
                 'evidence': [], 'tools_used': [], 'interpretation': {}, 'warnings': [], 'context_state': {}}
     calendar = window.public()
+    if is_ranking_followup(question, previous):
+        plan = previous['last_analysis']
+        args = {**plan.get('filters', {}), 'metric': plan['metric'],
+                'order': plan.get('order', 'worst'), 'limit': 25,
+                'date_from': window.start.isoformat(), 'date_to': window.end.isoformat()}
+        begin = time.monotonic()
+        outcome = 'ok'
+        try:
+            current = invoke('rank_agents', user, args)
+            answer = describe_ranking(current, question, previous=previous)
+        except PermissionDenied:
+            outcome = 'denied'
+            raise
+        except (FieldError, DatabaseError) as exc:
+            outcome = 'error'
+            logger.exception('Follow-up agent ranking failed')
+            raise AIProviderError('Ranking tool is temporarily unavailable.') from exc
+        except (ValidationError, ValueError, TypeError) as exc:
+            outcome = 'invalid'
+            raise AIProviderError('The follow-up ranking could not be verified.') from exc
+        finally:
+            _audit(user, conversation, 'rank_agents', outcome, time.monotonic()-begin)
+        result = {'name': 'rank_agents', 'arguments': args, 'data': current}
+        return {'answer': answer + '\n\nResults are limited to your authorized QA records.',
+                'evidence': [], 'tools_used': ['rank_agents'],
+                'interpretation': {**calendar, 'engine': 'v3_investigation',
+                                   'intent': 'agent_ranking_followup', 'metric': plan['metric']},
+                'warnings': [], 'context_state': _context([result], window, ['rank_agents'], previous, question)}
     project_scope_name = None
     if re.search(r'\b(?:our|my|this) project\b', question, re.I):
         # Singular 'our project' is not automatically 'every project in my branch'.
@@ -364,7 +532,11 @@ def run_ai(user, question, *, conversation=None, history=()):
                     'warnings': ['No matching submitted QA project to resolve.'],
                     'context_state': {}}
     catalog = _catalog()
-    chosen = _chooser(provider, question, history, timezone.localdate(), window, previous, catalog)
+    provider = get_provider()
+    selection = _chooser(provider, question, history, timezone.localdate(), window, previous, catalog)
+    chosen = selection['names'] if selection else None
+    if not chosen and _requires_tool(question):
+        chosen = [_requires_tool(question)]
     if not chosen:
         return {'answer': 'I could not establish a reliable investigation plan. Could you rephrase what you want to check?',
                 'evidence': [], 'tools_used': [], 'interpretation': calendar,
@@ -375,7 +547,7 @@ def run_ai(user, question, *, conversation=None, history=()):
     # Always permit safe person discovery, including after an initial name/role mistake.
     enabled.setdefault('lookup_visible_people', catalog['lookup_visible_people'])
     # Required domain tool schema must be available, even if Qwen chose an adjacent tool.
-    required_tool = _requires_tool(question)
+    required_tool = _requires_tool(question) or (selection or {}).get('required')
     if required_tool and required_tool in catalog:
         enabled.setdefault(required_tool, catalog[required_tool])
     prompt = (SYSTEM + '\nCurrent authoritative Django date: '+str(timezone.localdate())+
@@ -421,21 +593,40 @@ def run_ai(user, question, *, conversation=None, history=()):
         # Use model-prescribed tools only, but require approved schemas and valid arguments.
         calls = reply.message.get('tool_calls') or []
         if not calls:
+            if required_tool and required_tool not in used:
+                recovered = _recover_required(user, conversation, required_tool,
+                                              question, window, project_scope_name)
+                if recovered:
+                    outputs.append(recovered)
+                    used.append(required_tool)
+                    for rid in _evidence_candidates(recovered['data']):
+                        evidence_candidates[rid] = required_tool
+                    warnings.append('A required authorized analytic query was executed after the model did not complete it.')
             if not outputs:
                 return {'answer': 'I could not verify that answer from QA records. Please refine the question.',
                         'evidence': [], 'tools_used': [], 'interpretation': calendar,
                         'warnings': ['No database analytics were executed.'], 'context_state': {}}
             answer = str(reply.message.get('content') or '').strip()[:3500]
+            # For ranked, recurring and named-violation facts, always render actual
+            # Django tool fields. LLM narratives may be helpful but cannot assign
+            # a person a rank/category unsupported by a structured analytic result.
+            precise = ('rank_agents', 'find_repeated_mistakes', 'find_repeat_critical_errors',
+                       'get_agent_critical_violations', 'get_team_leader_review_summary')
+            preferred = next((x for x in reversed(outputs) if x['name'] == required_tool), None)
+            if not preferred:
+                preferred = next((x for x in reversed(outputs) if x['name'] in precise), None)
+            if preferred:
+                answer = _safe_fallback([preferred], question, previous)
             dialer_count_needs_verified_lookup = (bool(re.search(r'\bdialer\b', question, re.I)) and
                 bool(re.search(r'\b(?:how many|total|count)\b', question, re.I)) and
                 not any(item['name'] == 'get_qa_overview' and item['arguments'].get('dialer_id')
                         for item in outputs))
-            if dialer_count_needs_verified_lookup or (required_tool and required_tool not in used) or not answer or _unverified_numbers(answer, [x['data'] for x in outputs],
-                                                          window_days=(window.end-window.start).days+1) or re.search(
+            if dialer_count_needs_verified_lookup or (required_tool and required_tool not in used) or not answer or (not preferred and _unverified_numbers(answer, [x['data'] for x in outputs],
+                                                          window_days=(window.end-window.start).days+1)) or re.search(
                 r'\b(?:everyone|everybody|all (?:staff|leaders|agents)).{0,45}\b(?:reviewed|completed|cleared)\b',
                 answer, re.I):
                 supporting = [item for item in outputs if item['name'] == required_tool] if required_tool else outputs
-                answer = _safe_fallback(supporting)
+                answer = _safe_fallback(supporting, question, previous)
                 warnings.append('The generated explanation was replaced because it lacked verifiable support.')
             ids = list(evidence_candidates)[:24]
             valid_ids = {str(x) for x in permitted_management_reviews(user).filter(pk__in=ids).values_list('pk', flat=True)}
@@ -449,7 +640,7 @@ def run_ai(user, question, *, conversation=None, history=()):
                 answer += '\n\nResults are limited to your authorized QA records.'
             return {'answer': answer, 'evidence': evidence, 'tools_used': used,
                     'interpretation': interpretation, 'warnings': list(dict.fromkeys(warnings))[:12],
-                    'context_state': _context(outputs, window, used)}
+                    'context_state': _context(outputs, window, used, previous, question)}
         if len(calls) > 4:
             warnings.append('Excessive tool calls were refused.')
             break
@@ -490,12 +681,18 @@ def run_ai(user, question, *, conversation=None, history=()):
                     args['project_name'] = project_scope_name
                 if name == 'find_pending_reviews' and 'mode' not in args:
                     args['mode'] = 'current_backlog'
+                if name == 'rank_agents':
+                    args['limit'] = 25  # Retain ranked peers for ties and follow-ups.
                 if name == 'compare_periods':
                     args['days'] = min(90, (window.end-window.start).days+1)
                 # 'Most violations' is ranked by agent, not by a count of error categories.
                 if name == 'rank_agents' and required_tool == 'rank_agents':
-                    args['metric'] = 'critical_error_reviews'
+                    args['metric'] = ('average_score' if re.search(r'\b(?:score|scoring|average|performance)\b', question.casefold())
+                                      else 'critical_error_reviews' if re.search(r'\b(?:critical|violation|problem|mistake|error)\b', question.casefold())
+                                      else (selection or {}).get('rank_metric') or 'critical_error_reviews')
                     args['order'] = 'worst'
+                elif name == 'rank_agents' and (selection or {}).get('rank_metric'):
+                    args['metric'] = selection['rank_metric']
                 if name == 'get_qa_overview' and 'dialer' in question.casefold() and not args.get('dialer_id'):
                     raise ValidationError('Dialer question requires a resolved dialer_id; do not substitute a project.')
                 if name in ('get_qa_overview', 'get_project_performance') and args.get('dialer_id') and args['dialer_id'] not in matched_dialers:
@@ -573,7 +770,7 @@ def run_ai(user, question, *, conversation=None, history=()):
                 break
         if failures >= 3 or len(used) >= MAX_CALLS:
             break
-    return {'answer': _safe_fallback(outputs) if outputs else 'I could not complete a verified investigation.',
+    return {'answer': _safe_fallback(outputs, question, previous) if outputs else 'I could not complete a verified investigation.',
             'evidence': [], 'tools_used': used, 'interpretation': {**calendar, 'engine':'v3_investigation'},
             'warnings': warnings or ['Investigation ended at its bounded execution limit.'],
-            'context_state': _context(outputs, window, used)}
+            'context_state': _context(outputs, window, used, previous, question)}
