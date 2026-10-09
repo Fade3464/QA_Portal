@@ -1099,3 +1099,7 @@ circle.db-chart__write { fill: #13c2c2; stroke: none; }
 @media (max-width: 850px) { .ai-workspace { display: flex; flex-direction: column; } .ai-workspace__sidebar { display: none; } .ai-workspace__mobile-history { display: inline-flex; } .ai-workspace__toolbar { gap: 10px; padding: 10px 16px; } .ai-page { height: calc(100dvh - 170px); min-height: 520px; } }
 @media (max-width: 560px) { .ai-page { gap: 12px; min-height: 500px; height: calc(100dvh - 145px); } .ai-page__heading-actions .ant-tag { display: none; } .ai-page__heading-copy > .ant-typography { font-size: 12px; } .ai-workspace__identity small { display: none; } .ai-welcome { padding: 22px 16px; } .ai-transcript { padding: 19px 14px; } .ai-compose { padding: 11px; } .ai-compose__foot > span:last-child { display: none; } .ai-message { gap: 9px; } .ai-message__avatar { flex-basis: 30px; height: 30px; } }
 @media (prefers-reduced-motion: reduce) { .ai-prompt, .ai-history__entry { transition: none; } }
+
+/* Scope and interpretation metadata for AI results. Never render model HTML. */
+.ai-interpretation { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; margin-top: 11px; font-size: 11px; }
+.ai-warning { margin-top: 7px; font-size: 11px; }

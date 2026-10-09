@@ -37,7 +37,7 @@ class ToolRoutingTests(SimpleTestCase):
             OpenAICompatibleProvider()
 
 
-@override_settings(AI_ENABLED=True)
+@override_settings(AI_ENABLED=True, AI_ENGINE_VERSION='v2')
 class AIAccessIntegrationTests(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -146,7 +146,8 @@ class AIAccessIntegrationTests(TestCase):
         self.assertTrue(result['evidence'])
         self.assertTrue(all(e['review_id'] in {str(r.pk) for r in self.reviews[:2]}
                             for e in result['evidence']))
-        self.assertEqual(provider.complete.call_count, 2)
+        # The backlog response is rendered deterministically; no second LLM narration call.
+        self.assertEqual(provider.complete.call_count, 1)
 
     def test_model_answer_without_qa_tool_is_not_accepted(self):
         from .orchestrator import run_ai
@@ -158,7 +159,7 @@ class AIAccessIntegrationTests(TestCase):
         with patch('apps.ai_assistant.orchestrator.get_provider', return_value=provider):
             result = run_ai(self.tl1, 'Which leader is overdue?')
         self.assertNotIn('unsupported', result['answer'])
-        self.assertFalse(result['evidence'])
+        self.assertTrue(result['evidence'])  # sourced from Django, not the unsupported text
 
     def test_qa_cannot_use_ai_endpoints(self):
         self.client.force_login(self.qa)
@@ -194,3 +195,73 @@ class AIAccessIntegrationTests(TestCase):
         response = self.client.post(reverse('ai-chat'), data=json.dumps({'message': 'Hello'}),
                                     content_type='application/json')
         self.assertEqual(response.status_code, 503)
+
+
+class SemanticPlanTests(SimpleTestCase):
+    def test_week_is_reporting_cohort_not_backlog_exclusion(self):
+        from .planning import _validated, _fallback
+        plan = _fallback("Which team leaders have pending QA reports this week?")
+        self.assertEqual(plan.intent, 'review_backlog')
+        self.assertEqual(plan.period, 'this_week')
+        self.assertEqual(plan.backlog_mode, 'current_backlog')
+        self.assertEqual(_fallback('Which agents repeated the same mistake?').intent,
+                         'recurring_mistakes')
+        with self.assertRaises(ValidationError):
+            _validated({'intent': 'review_backlog', 'period': 'last_30_days',
+                        'role': 'administrator'})
+
+    def test_llm_plan_must_be_typed_and_has_no_permission_fields(self):
+        from unittest.mock import Mock
+        from .planning import plan_question, PLAN_TOOL
+        from .provider import Completion
+        provider = Mock()
+        provider.complete.return_value = Completion(message={
+            'tool_calls': [{'type':'function', 'id':'plan-1', 'function': {
+                'name':'submit_query_plan', 'arguments':json.dumps({
+                    'intent':'review_backlog', 'period':'this_week',
+                    'backlog_mode':'current_backlog', 'company_name':'Mars',
+                    'branch_name':'Arena'})}}]}, finish_reason='tool_calls')
+        plan = plan_question(provider, 'Who is late with reviews in Mars Arena this week?')
+        self.assertEqual(plan.company_name, 'Mars')
+        self.assertEqual(plan.branch_name, 'Arena')
+        self.assertEqual(plan.backlog_mode, 'current_backlog')
+        self.assertFalse('role' in PLAN_TOOL['function']['parameters']['properties'])
+
+
+@override_settings(AI_ENABLED=True, AI_ENGINE_VERSION='v2')
+class V2BacklogIntegrationTests(AIAccessIntegrationTests):
+    def test_current_backlog_includes_old_pending_reviews(self):
+        from apps.analytics.services.reviews import find_pending_reviews
+        from .orchestrator import _render_backlog
+        old = self.reviews[0]
+        old.completed_at = timezone.now() - timedelta(days=63)
+        old.save(update_fields=['completed_at'])
+        recent = self.reviews[1]
+        recent.completed_at = timezone.now()
+        recent.save(update_fields=['completed_at'])
+        result = find_pending_reviews(user=self.tl1, mode='current_backlog', limit=10)
+        self.assertEqual(result['total_pending'], 2)
+        self.assertEqual(result['carried_over'], 1)
+        self.assertEqual(result['submitted_in_period_pending'], 1)
+        self.assertIn('1 were submitted outside', _render_backlog(result))
+        recent_only = find_pending_reviews(user=self.tl1, mode='submitted_in_period', limit=10)
+        self.assertEqual(recent_only['total_pending'], 1)
+        self.assertTrue(result['completeness']['aggregate_complete'])
+        self.assertEqual(find_pending_reviews(user=self.tl2)['total_pending'], 1)
+        self.assertEqual(find_pending_reviews(user=self.pm)['total_pending'], 2)
+        self.assertEqual(find_pending_reviews(user=self.other_supervisor)['total_pending'], 0)
+
+    def test_cannot_resolve_other_team_by_name(self):
+        from .planning import QueryPlan
+        from .orchestrator import _resolve_identity
+        result, issue = _resolve_identity(self.tl1, QueryPlan(
+            intent='team_ranking', team_name='Team Two'))
+        self.assertIsNone(result)
+        self.assertIn('No accessible team', issue)
+
+    def test_zero_pending_is_not_claim_all_reviews_completed(self):
+        from apps.analytics.services.reviews import find_pending_reviews
+        from .orchestrator import _render_backlog
+        result = find_pending_reviews(user=self.other_supervisor)
+        self.assertEqual(result['total_pending'],0)
+        self.assertIn('does not establish', _render_backlog(result))

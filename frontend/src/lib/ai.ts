@@ -4,6 +4,7 @@ import type { CurrentUser } from '../types';
 export interface AIMetadata {
   enabled: boolean;
   provider_configured: boolean;
+  engine_version?: string;
   tools: string[];
   capabilities: string[];
   actions_enabled: boolean;
@@ -14,6 +15,17 @@ export interface AIEvidence {
   tool: string;
 }
 
+export interface AIInterpretation {
+  intent?: string;
+  period?: string;
+  backlog_mode?: string | null;
+  date_from?: string;
+  date_to?: string;
+  project?: string | null;
+  team?: string | null;
+  agent?: string | null;
+}
+
 export interface AIMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -21,6 +33,8 @@ export interface AIMessage {
   created_at: string;
   evidence?: AIEvidence[];
   tools_used?: string[];
+  interpretation?: AIInterpretation;
+  warnings?: string[];
 }
 
 export interface AIConversation {
@@ -39,6 +53,8 @@ export interface AIChatResponse {
   answer: string;
   evidence: AIEvidence[];
   tools_used: string[];
+  interpretation?: AIInterpretation;
+  warnings?: string[];
 }
 
 export function canUseAI(user: CurrentUser | null): boolean {

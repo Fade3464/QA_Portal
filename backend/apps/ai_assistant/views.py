@@ -14,6 +14,7 @@ from rest_framework.views import APIView
 from .access import require_ai_access, scope_digest
 from .models import AIConversation, AIMessage
 from .orchestrator import run_ai
+from .legacy_orchestrator import run_ai as legacy_run_ai
 from .provider import AIProviderError
 from .registry import tool_names
 
@@ -50,7 +51,8 @@ class AIMetadataView(APIView):
     def get(self, request):
         return Response({'enabled': settings.AI_ENABLED,
                          'provider_configured': bool(settings.AI_LLM_MODEL and settings.AI_LLM_BASE_URL),
-                         'tools': tool_names(), 'capabilities': ['read_only_qa_analytics'],
+                         'engine_version': settings.AI_ENGINE_VERSION,
+                         'tools': tool_names(), 'capabilities': ['read_only_qa_analytics', 'semantic_query_planning', 'verified_review_backlog'],
                          'actions_enabled': False})
 
 
@@ -74,6 +76,8 @@ class AIConversationDetailView(APIView):
             {'id': str(m.pk), 'role': m.role, 'content': m.content,
              'evidence': m.evidence if m.role == AIMessage.Role.ASSISTANT else [],
              'tools_used': m.tools_used if m.role == AIMessage.Role.ASSISTANT else [],
+             'interpretation': m.interpretation if m.role == AIMessage.Role.ASSISTANT else {},
+             'warnings': m.warnings if m.role == AIMessage.Role.ASSISTANT else [],
              'created_at': m.created_at.isoformat()} for m in reversed(list(messages))]})
 
     def delete(self, request, pk):
@@ -111,7 +115,11 @@ class AIChatView(APIView):
             raise ConversationBusy()
         try:
             # Never hold SQL row locks during network inference.
-            result = run_ai(request.user, payload['message'], conversation=conversation, history=history)
+            engine = run_ai if settings.AI_ENGINE_VERSION == 'v2' else legacy_run_ai
+            # Interpret calendar references using the user's branch timezone.
+            user_tz = (request.user.branch.timezone if request.user.branch_id else settings.TIME_ZONE)
+            with timezone.override(user_tz):
+                result = engine(request.user, payload['message'], conversation=conversation, history=history)
         except AIProviderError:
             logger.warning('AI inference failed for user=%s', request.user.pk)
             return Response({'detail': 'The AI inference service is unavailable or unable to answer safely.'}, status=503)
@@ -125,6 +133,10 @@ class AIChatView(APIView):
             AIMessage.objects.create(conversation=conversation, role=AIMessage.Role.USER, content=payload['message'])
             AIMessage.objects.create(conversation=conversation, role=AIMessage.Role.ASSISTANT,
                                      content=result['answer'], evidence=result.get('evidence', []),
-                                     tools_used=result.get('tools_used', []))
-            AIConversation.objects.filter(pk=conversation.pk).update(updated_at=timezone.now())
-        return Response({'conversation_id': str(conversation.pk), **result})
+                                     tools_used=result.get('tools_used', []),
+                                     interpretation=result.get('interpretation', {}),
+                                     warnings=result.get('warnings', []))
+            AIConversation.objects.filter(pk=conversation.pk).update(
+                updated_at=timezone.now(), context_state=result.get('context_state', {}))
+        return Response({'conversation_id': str(conversation.pk),
+                         **{k:v for k,v in result.items() if k != 'context_state'}})

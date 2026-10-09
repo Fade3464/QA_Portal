@@ -64,6 +64,19 @@ function Transcript({ messages, waiting }: { messages: AIMessage[]; waiting: boo
             <div className="ai-message__meta"><strong>{item.role === 'assistant' ? 'QA Assistant' : 'You'}</strong><span>{appDate(item.created_at).format('DD MMM, h:mm A')}</span></div>
             {/* Deliberately render model output as plain text, never HTML. */}
             <div className="ai-message__content">{item.content}</div>
+            {item.role === 'assistant' && item.interpretation?.intent && (
+              <div className="ai-interpretation" aria-label="Reporting interpretation">
+                <Tag color="default">{item.interpretation.intent.replaceAll('_', ' ')}</Tag>
+                {item.interpretation.date_from && item.interpretation.date_to &&
+                  <Text type="secondary">{item.interpretation.date_from} to {item.interpretation.date_to}</Text>}
+                {item.interpretation.backlog_mode === 'current_backlog' &&
+                  <Text type="secondary"> · Current outstanding, including older pending reviews</Text>}
+                {item.interpretation.project && <Tag>{item.interpretation.project}</Tag>}
+              </div>
+            )}
+            {item.role === 'assistant' && item.warnings?.map((warning, index) => (
+              <div key={index} className="ai-warning"><Text type="warning">{warning}</Text></div>
+            ))}
             {item.role === 'assistant' && item.evidence && <EvidenceList evidence={item.evidence} />}
           </div>
         </div>
@@ -204,6 +217,8 @@ export function AIInsightsPage() {
         content: reply.answer,
         evidence: reply.evidence,
         tools_used: reply.tools_used,
+        interpretation: reply.interpretation,
+        warnings: reply.warnings,
         created_at: new Date().toISOString(),
       }]);
       void reloadConversations();

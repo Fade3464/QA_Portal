@@ -45,12 +45,13 @@ class OpenAICompatibleProvider:
         payload = {
             'model': settings.AI_LLM_MODEL,
             'messages': messages,
-            'tools': tools,
-            'tool_choice': 'auto',
             'temperature': 0,
             'max_tokens': settings.AI_LLM_MAX_OUTPUT_TOKENS,
             'stream': False,
         }
+        if tools:
+            payload['tools'] = tools
+            payload['tool_choice'] = 'auto'
         try:
             with httpx.Client(timeout=httpx.Timeout(settings.AI_LLM_TIMEOUT_SECONDS, connect=8.0),
                               follow_redirects=False, trust_env=False) as client:

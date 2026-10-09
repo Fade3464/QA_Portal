@@ -160,3 +160,9 @@ Check that the backup command succeeds and the backup is usable before migrating
 make test
 docker compose config
 ```
+
+## AI Insights V2
+
+See [`AI_ARCHITECTURE_V2.md`](AI_ARCHITECTURE_V2.md) for the provider-neutral semantic planner,
+shared analytics/authorization services, migration `0003`, staging tests and
+`AI_ENGINE_VERSION=v1|v2` rollout/rollback switch.

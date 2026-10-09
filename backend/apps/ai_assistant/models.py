@@ -9,6 +9,8 @@ class AIConversation(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='ai_conversations')
     scope_digest = models.CharField(max_length=64)
     title = models.CharField(max_length=120, default='New conversation')
+    # Only a bounded, non-sensitive semantic referent, never raw tool output.
+    context_state = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -29,6 +31,8 @@ class AIMessage(models.Model):
     # Scoped references only; no raw tool output or customer records stored.
     evidence = models.JSONField(default=list, blank=True)
     tools_used = models.JSONField(default=list, blank=True)
+    interpretation = models.JSONField(default=dict, blank=True)
+    warnings = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

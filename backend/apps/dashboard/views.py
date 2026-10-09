@@ -12,7 +12,7 @@ from rest_framework.views import APIView
 from apps.calls.models import CallEvent, Review
 from apps.calls.serializers import CallEventSerializer
 from apps.calls.views import scoped_calls
-from apps.calls.views import scoped_reports
+from apps.access.report_scope import scoped_reports
 from apps.accounts.models import User
 from apps.tenancy.access import branch_projects
 from apps.tenancy.models import DialerCampaign, QAProjectAssignment
