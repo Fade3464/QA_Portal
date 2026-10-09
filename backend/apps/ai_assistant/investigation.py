@@ -12,6 +12,8 @@ from collections import OrderedDict
 from uuid import UUID
 
 from rest_framework.exceptions import PermissionDenied, ValidationError
+from django.core.exceptions import FieldError
+from django.db import DatabaseError
 from django.utils import timezone
 from apps.access.policy import permitted_management_reviews
 from .access import require_ai_access
@@ -376,6 +378,12 @@ def run_ai(user, question, *, conversation=None, history=()):
             except PermissionDenied:
                 outcome = 'denied'
                 raise
+            except (FieldError, DatabaseError) as exc:
+                # A broken ORM expression or DB failure must fail closed, not
+                # expose a traceback/500 to someone using AI Insights.
+                outcome = 'error'
+                logger.exception('V3 analytics tool %s encountered a database/query error', name)
+                raise AIProviderError('A QA analytics tool is temporarily unavailable.') from exc
             except (ValidationError, ValueError, TypeError, AIProviderError) as exc:
                 outcome = 'invalid'
                 failures += 1

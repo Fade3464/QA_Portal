@@ -18,7 +18,9 @@ def lookup_visible_people(*, user, search, role='any', limit=12):
     matches = []
     if role in ('any', 'team_leader'):
         words = query.split()
-        leader_filter = Q(team_leader__username__icontains=query)
+        # Portal users authenticate by email and have no username model field.
+        # Match supported User fields only; names are always scoped to visible reviews.
+        leader_filter = Q(team_leader__email__icontains=query)
         if len(words) >= 2:
             leader_filter |= Q(team_leader__first_name__icontains=words[0],
                                team_leader__last_name__icontains=' '.join(words[1:]))

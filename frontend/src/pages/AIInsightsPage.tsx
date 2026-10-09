@@ -26,7 +26,7 @@ function errorText(error: unknown): string {
     if (error.status === 403) return 'Your account does not have access to AI Insights. Contact an administrator if you need access.';
     if (error.status === 404) return 'This conversation is no longer available within your current permissions.';
     if (error.status === 409) return 'This conversation is already processing another request. Try again shortly.';
-    if (error.status === 429) return 'You have reached the AI request limit. Please try again later.';
+    if (error.status === 429) return error.message.includes('Expected available in') ? error.message : 'You have reached the AI request limit. Please try again later.';
     if (error.status === 503) return 'The AI service is temporarily unavailable. Please try again later.';
     return error.message;
   }

@@ -321,6 +321,67 @@ class V3InvestigationIntegrationTests(TestCase):
         self.assertEqual(invoke('find_pending_reviews', self.pm,
                                 {'team_leader_id': str(self.tl2.pk)})['total_pending'], 0)
 
+    def test_person_lookup_uses_actual_portal_user_fields(self):
+        from .person_tools import lookup_visible_people
+        from django.core.exceptions import FieldDoesNotExist
+        # Execute the ORM query; compiling only wouldn't catch a non-existent
+        # User.username, which is deliberately removed from this project.
+        self.assertIsNone(User._meta.get_field('email').remote_field)
+        with self.assertRaises(FieldDoesNotExist):
+            User._meta.get_field('username')
+        by_name = lookup_visible_people(user=self.pm, search='tl1 Test', role='team_leader')
+        by_first = lookup_visible_people(user=self.pm, search='tl1', role='team_leader')
+        by_email = lookup_visible_people(user=self.pm, search='tl1@example.com', role='team_leader')
+        for result in (by_name, by_first, by_email):
+            self.assertEqual(len(result['matches']), 1)
+            self.assertEqual(result['matches'][0]['id'], str(self.tl1.pk))
+        self.assertFalse(lookup_visible_people(user=self.pm, search='tl2@example.com',
+                                               role='team_leader')['matches'])
+        self.assertEqual(lookup_visible_people(user=self.pm, search='agent001', role='agent')
+                         ['matches'][0]['agent_user'], 'agent001')
+
+    def test_invalid_database_lookup_fails_closed(self):
+        from django.core.exceptions import FieldError
+        from unittest.mock import Mock
+        from .investigation import run_ai
+        from .provider import Completion, AIProviderError
+        provider = Mock()
+        provider.complete.side_effect = [
+            Completion(message={'tool_calls':[{'id':'choose','type':'function','function':{
+                'name':'select_qa_tools', 'arguments':'{"names":["lookup_visible_people"]}'}}]},
+                       finish_reason='tool_calls'),
+            Completion(message={'tool_calls':[{'id':'find','type':'function','function':{
+                'name':'lookup_visible_people', 'arguments':'{"search":"tl1 Test"}'}}]},
+                       finish_reason='tool_calls'),
+        ]
+        with patch('apps.ai_assistant.investigation.get_provider', return_value=provider), \
+             patch('apps.ai_assistant.investigation.invoke', side_effect=FieldError('broken lookup')):
+            with self.assertRaises(AIProviderError):
+                run_ai(self.pm, 'Find team leader tl1 Test')
+
+    @override_settings(SECURE_SSL_REDIRECT=False)
+    def test_broken_database_tool_returns_503_not_500(self):
+        from django.core.exceptions import FieldError
+        from unittest.mock import Mock
+        from .provider import Completion
+        provider = Mock()
+        provider.complete.side_effect = [
+            Completion(message={'tool_calls':[{'id':'choose','type':'function','function':{
+                'name':'select_qa_tools', 'arguments':'{"names":["lookup_visible_people"]}'}}]},
+                       finish_reason='tool_calls'),
+            Completion(message={'tool_calls':[{'id':'find','type':'function','function':{
+                'name':'lookup_visible_people', 'arguments':'{"search":"tl1 Test"}'}}]},
+                       finish_reason='tool_calls'),
+        ]
+        self.client.force_login(self.pm)
+        with patch('apps.ai_assistant.investigation.get_provider', return_value=provider), \
+             patch('apps.ai_assistant.investigation.invoke', side_effect=FieldError('broken lookup')):
+            response = self.client.post(reverse('ai-chat'),
+                                        data=json.dumps({'message':'Find tl1 Test'}),
+                                        content_type='application/json')
+        self.assertEqual(response.status_code, 503)
+        self.assertNotIn('broken lookup', response.content.decode())
+
     def test_model_driven_leader_lookup_then_backlog(self):
         from .investigation import run_ai
         from .provider import Completion

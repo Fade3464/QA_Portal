@@ -23,6 +23,14 @@ flowchart TD
   V --> API
 ```
 
+## V3 person-lookup and throttle hotfix (October 9, 2026)
+
+- Corrected `lookup_visible_people` to use `team_leader__email` (and the existing `first_name`/`last_name` fields) instead of `team_leader__username`. The project's custom user model has `username = None`; the old lookup raised Django `FieldError` when the model invoked the tool.
+- Added database-backed person-lookup regression tests (team leader full/partial/email, agent, project isolation) and a controlled-error test so future ORM query failures return a service-unavailable response rather than an unhandled 500.
+- The AI chat throttle remains per authenticated user. Its default is now **60/hour**, configurable as `AI_CHAT_THROTTLE_RATE` in QA Portal `.env` (for example, `30/hour` for tighter production limits). This does not reset existing Redis throttle windows and should not be set to unlimited.
+- HTTP 429 displays the upstream expected wait if provided by the API.
+- No new database migrations, GPU updates, or changes to permissions. **V3 must remain disabled in production until the Django tests and staging end-to-end checks pass.**
+
 ## Backend changes
 
 - `backend/apps/ai_assistant/investigation.py`: V3 multi-step engine. One typed tool-selection call, 1–5 initially selected tools, extra tool discovery if needed, per-tool JSON-schema argument checking, audits, duplicate-query blocking, limited result size, bounded iterations and generated-summary validation. The model cannot run unregistered tools, make network calls, send emails, write reports, or execute SQL.

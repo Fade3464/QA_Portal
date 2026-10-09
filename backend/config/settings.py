@@ -161,7 +161,7 @@ REST_FRAMEWORK = {
         "login": "10/minute",
         "password_reset": "5/hour",
         "custom_notifications": "20/hour",
-        "ai_chat": "15/hour",
+        "ai_chat": os.getenv("AI_CHAT_THROTTLE_RATE", "60/hour"),
     },
 }
 
