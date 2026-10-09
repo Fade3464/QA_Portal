@@ -118,34 +118,66 @@ def get_criterion_failures(*, user, limit=15, **kwargs):
 def get_agent_critical_violations(*, user, search, date_from=None, date_to=None,
                                   company_id=None, branch_id=None, team_id=None,
                                   project_name=None, dialer_id=None, limit=12):
-    """Exact authorized agent identity -> recorded critical categories and review IDs.
+    """Return explicit violation categories for one stable, authorized agent identity.
 
-    Never infer which *person* committed an error from category totals and never
-    combine identical display names or usernames across unrelated dialers.
+    A Review has default ordering by assigned_at. Using values().distinct()
+    without clearing that ordering makes two reports from the *same* agent
+    appear to be different identities on PostgreSQL. Resolve by (dialer,
+    normalized username), never by individual review or mutable display name.
     """
     term = (search or '').strip()
     if len(term) < 2:
         raise ValidationError({'search': 'Supply the exact agent username or display name.'})
-    qs = _period(user, date_from=date_from, date_to=date_to, company_id=company_id,
-                 branch_id=branch_id, team_id=team_id, project_name=project_name,
-                 dialer_id=dialer_id).filter(
-        Q(call__agent_name__iexact=term) | Q(call__agent_user__iexact=term))
-    identities = list(qs.values('call__dialer_id', 'call__agent_user', 'call__agent_name')
-                      .distinct()[:12])
+    base = _period(user, date_from=date_from, date_to=date_to,
+                   company_id=company_id, branch_id=branch_id, team_id=team_id,
+                   project_name=project_name, dialer_id=dialer_id)
+    matches = base.filter(Q(call__agent_name__iexact=term) |
+                          Q(call__agent_user__iexact=term))
+
+    # Clear Review.Meta.ordering before DISTINCT, and inspect enough rows to
+    # detect ambiguity rather than mistakenly selecting the first candidate.
+    candidate_rows = list(matches.order_by().values(
+        'call__dialer_id', 'call__agent_user').distinct()[:101])
+    if len(candidate_rows) > 100:
+        return {'ambiguous': True, 'candidates': [],
+                'note': 'Too many matching authorized agent identities; qualify by dialer and username.'}
+
+    # Case-only differences in a dialer login are not new agents. A missing
+    # login is NOT an identity: never merge unrelated calls by display name.
+    identities = {}
+    unknown_identity = False
+    for row in candidate_rows:
+        username = (row['call__agent_user'] or '').strip()
+        if not username:
+            unknown_identity = True
+            continue
+        key = (str(row['call__dialer_id']), username.casefold())
+        identities.setdefault(key, {'dialer_id': str(row['call__dialer_id']),
+                                    'agent_user': username})
+
+    if unknown_identity:
+        return {'ambiguous': True, 'candidates': list(identities.values())[:10],
+                'note': 'One or more matching reports have no stable agent username; qualify by dialer and username or review ID.'}
     if len(identities) > 1:
-        return {'ambiguous': True, 'candidates': [
-            {'dialer_id': str(a['call__dialer_id']), 'agent_user': a['call__agent_user'],
-             'agent_name': a['call__agent_name']} for a in identities[:10]],
-            'note': 'Choose an exact dialer-qualified agent identity.'}
+        return {'ambiguous': True, 'candidates': list(identities.values())[:10],
+                'note': 'More than one authorized dialer agent matches. Specify the exact dialer and username.'}
     if not identities:
         return {'found': False, 'note': 'No exact agent identity with visible submitted QA reports matches that name.'}
-    agent = identities[0]
-    reviews = _read_rows(qs.filter(call__dialer_id=agent['call__dialer_id'],
-                                   call__agent_user=agent['call__agent_user']))
+
+    identity = next(iter(identities.values()))
+    reviews = _read_rows(base.filter(
+        call__dialer_id=identity['dialer_id'],
+        call__agent_user__iexact=identity['agent_user']))
+    if not reviews:
+        return {'found': False, 'note': 'No matching submitted evaluations remain in the authorized scope.'}
     critical_reviews = [r for r in reviews if r.critical_errors]
     counts = Counter(key for r in critical_reviews for key in set(r.critical_errors or []))
-    return {'found': True, 'agent': {'agent_name': agent['call__agent_name'],
-            'agent_user': agent['call__agent_user'], 'dialer_id': str(agent['call__dialer_id'])},
+    # The current display name is illustrative only; the dialer+username is
+    # the canonical identity even if the name changed across evaluations.
+    return {'found': True,
+            'agent': {'agent_name': reviews[0].call.agent_name or identity['agent_user'],
+                      'agent_user': identity['agent_user'],
+                      'dialer_id': identity['dialer_id']},
             'evaluations': len(reviews), 'critical_error_reviews': len(critical_reviews),
             'violations': [{'key': key, 'label': ERROR_LABELS.get(key, key), 'reviews': n}
                            for key, n in counts.most_common()],

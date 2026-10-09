@@ -799,6 +799,79 @@ class V3ConversationalRegressionTests(TestCase):
         self.assertIn('Agent agent001', result['answer'])
         self.assertTrue(result['evidence'])
 
+    def test_critical_lookup_groups_multiple_reviews_by_stable_agent_identity(self):
+        from apps.analytics.services.recurrence import get_agent_critical_violations
+        result = get_agent_critical_violations(user=self.pm, search='Agent agent001')
+        self.assertTrue(result['found'])
+        self.assertNotIn('ambiguous', result)
+        self.assertEqual(result['evaluations'], 2)
+        self.assertEqual(result['critical_error_reviews'], 2)
+        self.assertEqual(result['agent']['agent_user'], 'agent001')
+        self.assertEqual(len(result['reports']), 2)
+        self.assertEqual({r['review_id'] for r in result['reports']},
+                         {str(self.reviews[0].pk), str(self.reviews[1].pk)})
+
+    def test_critical_lookup_merges_changed_agent_display_names_not_dialers(self):
+        from apps.analytics.services.recurrence import get_agent_critical_violations
+        # A renamed agent is still the same dialer login. Name lookup on the
+        # previous display name must include the newly named evaluation too.
+        changed = self.reviews[1].call
+        changed.agent_name = 'New displayed name'
+        changed.save(update_fields=['agent_name'])
+        result = get_agent_critical_violations(user=self.pm, search='Agent agent001')
+        self.assertEqual(result['critical_error_reviews'], 2)
+        self.assertFalse(result.get('ambiguous', False))
+
+    def test_critical_lookup_does_not_merge_same_name_different_agent_logins(self):
+        from apps.analytics.services.recurrence import get_agent_critical_violations
+        from django.utils import timezone
+        call = CallEvent.objects.create(
+            dialer=self.dialer, branch=self.branch, team=self.team1,
+            campaign='CAMP-A', event_key='other-login-name-collision',
+            event_type=CallEvent.EventType.DISPOSITION,
+            agent_user='agent999', agent_name='Agent agent001')
+        Review.objects.create(call=call, reviewer=self.qa, team_leader=self.tl1,
+                              status=Review.Status.COMPLETED,
+                              completed_at=timezone.now(),
+                              leader_status=Review.LeaderStatus.PENDING,
+                              critical_errors=['wasted_lead'], scores={})
+        result = get_agent_critical_violations(user=self.pm, search='Agent agent001')
+        self.assertTrue(result['ambiguous'])
+        self.assertEqual({x['agent_user'] for x in result['candidates']},
+                         {'agent001', 'agent999'})
+        # Supplying the exact dialer login still resolves the original agent.
+        exact = get_agent_critical_violations(user=self.pm, search='agent001')
+        self.assertEqual(exact['critical_error_reviews'], 2)
+
+    def test_critical_lookup_requires_dialer_if_login_exists_on_two_dialers(self):
+        from apps.analytics.services.recurrence import get_agent_critical_violations
+        dialer2 = Dialer.objects.create(branch=self.branch, name='Dialer Two',
+                                        api_url='https://example.org/api', api_username='qa')
+        call = CallEvent.objects.create(
+            dialer=dialer2, branch=self.branch, team=self.team1, campaign='CAMP-A',
+            event_key='duplicate-login-another-dialer',
+            event_type=CallEvent.EventType.DISPOSITION,
+            agent_user='agent001', agent_name='Agent agent001')
+        Review.objects.create(call=call, reviewer=self.qa, team_leader=self.tl1,
+                              status=Review.Status.COMPLETED,
+                              completed_at=timezone.now(),
+                              leader_status=Review.LeaderStatus.PENDING,
+                              critical_errors=['wasted_lead'], scores={})
+        # Supervisor legitimately sees both dialers; it must not merge logins.
+        ambiguous = get_agent_critical_violations(user=self.supervisor,
+                                                   search='agent001')
+        self.assertTrue(ambiguous['ambiguous'])
+        self.assertEqual(len(ambiguous['candidates']), 2)
+        resolved = get_agent_critical_violations(
+            user=self.supervisor, search='agent001', dialer_id=str(self.dialer.pk))
+        self.assertEqual(resolved['critical_error_reviews'], 2)
+        self.assertEqual(resolved['agent']['dialer_id'], str(self.dialer.pk))
+
+    def test_critical_lookup_never_leaks_other_project_reviews(self):
+        from apps.analytics.services.recurrence import get_agent_critical_violations
+        result = get_agent_critical_violations(user=self.pm, search='agent002')
+        self.assertFalse(result['found'])
+
     def test_worst_team_leader_uses_current_pending_not_agent_ranking(self):
         from unittest.mock import Mock
         from .investigation import run_ai
