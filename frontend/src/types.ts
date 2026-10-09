@@ -77,7 +77,7 @@ export interface QAScorecard {
   critical_errors: Array<{ value: string; label: string }>;
 }
 
-export type QAEvaluationType = 'full' | 'partial' | 'not_evaluable' | 'agent_premature';
+export type QAEvaluationType = 'zero_defect' | 'full' | 'partial' | 'not_evaluable' | 'agent_premature';
 export type QACategoryApplicability = 'applicable' | 'not_reached' | 'missed_opportunity';
 export type QACriterionApplicability = 'applicable' | 'not_reached';
 

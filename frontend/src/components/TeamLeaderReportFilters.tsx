@@ -86,7 +86,7 @@ const QA_STATUSES = [
 ].map(([value, label]) => ({ value, label }));
 
 const EVALUATION_TYPES = [
-  ['full', 'Full call'], ['partial', 'Partial call'], ['not_evaluable', 'Not evaluable'], ['agent_premature', 'Agent ended early'],
+  ['zero_defect', 'Zero-Defect'], ['full', 'Full call'], ['partial', 'Partial call'], ['not_evaluable', 'Not evaluable'], ['agent_premature', 'Agent ended early'],
 ].map(([value, label]) => ({ value, label }));
 
 const COVERAGE_TIERS = [
@@ -157,7 +157,7 @@ export function TeamLeaderReportFilters({ open, value, options, oversight = fals
     <label><span>Disposition</span><Select mode="multiple" showSearch={{ optionFilterProp: 'label' }} maxTagCount="responsive" allowClear placeholder="Any disposition" value={draft.dispositions} onChange={(next) => update('dispositions', next)} options={multiOptions(options?.dispositions ?? [])} /></label>
     <label><span>Critical violation</span><Segmented block value={draft.critical} onChange={(next) => update('critical', next as TeamLeaderReportFilterValue['critical'])} options={[{ value: 'any', label: 'Any' }, { value: 'true', label: 'Yes' }, { value: 'false', label: 'No' }]} /></label>
     <label><span>Score status</span><Select value={draft.scoreState} onChange={(next) => update('scoreState', next)} options={[{ value: 'all', label: 'Any' }, { value: 'scored', label: 'Scored' }, { value: 'unscored', label: 'Scorecard waived' }]} /></label>
-    <label><span>Evaluation type</span><Select mode="multiple" maxTagCount="responsive" allowClear placeholder="Any type" value={draft.evaluationTypes} onChange={(next) => update('evaluationTypes', next)} options={EVALUATION_TYPES} /></label>
+    <label><span>Evaluation type</span><Select mode="multiple" maxTagCount="responsive" allowClear placeholder="Any type" value={draft.evaluationTypes} onChange={(next) => update('evaluationTypes', next)} options={oversight || personal ? EVALUATION_TYPES : EVALUATION_TYPES.filter((item) => item.value !== 'zero_defect')} /></label>
     <label><span>Coverage tier</span><Select mode="multiple" maxTagCount="responsive" allowClear placeholder="Any coverage" value={draft.coverageTiers} onChange={(next) => update('coverageTiers', next)} options={COVERAGE_TIERS} /></label>
     <label><span>Coaching overdue</span><Segmented block value={draft.overdue} onChange={(next) => update('overdue', next as TeamLeaderReportFilterValue['overdue'])} options={[{ value: 'any', label: 'Any' }, { value: 'true', label: 'Yes' }, { value: 'false', label: 'No' }]} /></label>
     <label><span>Team Leader activity</span><Select value={draft.leaderActivity} onChange={(next) => update('leaderActivity', next)} options={[{ value: 'all', label: 'Any' }, { value: 'with_activity', label: 'Has activity' }, { value: 'without_activity', label: 'No activity' }]} /></label>

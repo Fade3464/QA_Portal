@@ -46,6 +46,7 @@ def scoped_reports(user):
         )
         return (
             queryset.filter(team_leader=user, status__in=completed)
+            .exclude(evaluation_type=Review.EvaluationType.ZERO_DEFECT)
             .annotate(_project_allowed=Exists(allowed_project))
             .filter(_project_allowed=True)
         )

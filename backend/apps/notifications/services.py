@@ -81,7 +81,9 @@ def _broadcast_notification(notification_id, event_type="notification.updated") 
 
 
 @transaction.atomic
-def queue_review_report_notification(review) -> SystemNotification:
+def queue_review_report_notification(review) -> SystemNotification | None:
+    if review.evaluation_type == review.EvaluationType.ZERO_DEFECT:
+        return None
     leader = review.team_leader
     result = (
         "an automatic-fail review"

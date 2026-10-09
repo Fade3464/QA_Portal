@@ -325,12 +325,13 @@ class CallReviewSubmitView(APIView):
                 "coaching_plan",
             )
         }
-        if not call.team_id:
+        zero_defect = merged["evaluation_type"] == Review.EvaluationType.ZERO_DEFECT
+        if not zero_defect and not call.team_id:
             raise ValidationError(
                 {"team": "Assign this call to a team before submitting its report."}
             )
-        team_leader = call.team.team_leader
-        if not team_leader.is_active:
+        team_leader = call.team.team_leader if call.team_id else None
+        if not zero_defect and not team_leader.is_active:
             raise ValidationError(
                 {"team_leader": "The assigned Team Leader account is inactive."}
             )
@@ -377,7 +378,10 @@ class CallReviewSubmitView(APIView):
                 merged["scores"], require_complete=True, **evaluation_kwargs
             )
             score = evaluation.score
-        rating, outcome = rating_for(score, bool(critical_errors))
+        rating, outcome = (
+            (Review.Rating.GOOD, Review.Outcome.GOOD_CALL)
+            if zero_defect else rating_for(score, bool(critical_errors))
+        )
         now = timezone.now()
         for field, value in merged.items():
             setattr(review, field, value)
@@ -408,10 +412,17 @@ class CallReviewSubmitView(APIView):
             review.coaching_due_at = None
             review.revision_requested_at = None
             review.revision_reason = ""
+        if zero_defect:
+            review.leader_status = Review.LeaderStatus.CLOSED
+            review.leader_closed_at = now
+            review.leader_updated_at = now
+            review.leader_reviewed_at = None
+            review.coaching_due_at = None
         review.save()
 
         from apps.notifications.services import (
             queue_review_report_notification,
+            resolve_review_report_notification,
             resolve_review_returned_notifications,
         )
 
@@ -421,14 +432,17 @@ class CallReviewSubmitView(APIView):
                 actor=request.user,
                 event_type=ReviewWorkflowEvent.EventType.STATUS_CHANGED,
                 from_status=Review.LeaderStatus.RETURNED_TO_QA,
-                to_status=Review.LeaderStatus.PENDING,
-                note="Reassessed and resubmitted to the Team Leader.",
+                to_status=review.leader_status,
+                note=("Reassessed as Zero-Defect; no management review required."
+                      if zero_defect else "Reassessed and resubmitted to the Team Leader."),
             )
             resolve_review_returned_notifications(review)
-        notification = queue_review_report_notification(review)
+        if zero_defect and team_leader:
+            resolve_review_report_notification(review, team_leader)
+        notification = None if zero_defect else queue_review_report_notification(review)
         transaction.on_commit(lambda: _broadcast_reservation(call, review))
         response = ReviewSerializer(review).data
-        response["notification_id"] = str(notification.pk)
+        response["notification_id"] = str(notification.pk) if notification else None
         return Response(response)
 
 
@@ -973,6 +987,11 @@ class ReviewReportActionView(APIView):
         )
         if not review:
             raise NotFound("QA report not found.")
+
+        if review.evaluation_type == Review.EvaluationType.ZERO_DEFECT:
+            raise ValidationError(
+                {"leader_status": "Zero-Defect calls are complete and require no management review."}
+            )
 
         note = str(request.data.get("note", "")).strip()
         if len(note) > 4000:

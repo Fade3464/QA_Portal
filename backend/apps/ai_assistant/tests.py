@@ -102,6 +102,23 @@ class AIAccessIntegrationTests(TestCase):
         self.assertTrue(details['found'])
         self.assertNotIn('phone_number', details)
 
+    def test_zero_defect_is_hidden_from_team_leader_tools_and_visible_to_project_manager(self):
+        review = self.reviews[0]
+        review.evaluation_type = Review.EvaluationType.ZERO_DEFECT
+        review.score = None
+        review.critical_errors = []
+        review.rating = Review.Rating.GOOD
+        review.outcome = Review.Outcome.GOOD_CALL
+        review.leader_status = Review.LeaderStatus.CLOSED
+        review.save()
+        self.assertEqual(invoke('get_review_details', self.tl1, {'review_id': str(review.pk)}), {'found': False})
+        details = invoke('get_review_details', self.pm, {'review_id': str(review.pk)})
+        self.assertTrue(details['found'])
+        self.assertEqual(invoke('get_qa_overview', self.tl1, {})['metrics']['evaluations'], 1)
+        metrics = invoke('get_qa_overview', self.pm, {})['metrics']
+        self.assertEqual(metrics['evaluations'], 2)
+        self.assertEqual(metrics['scored'], 1)
+
     def test_filters_do_not_escalate_scope(self):
         data = invoke('get_qa_overview', self.pm, {'project_name': 'Project B'})
         self.assertEqual(data['metrics']['evaluations'], 0)

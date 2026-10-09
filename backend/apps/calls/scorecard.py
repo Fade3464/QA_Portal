@@ -10,6 +10,7 @@ from rest_framework.exceptions import ValidationError
 SCORECARD_VERSION = "outbound-sales-v2"
 
 CALL_EVALUATION_TYPES = {
+    "zero_defect",
     "full",
     "partial",
     "not_evaluable",
@@ -168,6 +169,7 @@ def scorecard_payload() -> dict:
         "benchmark": 85,
         "minimum_scored_coverage": 20,
         "evaluation_types": [
+            {"value": "zero_defect", "label": "Zero-Defect"},
             {"value": "full", "label": "Full call"},
             {"value": "partial", "label": "Partial call"},
             {"value": "not_evaluable", "label": "Not evaluable"},
@@ -243,9 +245,9 @@ def calculate_score(scores, *, require_complete: bool) -> Decimal:
 @dataclass(frozen=True)
 class EvaluationResult:
     score: Decimal | None
-    earned_points: Decimal
-    applicable_points: Decimal
-    coverage: Decimal
+    earned_points: Decimal | None
+    applicable_points: Decimal | None
+    coverage: Decimal | None
     coverage_tier: str
     scores: dict[str, float]
     category_applicability: dict[str, str]
@@ -270,6 +272,14 @@ def calculate_evaluation(
     """
     if evaluation_type not in CALL_EVALUATION_TYPES:
         raise ValidationError({"evaluation_type": "Unsupported call evaluation type."})
+    if evaluation_type == "zero_defect":
+        # A qualitative good-call decision carries no numeric scoring or coverage.
+        return EvaluationResult(
+            score=None, earned_points=None, applicable_points=None,
+            coverage=None, coverage_tier="", scores={},
+            category_applicability={}, category_applicability_reasons={},
+            criterion_applicability={},
+        )
     if not isinstance(category_applicability or {}, dict):
         raise ValidationError(
             {"category_applicability": "Heading applicability must be an object."}

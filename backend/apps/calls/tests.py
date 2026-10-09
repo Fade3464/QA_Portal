@@ -32,7 +32,7 @@ from apps.tenancy.models import (
 from config.celery import app as celery_app
 
 from .models import CallEvent, Review, ReviewWorkflowEvent
-from .scorecard import SCORECARD
+from .scorecard import CRITICAL_ERRORS, SCORECARD
 from .serializers import CallEventSerializer
 from .services import (
     RecordingResult,
@@ -1737,6 +1737,174 @@ class AnalysisReservationTests(TestCase):
         self.assertTrue(
             all(response.json()["scores"][key] == 0 for key in communication_keys)
         )
+
+    def test_zero_defect_completes_good_call_without_extra_info_or_notification(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        response = self.client.post(
+            self.url("call-review-submit"), {"evaluation_type": "zero_defect"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        data = response.json()
+        self.assertEqual(data["status"], "completed")
+        self.assertEqual(data["rating"], "good")
+        self.assertEqual(data["outcome_label"], "Good call")
+        self.assertEqual(data["leader_status"], "closed")
+        for field in ("score", "coverage", "earned_points", "applicable_points", "notification_id"):
+            self.assertIsNone(data[field], field)
+        self.assertIsNone(data["leader_reviewed_at"])
+        self.assertFalse(SystemNotification.objects.filter(category=SystemNotification.Category.QA_REPORT_READY).exists())
+        repeat = self.client.post(self.url("call-review-submit"), content_type="application/json")
+        self.assertEqual(repeat.status_code, 200)
+        review = Review.objects.get(call=self.call)
+        detail = self.client.get(reverse("review-report-detail", kwargs={"pk": review.pk}))
+        self.assertEqual(detail.status_code, 200, detail.content)
+        self.assertEqual(detail.json()["outcome"], "good_call")
+        reports = self.client.get(reverse("review-report-list"), {"evaluation_type": "zero_defect"})
+        self.assertEqual(reports.json()["count"], 1)
+        self.client.force_login(self.team_leader)
+        detail = self.client.get(reverse("review-report-detail", kwargs={"pk": review.pk}))
+        self.assertEqual(detail.status_code, 404, detail.content)
+        for params in ({}, {"evaluation_type": "zero_defect"}, {"segment": "closed"}):
+            reports = self.client.get(reverse("review-report-list"), params)
+            self.assertEqual(reports.status_code, 200, reports.content)
+            self.assertEqual(reports.json()["count"], 0)
+        summary = self.client.get(reverse("review-report-summary")).json()
+        self.assertEqual(summary["total"], 0)
+        self.assertEqual(summary["pending"], 0)
+        self.assertIsNone(summary["average_score"])
+        action = self.client.post(
+            reverse("review-report-action", kwargs={"pk": review.pk}),
+            {"leader_status": "acknowledged"}, content_type="application/json",
+        )
+        self.assertEqual(action.status_code, 404, action.content)
+        review.refresh_from_db()
+        self.assertEqual(review.leader_status, Review.LeaderStatus.CLOSED)
+
+    def test_review_endpoints_reject_non_object_json_without_server_error(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        for payload in ([], ["zero_defect"], "zero_defect", None):
+            for method, endpoint in ((self.client.patch, "call-review-draft"),
+                                     (self.client.post, "call-review-submit")):
+                with self.subTest(payload=payload, endpoint=endpoint):
+                    response = method(self.url(endpoint), json.dumps(payload), content_type="application/json")
+                    self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(Review.objects.get(call=self.call).status, Review.Status.IN_PROGRESS)
+
+    def test_zero_defect_draft_discards_stale_scorecard_and_critical_errors(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        review = Review.objects.get(call=self.call)
+        review.scores = self.full_scores()
+        review.critical_errors = [CRITICAL_ERRORS[0][0]]
+        review.save()
+        draft = self.client.patch(
+            self.url("call-review-draft"),
+            {"evaluation_type": "zero_defect", "criterion_evidence": {"stale": "invalid"}},
+            content_type="application/json",
+        )
+        self.assertEqual(draft.status_code, 200, draft.content)
+        for field in ("scores", "criterion_evidence", "critical_error_evidence", "category_applicability"):
+            self.assertEqual(draft.json()[field], {}, field)
+        self.assertEqual(draft.json()["critical_errors"], [])
+        response = self.client.post(self.url("call-review-submit"), {}, content_type="application/json")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["outcome"], "good_call")
+
+    def test_switching_zero_defect_back_to_full_requires_scores(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        self.client.patch(self.url("call-review-draft"), {"evaluation_type": "zero_defect"}, content_type="application/json")
+        response = self.client.post(
+            self.url("call-review-submit"), {"evaluation_type": "full"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(Review.objects.get(call=self.call).status, Review.Status.IN_PROGRESS)
+
+    def test_zero_defect_requires_no_team_assignment(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        self.call.team = None
+        self.call.save(update_fields=["team"])
+        response = self.client.post(
+            self.url("call-review-submit"), {"evaluation_type": "zero_defect"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertIsNone(response.json()["team_leader"])
+
+    def test_zero_defect_allows_inactive_leader_and_preserves_role_scopes(self):
+        from apps.access.report_scope import scoped_reports
+        from apps.analytics.services.core import _summary
+        from apps.notifications.services import queue_review_report_notification
+
+        self.team_leader.is_active = False
+        self.team_leader.save(update_fields=["is_active"])
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        response = self.client.post(
+            self.url("call-review-submit"), {"evaluation_type": "zero_defect"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        review = Review.objects.get(call=self.call)
+        self.assertIsNone(queue_review_report_notification(review))
+        self.assertFalse(scoped_reports(self.qa_two).filter(pk=review.pk).exists())
+        self.assertFalse(scoped_reports(self.team_leader).filter(pk=review.pk).exists())
+        for role in (User.Role.PROJECT_MANAGER, User.Role.SUPERVISOR, User.Role.ADMINISTRATOR):
+            user = User.objects.create_user(
+                email=f"zero-{role}@example.com", password="a-very-strong-password",
+                role=role, first_name="Zero", last_name="Reviewer",
+                company=None if role == User.Role.ADMINISTRATOR else self.branch.company,
+                branch=None if role == User.Role.ADMINISTRATOR else self.branch,
+                is_superuser=role == User.Role.ADMINISTRATOR,
+                is_staff=role == User.Role.ADMINISTRATOR,
+                must_change_password=False,
+            )
+            if role == User.Role.PROJECT_MANAGER:
+                assignment = QAProjectAssignment.objects.get(qa=self.qa_one)
+                QAProjectAssignment.objects.create(qa=user, dialer_campaign=assignment.dialer_campaign)
+            self.client.force_login(user)
+            detail = self.client.get(reverse("review-report-detail", kwargs={"pk": review.pk}))
+            self.assertEqual(detail.status_code, 200, (role, detail.content))
+            self.assertEqual(detail.json()["outcome_label"], "Good call")
+            reports = self.client.get(reverse("review-report-list"), {"evaluation_type": "zero_defect"})
+            self.assertEqual(reports.status_code, 200, (role, reports.content))
+            self.assertEqual(reports.json()["count"], 1)
+
+        summary = _summary(Review.objects.filter(pk=review.pk))
+        self.assertEqual(summary["evaluations"], 1)
+        self.assertEqual(summary["scored"], 0)
+        self.assertIsNone(summary["average_score"])
+        self.assertEqual(summary["below_85"], 0)
+
+    def test_returned_review_can_be_resubmitted_as_zero_defect_without_notification(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        self.client.post(self.url("call-review-submit"), self.submission(), content_type="application/json")
+        review = Review.objects.get(call=self.call)
+        self.client.force_login(self.team_leader)
+        action = self.client.post(
+            reverse("review-report-action", kwargs={"pk": review.pk}),
+            {"leader_status": "returned_to_qa", "note": "Please reassess the call."},
+            content_type="application/json",
+        )
+        self.assertEqual(action.status_code, 200, action.content)
+        self.client.force_login(self.qa_one)
+        response = self.client.post(
+            self.url("call-review-submit"), {"evaluation_type": "zero_defect"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["leader_status"], "closed")
+        self.assertIsNone(response.json()["notification_id"])
+        self.assertIsNone(response.json()["revision_requested_at"])
+        self.assertEqual(response.json()["revision_reason"], "")
+        self.assertFalse(SystemNotification.objects.filter(resolved_at__isnull=True).exists())
+        self.assertEqual(review.workflow_events.first().to_status, Review.LeaderStatus.CLOSED)
 
     def test_non_evaluable_call_is_submitted_without_scorecard(self):
         self.client.force_login(self.qa_one)

@@ -350,6 +350,7 @@ class Review(models.Model):
 
     class Outcome(models.TextChoices):
         NOT_EVALUABLE = "not_evaluable", "Not Evaluable"
+        GOOD_CALL = "good_call", "Good call"
         EXCEEDS_EXPECTATIONS = "exceeds_expectations", "Exceeds Expectations"
         MEETS_EXPECTATIONS = "meets_expectations", "Meets Expectations"
         MEETS_MINIMUM_STANDARD = "meets_minimum_standard", "Meets Minimum Standard"
@@ -401,6 +402,7 @@ class Review(models.Model):
     )
 
     class EvaluationType(models.TextChoices):
+        ZERO_DEFECT = "zero_defect", "Zero-Defect"
         FULL = "full", "Full call"
         PARTIAL = "partial", "Partial call"
         NOT_EVALUABLE = "not_evaluable", "Not evaluable"

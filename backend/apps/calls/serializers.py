@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+
 from rest_framework import serializers
 
 from .models import CallEvent, Review, ReviewWorkflowEvent
@@ -104,6 +106,23 @@ class ReviewSerializer(serializers.ModelSerializer):
             "revision_reason",
             "revision_count",
         )
+
+    def to_internal_value(self, data):
+        if not isinstance(data, Mapping):
+            return super().to_internal_value(data)
+        evaluation_type = data.get(
+            "evaluation_type", self.instance.evaluation_type if self.instance else "full"
+        )
+        if evaluation_type == Review.EvaluationType.ZERO_DEFECT:
+            data = data.copy()
+            for field in (
+                "scores", "category_applicability", "category_applicability_reasons",
+                "criterion_applicability", "criterion_evidence", "critical_error_evidence",
+            ):
+                data[field] = {}
+            data["critical_errors"] = []
+            data["evaluation_reason"] = ""
+        return super().to_internal_value(data)
 
     def validate_scores(self, value):
         calculate_score(value, require_complete=False)
