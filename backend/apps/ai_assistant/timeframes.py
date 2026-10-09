@@ -11,13 +11,27 @@ from django.utils import timezone
 
 @dataclass(frozen=True)
 class TimeWindow:
-    start: date
-    end: date
+    start: date | None
+    end: date | None
     label: str
     explicit: bool = False
 
+    @property
+    def all_time(self):
+        return self.start is None and self.end is None
+
+    @property
+    def days(self):
+        return None if self.all_time else (self.end - self.start).days + 1
+
+    def tool_args(self):
+        return {'all_time': True} if self.all_time else {
+            'date_from': self.start.isoformat(), 'date_to': self.end.isoformat()}
+
     def public(self):
-        return {'date_from': self.start.isoformat(), 'date_to': self.end.isoformat(),
+        return {'date_from': self.start.isoformat() if self.start else None,
+                'date_to': self.end.isoformat() if self.end else None,
+                'all_time': self.all_time,
                 'label': self.label, 'timezone': str(timezone.get_current_timezone()),
                 'source': 'django_calendar' if self.explicit else 'default_or_conversation'}
 
@@ -26,6 +40,8 @@ def resolve_window(text, *, today=None, previous=None):
     today = today or timezone.localdate()
     q = ' '.join(text.casefold().split())
     monday = today - timedelta(days=today.weekday())
+    if re.search(r'\b(?:all[ -]?time|ever|since (?:the )?beginning|entire history|without (?:a )?date (?:filter|limit))\b', q):
+        return TimeWindow(None, None, 'all time', True)
     if re.search(r'\bday before yesterday\b', q):
         d = today-timedelta(days=2)
         return TimeWindow(d, d, 'day before yesterday', True)
@@ -76,6 +92,8 @@ def resolve_window(text, *, today=None, previous=None):
         last = previous.get('time_window')
         if isinstance(last, dict):
             try:
+                if last.get('all_time') is True:
+                    return TimeWindow(None, None, 'all time (conversation follow-up)')
                 start, end = date.fromisoformat(last['date_from']), date.fromisoformat(last['date_to'])
                 if start <= end and (end-start).days <= 365:
                     return TimeWindow(start, end, 'conversation follow-up')

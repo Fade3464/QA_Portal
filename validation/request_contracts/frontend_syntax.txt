@@ -1,0 +1,3 @@
+Syntax transpilation only; NOT a full React/TypeScript build.
+PASS /src/lib/ai.ts
+PASS /src/pages/AIInsightsPage.tsx

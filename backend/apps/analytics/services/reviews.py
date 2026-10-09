@@ -17,63 +17,64 @@ from .core import (
 
 def find_pending_reviews(*, user, mode='current_backlog', older_than_days=0, limit=20,
                          date_from=None, date_to=None, company_id=None, branch_id=None,
-                         team_id=None, project_name=None, agent_user=None, dialer_id=None, team_leader_id=None):
-    """Current outstanding ≠ submissions in period. No default 30-day exclusion.
+                         team_id=None, project_name=None, agent_user=None, dialer_id=None,
+                         team_leader_id=None, all_time=False):
+    """Current-state backlog with an explicit, optional submission cohort.
 
-    A historical snapshot cannot be derived from current leader_status; current_backlog
-    measures the state now, decomposed by completed_at. No claim about past state.
+    Collection totals and leader breakdown use EXACTLY the same scoped queryset.
+    An all-time request has no implicit lower bound or fictitious 30-day cohort.
+    A cohort's newer records are not incorrectly called older carryover.
     """
     if mode not in {'current_backlog', 'submitted_in_period'}:
         raise ValidationError({'mode': 'Unsupported backlog interpretation.'})
+    if all_time and (date_from or date_to):
+        raise ValidationError({'dates': 'all_time cannot have a date interval.'})
     filters = dict(company_id=company_id, branch_id=branch_id, team_id=team_id,
                    project_name=project_name, agent_user=agent_user, dialer_id=dialer_id)
-    all_pending = _base(user, all_time=True, **filters).filter(
-        leader_status=Review.LeaderStatus.PENDING
-    )
-    # The UUID is a narrowing filter over an already-authorized queryset.
+    qs = _base(user, all_time=True, **filters).filter(leader_status=Review.LeaderStatus.PENDING)
     if team_leader_id:
-        all_pending = all_pending.filter(team_leader_id=_uuid(team_leader_id, 'team_leader_id'))
+        qs = qs.filter(team_leader_id=_uuid(team_leader_id, 'team_leader_id'))
     today = timezone.localdate()
-    week_start = today - timedelta(days=today.weekday())
-    # Explicit period bounds define a submission cohort; otherwise compare against
-    # this calendar week in Django's configured timezone.
-    if date_from or date_to:
-        start, end = _dates(date_from, date_to)
-    else:
-        start, end = week_start, today
-    cohort = all_pending.filter(completed_at__date__gte=start,
-                                completed_at__date__lte=end)
-    qs = all_pending if mode == 'current_backlog' else cohort
+    start, end = (None, None) if all_time else (
+        _dates(date_from, date_to) if date_from or date_to else
+        (today - timedelta(days=today.weekday()), today))
+    cohort_q = Q() if all_time else Q(completed_at__date__gte=start, completed_at__date__lte=end)
+    if mode == 'submitted_in_period' and not all_time:
+        qs = qs.filter(cohort_q)
     if older_than_days:
         qs = qs.filter(completed_at__lte=timezone.now()-timedelta(days=older_than_days))
     cutoff = timezone.now()-timedelta(hours=48)
     totals = qs.aggregate(total=Count('pk'), overdue=Count('pk', filter=Q(completed_at__lt=cutoff)),
                           unassigned=Count('pk', filter=Q(team_leader__isnull=True)))
-    groups = (qs.values('team_leader_id','team_leader__first_name','team_leader__last_name')
+    cohort_count = qs.filter(cohort_q).count()
+    carryover = qs.filter(completed_at__date__lt=start).count() if start else 0
+    later_count = qs.filter(completed_at__date__gt=end).count() if end else 0
+    unknown_count = qs.filter(completed_at__isnull=True).count()
+    groups = (qs.order_by().values('team_leader_id','team_leader__first_name','team_leader__last_name')
               .annotate(pending=Count('pk'), overdue=Count('pk', filter=Q(completed_at__lt=cutoff)),
-                        newly_submitted=Count('pk', filter=Q(completed_at__date__gte=start,
-                                                             completed_at__date__lte=end)))
-              .order_by('-pending', 'team_leader_id')[:60])
-    leaders = []
-    for item in groups:
-        name = ' '.join(filter(None, (item['team_leader__first_name'], item['team_leader__last_name']))) or 'Unassigned'
-        leaders.append({'team_leader_id': str(item['team_leader_id']) if item['team_leader_id'] else None,
-                        'name': name, 'pending': item['pending'], 'overdue': item['overdue'],
-                        'submitted_in_period': item['newly_submitted'],
-                        'carried_over': item['pending']-item['newly_submitted']})
+                        newly_submitted=Count('pk', filter=cohort_q),
+                        carried=Count('pk', filter=Q(completed_at__date__lt=start)) if start else Count('pk', filter=Q(pk__isnull=True)))
+              .order_by('-pending', 'team_leader_id'))
+    group_count = qs.order_by().values('team_leader_id').distinct().count()
+    leaders = [{'team_leader_id': str(item['team_leader_id']) if item['team_leader_id'] else None,
+                'name': ' '.join(filter(None, (item['team_leader__first_name'], item['team_leader__last_name']))) or 'Unassigned',
+                'pending': item['pending'], 'overdue': item['overdue'],
+                'submitted_in_period': item['newly_submitted'],
+                'outside_period': item['pending']-item['newly_submitted'],
+                'carried_over': item['carried']}
+               for item in groups[:60]]
     results = list(qs.order_by('completed_at','pk')[:limit])
     return {
         'definition': 'Currently pending TL acknowledgement for submitted QA evaluations; not QA analyst drafts.',
         'interpretation': mode,
-        'period': {'date_from': start.isoformat(), 'date_to': end.isoformat(),
+        'period': {'date_from': start.isoformat() if start else None,
+                   'date_to': end.isoformat() if end else None, 'all_time': all_time,
                    'date_field': 'completed_at', 'timezone': str(timezone.get_current_timezone())},
-        'total_pending': totals['total'],
-        'submitted_in_period_pending': cohort.count(),
-        'carried_over': totals['total']-qs.filter(completed_at__date__gte=start,
-                                completed_at__date__lte=end).count(),
-        'overdue_48h': totals['overdue'],
-        'unassigned': totals['unassigned'],
-        'leaders': leaders,
+        'as_of': timezone.now().isoformat(),
+        'total_pending': totals['total'], 'submitted_in_period_pending': cohort_count,
+        'carried_over': carryover, 'submitted_after_period_pending': later_count,
+        'missing_submission_date': unknown_count, 'overdue_48h': totals['overdue'],
+        'unassigned': totals['unassigned'], 'leaders': leaders,
         'reports': [{'review_id': str(r.pk),
                      'team_leader_id': str(r.team_leader_id) if r.team_leader_id else None,
                      'team_leader_name': r.team_leader.full_name if r.team_leader_id else 'Unassigned',
@@ -81,11 +82,10 @@ def find_pending_reviews(*, user, mode='current_backlog', older_than_days=0, lim
                      'agent': _agent(r),
                      'completed_at': r.completed_at.isoformat() if r.completed_at else None}
                     for r in results],
-        'returned': len(results),
+        'returned': len(results), 'leader_count': group_count,
         'completeness': {'aggregate_complete': True, 'detail_truncated': totals['total'] > len(results),
-                         'leader_breakdown_truncated': qs.values('team_leader_id').distinct().count() > 60},
-        'warnings': (['Leader grouping is limited to the first 60 leaders.']
-                     if qs.values('team_leader_id').distinct().count() > 60 else []),
+                         'leader_breakdown_truncated': group_count > 60},
+        'warnings': ['Leader grouping is limited to the first 60 leaders.'] if group_count > 60 else [],
     }
 
 

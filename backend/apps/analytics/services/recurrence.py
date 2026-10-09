@@ -117,7 +117,7 @@ def get_criterion_failures(*, user, limit=15, **kwargs):
 
 def get_agent_critical_violations(*, user, search, date_from=None, date_to=None,
                                   company_id=None, branch_id=None, team_id=None,
-                                  project_name=None, dialer_id=None, limit=12):
+                                  project_name=None, dialer_id=None, limit=12, all_time=False):
     """Return explicit violation categories for one stable, authorized agent identity.
 
     A Review has default ordering by assigned_at. Using values().distinct()
@@ -130,7 +130,7 @@ def get_agent_critical_violations(*, user, search, date_from=None, date_to=None,
         raise ValidationError({'search': 'Supply the exact agent username or display name.'})
     base = _period(user, date_from=date_from, date_to=date_to,
                    company_id=company_id, branch_id=branch_id, team_id=team_id,
-                   project_name=project_name, dialer_id=dialer_id)
+                   project_name=project_name, dialer_id=dialer_id, all_time=all_time)
     matches = base.filter(Q(call__agent_name__iexact=term) |
                           Q(call__agent_user__iexact=term))
 

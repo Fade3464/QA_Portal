@@ -1,0 +1,41 @@
+OFFLINE CONTROLLER TEST: in-memory domain/provider ports; NOT ORM/GPU integration.
+test_all_time_no_default_dates (__main__.EngineContracts.test_all_time_no_default_dates) ... ok
+test_collective_result_survives_person_lookup_at_round_limit (__main__.EngineContracts.test_collective_result_survives_person_lookup_at_round_limit) ... ok
+test_compaction_does_not_mutate_raw_results (__main__.EngineContracts.test_compaction_does_not_mutate_raw_results) ... ok
+test_explicit_dates_override_model_historical_year (__main__.EngineContracts.test_explicit_dates_override_model_historical_year) ... ok
+test_identical_query_replayed_without_repeating_db (__main__.EngineContracts.test_identical_query_replayed_without_repeating_db) ... ok
+test_invalid_extra_primary_parameters_not_silently_accepted (__main__.EngineContracts.test_invalid_extra_primary_parameters_not_silently_accepted) ... ok
+test_malformed_prior_cursor_is_bounded (__main__.EngineContracts.test_malformed_prior_cursor_is_bounded) ... ok
+test_model_cannot_bypass_business_query_with_social_mode (__main__.EngineContracts.test_model_cannot_bypass_business_query_with_social_mode) ... ok
+test_model_narrowing_is_rejected_and_full_backlog_queried (__main__.EngineContracts.test_model_narrowing_is_rejected_and_full_backlog_queried) ... ok
+test_named_leader_requires_lookup_and_narrowed_query (__main__.EngineContracts.test_named_leader_requires_lookup_and_narrowed_query) ... ok
+test_new_team_best_does_not_repeat_agent_worst_context (__main__.EngineContracts.test_new_team_best_does_not_repeat_agent_worst_context) ... ok
+test_no_time_budget_does_not_claim_last_lookup_is_answer (__main__.EngineContracts.test_no_time_budget_does_not_claim_last_lookup_is_answer) ... ok
+test_provider_failure_after_primary_returns_verified_primary (__main__.EngineContracts.test_provider_failure_after_primary_returns_verified_primary) ... ok
+test_scope_suffix_is_never_duplicated (__main__.EngineContracts.test_scope_suffix_is_never_duplicated) ... ok
+test_scoped_discovery_cannot_silently_set_collective_person (__main__.EngineContracts.test_scoped_discovery_cannot_silently_set_collective_person) ... ok
+test_semantic_personal_mode_has_no_qa_queries (__main__.EngineContracts.test_semantic_personal_mode_has_no_qa_queries) ... ok
+test_social_is_no_db_no_model_and_preserves_context (__main__.EngineContracts.test_social_is_no_db_no_model_and_preserves_context) ... ok
+test_social_plus_business_not_swallowed (__main__.EngineContracts.test_social_plus_business_not_swallowed) ... ok
+test_team_worst_then_best_use_opposite_directions (__main__.EngineContracts.test_team_worst_then_best_use_opposite_directions) ... ok
+test_unapproved_tool_not_executed (__main__.EngineContracts.test_unapproved_tool_not_executed) ... ok
+test_unasked_age_filter_cannot_narrow_pending (__main__.EngineContracts.test_unasked_age_filter_cannot_narrow_pending) ... ok
+test_unsupported_summary_replacement_is_observable (__main__.EngineContracts.test_unsupported_summary_replacement_is_observable) ... ok
+test_verified_primary_stops_supplementary_person_lookup (__main__.EngineContracts.test_verified_primary_stops_supplementary_person_lookup) ... ok
+test_wrong_agent_tool_cannot_answer_team_worst (__main__.EngineContracts.test_wrong_agent_tool_cannot_answer_team_worst) ... ok
+test_natural_date_phrases_use_authoritative_calendar (offline_existing_contracts.V3CalendarAndToolsTests.test_natural_date_phrases_use_authoritative_calendar) ... ok
+test_tool_selection_rejects_unapproved_names (offline_existing_contracts.V3CalendarAndToolsTests.test_tool_selection_rejects_unapproved_names) ... ok
+test_unverified_factual_numbers_are_detected (offline_existing_contracts.V3CalendarAndToolsTests.test_unverified_factual_numbers_are_detected) ... ok
+test_never_use_an_error_type_table_to_identify_worst_agent (offline_existing_contracts.V3ContextAndConversationTests.test_never_use_an_error_type_table_to_identify_worst_agent) ... ok
+test_safe_answer_fallback_for_volumes_and_rankings (offline_existing_contracts.V3ContextAndConversationTests.test_safe_answer_fallback_for_volumes_and_rankings) ... ok
+test_typo_normalization_does_not_change_business_names (offline_existing_contracts.V3ContextAndConversationTests.test_typo_normalization_does_not_change_business_names) ... ok
+test_new_subject_does_not_reuse_agent_ranking (offline_existing_contracts.V3RankingSemanticsTests.test_new_subject_does_not_reuse_agent_ranking) ... ok
+test_past_two_weeks_is_14_days_not_thirty (offline_existing_contracts.V3RankingSemanticsTests.test_past_two_weeks_is_14_days_not_thirty) ... ok
+test_ties_remain_ties_in_next_and_third_place_answers (offline_existing_contracts.V3RankingSemanticsTests.test_ties_remain_ties_in_next_and_third_place_answers) ... ok
+test_synonymous_semantic_intent_adds_authorized_tool_without_keyword_map (offline_existing_contracts.V3TypedSemanticSelectionTests.test_synonymous_semantic_intent_adds_authorized_tool_without_keyword_map) ... ok
+test_unsafe_semantic_tool_name_is_rejected (offline_existing_contracts.V3TypedSemanticSelectionTests.test_unsafe_semantic_tool_name_is_rejected) ... ok
+
+----------------------------------------------------------------------
+Ran 35 tests in 0.040s
+
+OK

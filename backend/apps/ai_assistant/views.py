@@ -114,6 +114,7 @@ class AIChatView(APIView):
         lock_token = str(uuid.uuid4())
         if lock_key and not cache.add(lock_key, lock_token, timeout=300):
             raise ConversationBusy()
+        request_scope = scope_digest(request.user)
         try:
             # Never hold SQL row locks during network inference.
             engine = {'v1': legacy_run_ai, 'v2': run_ai, 'v3': v3_run_ai}[settings.AI_ENGINE_VERSION]
@@ -121,23 +122,31 @@ class AIChatView(APIView):
             user_tz = (request.user.branch.timezone if request.user.branch_id else settings.TIME_ZONE)
             with timezone.override(user_tz):
                 result = engine(request.user, payload['message'], conversation=conversation, history=history)
+            # Permissions may change while the model is running. Never persist or
+            # return a completed analysis under a stale authorization fingerprint.
+            request.user.refresh_from_db()
+            require_ai_access(request.user)
+            if scope_digest(request.user) != request_scope:
+                return Response({'detail': 'Your reporting access changed during this request. Start a new conversation.'}, status=409)
+            if not conversation:
+                conversation = AIConversation.objects.create(user=request.user, scope_digest=request_scope,
+                                                              title=payload['message'][:120])
+            with transaction.atomic():
+                AIMessage.objects.create(conversation=conversation, role=AIMessage.Role.USER, content=payload['message'])
+                AIMessage.objects.create(conversation=conversation, role=AIMessage.Role.ASSISTANT,
+                                         content=result['answer'], evidence=result.get('evidence', []),
+                                         tools_used=result.get('tools_used', []),
+                                         interpretation=result.get('interpretation', {}),
+                                         warnings=result.get('warnings', []))
+                AIConversation.objects.filter(pk=conversation.pk).update(
+                    updated_at=timezone.now(), context_state=result.get('context_state', {}))
+            return Response({'conversation_id': str(conversation.pk),
+                             **{k:v for k,v in result.items() if k != 'context_state'}})
         except AIProviderError:
             logger.warning('AI inference failed for user=%s', request.user.pk)
             return Response({'detail': 'The AI inference service is unavailable or unable to answer safely.'}, status=503)
         finally:
+            # Include the history/state commit in the protected interval; another
+            # turn must not acquire this conversation before its predecessor saves.
             if lock_key and cache.get(lock_key) == lock_token:
                 cache.delete(lock_key)
-        if not conversation:
-            conversation = AIConversation.objects.create(user=request.user, scope_digest=scope_digest(request.user),
-                                                          title=payload['message'][:120])
-        with transaction.atomic():
-            AIMessage.objects.create(conversation=conversation, role=AIMessage.Role.USER, content=payload['message'])
-            AIMessage.objects.create(conversation=conversation, role=AIMessage.Role.ASSISTANT,
-                                     content=result['answer'], evidence=result.get('evidence', []),
-                                     tools_used=result.get('tools_used', []),
-                                     interpretation=result.get('interpretation', {}),
-                                     warnings=result.get('warnings', []))
-            AIConversation.objects.filter(pk=conversation.pk).update(
-                updated_at=timezone.now(), context_state=result.get('context_state', {}))
-        return Response({'conversation_id': str(conversation.pk),
-                         **{k:v for k,v in result.items() if k != 'context_state'}})

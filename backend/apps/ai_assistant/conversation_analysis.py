@@ -23,9 +23,12 @@ def is_ranking_followup(text, previous):
         return False
     q = text.strip().casefold()
     metric = previous['last_analysis'].get('metric')
+    previous_order = previous['last_analysis'].get('order', 'worst')
+    if (re.search(r'\bbest\b', q) and previous_order != 'best') or (re.search(r'\bworst\b', q) and previous_order != 'worst'):
+        return False
     # Topic or metric changes start a new authorized investigation, not a stale
     # reuse of agent ranking from a previous turn.
-    if re.search(r'\b(?:team leaders?|supervisors?|projects?|dialers?)\b', q):
+    if re.search(r'\b(?:teams?|team leaders?|supervisors?|projects?|dialers?)\b', q):
         return False
     if metric != 'average_score' and re.search(r'\b(?:average score|scored|scoring|lowest score)\b', q):
         return False
@@ -80,7 +83,7 @@ def ranking_context(tool_output, *, period):
     filters = {k: args[k] for k in FILTER_KEYS if isinstance(args.get(k), str) and args[k]}
     return {'kind': 'agent_ranking', 'metric': metric,
             'order': data.get('order', 'worst'), 'filters': filters,
-            'period': {'date_from': period.start.isoformat(), 'date_to': period.end.isoformat()}}
+            'period': period.public()}
 
 
 def _number(value):
@@ -185,9 +188,9 @@ def describe_ranking(data, question='', *, previous=None):
         lines.append('Highest-ranked group: ' + ', '.join(_agent_label(r) for r in g['agents']) +
                      f' — {_number(g["value"])} {description}.')
         if len(g['agents']) > 1:
-            lines.append(f'{len(g["agents"])} agents share first place; there is no unique worst agent.')
+            lines.append(f'{len(g["agents"])} agents share first place; there is no unique {data.get("order", "worst")} agent.')
     if metric == 'critical_error_reviews':
         lines.append('This measures evaluations with critical errors, not the number of individual error events or all below-max QA criteria.')
     elif metric == 'average_score':
-        lines.append('Only agents with at least three scored evaluations are ranked.')
+        lines.append('Only agents with at least three scored evaluations are ranked; QA score is not an overall judgment of the person.')
     return '\n'.join(lines)

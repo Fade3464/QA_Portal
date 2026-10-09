@@ -1,0 +1,34 @@
+OFFLINE: pure contracts only; calendar clock shim, no ORM/database/provider execution.
+test_all_time_backlog_has_no_30_day_claim (apps.ai_assistant.tests_contracts.AnswerContractTests.test_all_time_backlog_has_no_30_day_claim) ... ok
+test_every_returned_leader_not_only_last_lookup (apps.ai_assistant.tests_contracts.AnswerContractTests.test_every_returned_leader_not_only_last_lookup) ... ok
+test_team_best_and_worst_use_correct_rows_and_language (apps.ai_assistant.tests_contracts.AnswerContractTests.test_team_best_and_worst_use_correct_rows_and_language) ... ok
+test_team_minimum_sample_not_replaced_by_agent (apps.ai_assistant.tests_contracts.AnswerContractTests.test_team_minimum_sample_not_replaced_by_agent) ... ok
+test_team_tie_is_not_unique_winner (apps.ai_assistant.tests_contracts.AnswerContractTests.test_team_tie_is_not_unique_winner) ... ok
+test_zero_not_proof_everyone_reviewed (apps.ai_assistant.tests_contracts.AnswerContractTests.test_zero_not_proof_everyone_reviewed) ... ok
+test_all_time_followup_preserved (apps.ai_assistant.tests_contracts.CalendarContractTests.test_all_time_followup_preserved) ... ok
+test_all_time_has_no_sentinel_date (apps.ai_assistant.tests_contracts.CalendarContractTests.test_all_time_has_no_sentinel_date) ... ok
+test_invalid_period_rejected (apps.ai_assistant.tests_contracts.CalendarContractTests.test_invalid_period_rejected) ... ok
+test_relative_period_wins_over_prior_all_time (apps.ai_assistant.tests_contracts.CalendarContractTests.test_relative_period_wins_over_prior_all_time) ... ok
+test_two_weeks_inclusive (apps.ai_assistant.tests_contracts.CalendarContractTests.test_two_weeks_inclusive) ... ok
+test_yesterday_always_one_local_day (apps.ai_assistant.tests_contracts.CalendarContractTests.test_yesterday_always_one_local_day) ... ok
+test_age_filter_is_not_silently_added (apps.ai_assistant.tests_contracts.RequestContractTests.test_age_filter_is_not_silently_added) ... ok
+test_all_time_not_a_person (apps.ai_assistant.tests_contracts.RequestContractTests.test_all_time_not_a_person) ... ok
+test_entity_preserved_when_actually_named (apps.ai_assistant.tests_contracts.RequestContractTests.test_entity_preserved_when_actually_named) ... ok
+test_legacy_followup_rejects_explicit_team (apps.ai_assistant.tests_contracts.RequestContractTests.test_legacy_followup_rejects_explicit_team) ... ok
+test_model_authority_fields_never_in_contract (apps.ai_assistant.tests_contracts.RequestContractTests.test_model_authority_fields_never_in_contract) ... ok
+test_model_cannot_invent_named_person (apps.ai_assistant.tests_contracts.RequestContractTests.test_model_cannot_invent_named_person) ... ok
+test_new_collection_clears_scope_of_previous_person (apps.ai_assistant.tests_contracts.RequestContractTests.test_new_collection_clears_scope_of_previous_person) ... ok
+test_new_direction_overrides_prior (apps.ai_assistant.tests_contracts.RequestContractTests.test_new_direction_overrides_prior) ... ok
+test_our_project_is_not_named_person (apps.ai_assistant.tests_contracts.RequestContractTests.test_our_project_is_not_named_person) ... ok
+test_person_backlog_cannot_answer_a_collection (apps.ai_assistant.tests_contracts.RequestContractTests.test_person_backlog_cannot_answer_a_collection) ... ok
+test_query_contract_matches_direction_and_metric (apps.ai_assistant.tests_contracts.RequestContractTests.test_query_contract_matches_direction_and_metric) ... ok
+test_subject_prefix_agents_in_my_team_stays_agents (apps.ai_assistant.tests_contracts.RequestContractTests.test_subject_prefix_agents_in_my_team_stays_agents) ... ok
+test_synonym_plan_is_validated_without_tool_keyword_requirement (apps.ai_assistant.tests_contracts.RequestContractTests.test_synonym_plan_is_validated_without_tool_keyword_requirement) ... ok
+test_team_subject_overrides_wrong_model_and_agent_history (apps.ai_assistant.tests_contracts.RequestContractTests.test_team_subject_overrides_wrong_model_and_agent_history) ... ok
+test_common_personal_questions (apps.ai_assistant.tests_contracts.SocialContractTests.test_common_personal_questions) ... ok
+test_greeting_never_swallows_business_questions (apps.ai_assistant.tests_contracts.SocialContractTests.test_greeting_never_swallows_business_questions) ... ok
+
+----------------------------------------------------------------------
+Ran 28 tests in 0.009s
+
+OK

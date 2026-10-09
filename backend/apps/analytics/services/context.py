@@ -27,9 +27,9 @@ def _safe_text(value, size=360):
     return re.sub(r'\s+', ' ', value).strip()[:size]
 
 
-def list_visible_dialers(*, user, search='', date_from=None, date_to=None, limit=20):
+def list_visible_dialers(*, user, search='', date_from=None, date_to=None, limit=20, all_time=False):
     """Dialers are distinct from projects. Search only dialers represented by visible QA reviews."""
-    rows = list(_base(user, date_from=date_from, date_to=date_to)
+    rows = list(_base(user, date_from=date_from, date_to=date_to, all_time=all_time)
                 .values('call__dialer_id', 'call__dialer__name')
                 .annotate(evaluations=Count('pk')).order_by('-evaluations')[:201])
     if len(rows) > 200:
@@ -53,16 +53,18 @@ def list_visible_dialers(*, user, search='', date_from=None, date_to=None, limit
             'note': 'A dialer name is not a project name. Confirm ambiguous or approximate matches.'}
 
 
-def get_call_library_overview(*, user, date_from=None, date_to=None, dialer_id=None):
+def get_call_library_overview(*, user, date_from=None, date_to=None, dialer_id=None, all_time=False):
     """Counts raw CallEvent entries using the very same call-library permission scope."""
     from apps.calls.views import scoped_calls
     permitted_management_reviews(user)  # Explicit AI management-role gate.
-    start, end = _dates(date_from, date_to)
-    qs = scoped_calls(user).filter(received_at__date__gte=start, received_at__date__lte=end)
+    start, end = (None, None) if all_time else _dates(date_from, date_to)
+    qs = scoped_calls(user)
+    if not all_time:
+        qs = qs.filter(received_at__date__gte=start, received_at__date__lte=end)
     if dialer_id:
         qs = qs.filter(dialer_id=_uuid(dialer_id, 'dialer_id'))
     return {'calls_received': qs.count(),
-            'period': {'date_from': start.isoformat(), 'date_to': end.isoformat()},
+            'period': {'date_from': start.isoformat() if start else None, 'date_to': end.isoformat() if end else None, 'all_time': all_time},
             'definition': 'Call-library entries received_at in selected period. Includes unreviewed calls; not the number of QA evaluations.',
             'scope': 'Current user call-library permissions apply.'}
 
@@ -116,11 +118,11 @@ def get_review_qa_context(*, user, review_id):
 
 def get_qa_feedback_examples(*, user, date_from=None, date_to=None, company_id=None,
                              branch_id=None, team_id=None, project_name=None,
-                             agent_user=None, dialer_id=None, limit=5):
+                             agent_user=None, dialer_id=None, limit=5, all_time=False):
     """Small, auditable sample of reviewer-supplied improvement guidance; not a trend statistic."""
     qs = _period(user, date_from=date_from, date_to=date_to, company_id=company_id,
                  branch_id=branch_id, team_id=team_id, project_name=project_name,
-                 agent_user=agent_user, dialer_id=dialer_id)
+                 agent_user=agent_user, dialer_id=dialer_id, all_time=all_time)
     if not settings.AI_SEND_REVIEW_FEEDBACK:
         return {'examples': [], 'sample_only': True, 'disabled': 'Qualitative feedback context is disabled until encrypted model transport is configured.'}
     rows = (qs.exclude(improvement_areas='', expected_behavior='', coaching_plan='').order_by('-completed_at', '-pk')[:limit])

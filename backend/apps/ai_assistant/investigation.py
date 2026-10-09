@@ -5,6 +5,7 @@ truth. The backend owns date interpretation, access control, numeric evidence, a
 tool budgets and the final factuality gate. No model-authored SQL or write tools.
 """
 import json
+from copy import deepcopy
 import logging
 import re
 import time
@@ -19,8 +20,11 @@ from apps.access.policy import permitted_management_reviews
 from .access import require_ai_access
 from .models import AIToolAudit
 from .provider import get_provider, AIProviderError
-from .registry import definitions, invoke
+from .registry import definitions, invoke, validate_arguments
 from .timeframes import resolve_window
+from .query_contract import QueryContract, plan_contract, ranking_cursor, SCOPE_KEYS
+from .social import social_response, classified_social_reply, permits_social_classification, SOCIAL_TOPICS
+from .answer_contracts import render_primary, validate_result_shape
 from .conversation_analysis import (
     describe_ranking, is_ranking_followup, is_context_followup, ranking_context,
     rank_focus,
@@ -35,16 +39,23 @@ MAX_CALLS = 9
 MAX_ACTIVE_TOOLS = 10
 MAX_TOTAL_CHARS = 14000
 MAX_SECONDS = 105
+MAX_PROMPT_CHARS = 22000  # Conservative request-size guard, not an exact tokenizer.
 
 # A small schema is shown first, rather than all ~25 schemas in Qwen's 8K context.
 SELECT_TOOLS = {'type': 'function', 'function': {
     'name': 'select_qa_tools',
     'description': 'Select 1-5 approved read-only tools. For DIALER name use list_visible_dialers (not projects). For Call Library count use get_call_library_overview. For total QA evaluations use get_qa_overview. For agent with most critical violations use rank_agents metric critical_error_reviews (NOT error types). For QA suggestions use get_qa_feedback_examples or get_review_qa_context. For named leader use lookup_visible_people. You may request more tools.', 
     'parameters': {'type': 'object', 'additionalProperties': False,
-                   'properties': {'names': {'type': 'array', 'items': {'type': 'string',
-                                             'enum': []}, 'minItems': 1, 'maxItems': 5},
-                                  'intent': {'type': 'string', 'enum': ['agent_ranking', 'repeated_criteria', 'repeated_critical', 'leader_backlog', 'agent_violation_details', 'other']},
-                                  'rank_metric': {'type': 'string', 'enum': ['critical_error_reviews', 'average_score', 'evaluation_count']}},
+                   'properties': {'request_kind': {'type': 'string', 'enum': ['analytics', 'conversation']},
+                                  'social_topic': {'type': 'string', 'enum': sorted(SOCIAL_TOPICS)},
+                                  'names': {'type': 'array', 'items': {'type': 'string',
+                                             'enum': []}, 'minItems': 0, 'maxItems': 5},
+                                  'intent': {'type': 'string', 'enum': ['agent_ranking', 'repeated_criteria', 'repeated_critical', 'leader_backlog', 'team_ranking', 'qa_summary', 'critical_summary', 'call_volume', 'agent_violation_details', 'other']},
+                                  'rank_metric': {'type': 'string', 'enum': ['critical_error_reviews', 'average_score', 'evaluation_count']},
+                                  'subject': {'type': 'string', 'enum': ['agent', 'team', 'team_leader', 'project', 'dialer', 'call', 'review', 'policy', 'unknown']},
+                                  'operation': {'type': 'string', 'enum': ['ranking', 'backlog', 'summary', 'repeated_criteria', 'repeated_critical', 'critical_details', 'critical_summary', 'discovery', 'other']},
+                                  'order': {'type': 'string', 'enum': ['best', 'worst']},
+                                  'entity_name': {'type': 'string', 'maxLength': 120}},
                    'required': ['names']}
 }}
 LOAD_MORE = {'type': 'function', 'function': {
@@ -111,31 +122,21 @@ def _followup(text):
 
 
 def _requires_tool(text):
-    """Domain-level safety fallback. Qwen normally chooses the tool itself."""
-    q = text.casefold()
-    if re.search(r'\b(?:call library|calls (?:received|arrived)|incoming calls)\b', q):
-        return 'get_call_library_overview'
-    if re.search(r'\bdialer\b', q):
+    """Compatibility shim; active execution uses a full QueryContract."""
+    if re.search(r'\bdialer\b', text, re.I):
         return 'list_visible_dialers'
-    if re.search(r'\b(?:leader|leaders|tl|tls)\b', q) and re.search(
-            r'\b(?:worst|most|pending|overdue|unreviewed|reviewing|reviewed|acknowledge)\b', q):
-        return 'find_pending_reviews'
-    if re.search(r'\b(?:critical call|violation (?:of|for|on)|violations (?:of|for|on))\b', q) or (
-            'critical' in q and 'violation' in q and re.search(r'\b(?:for|of|on|by)\s+\w', q)):
-        return 'get_agent_critical_violations'
-    if re.search(r'\b(?:repeated|repeat|recurring|constantly|again and again)\b', q):
-        return 'find_repeat_critical_errors' if re.search(r'\b(?:critical|violation)\b', q) else 'find_repeated_mistakes'
-    if re.search(r'\b(?:agent|agents|performer|performers|guy|guys)\b', q) and re.search(
-            r'\b(?:worst|best|most|least|highest|lowest|top|bottom|problems|errors|ranking)\b', q):
-        return 'rank_agents'
-    if re.search(r'\b(?:total|how many)\b.*\b(?:evaluations|qa reports)\b', q):
-        return 'get_qa_overview'
-    return None
+    return plan_contract(text).primary_tool
 
 
 def _is_greeting(text):
-    return bool(re.fullmatch(r'\s*(?:(?:hi|hello|hey|are you there|you there|thanks|thank you|ok|okay)[!?., ]*)\s*', text, re.I))
+    return social_response(text) is not None
 
+
+def _mentioned(value, text):
+    if not isinstance(value, str) or not value.strip():
+        return False
+    normalized = re.escape(' '.join(value.casefold().split()))
+    return bool(re.search(r'(?<!\w)' + normalized + r'(?!\w)', ' '.join(text.casefold().split())))
 
 def _catalog():
     return {d['function']['name']: d for d in definitions()}
@@ -152,7 +153,7 @@ def _names_from_call(completion, expected, catalog, max_names):
             parsed = json.loads(raw)
         except (ValueError, TypeError):
             break
-        if not isinstance(parsed, dict) or not {'names'} <= set(parsed) or set(parsed) - {'names', 'intent', 'rank_metric'}:
+        if not isinstance(parsed, dict) or not {'names'} <= set(parsed) or set(parsed) - {'names', 'intent', 'rank_metric', 'subject', 'operation', 'order', 'entity_name', 'request_kind', 'social_topic'}:
             break
         names = parsed['names']
         if (not isinstance(names, list) or not 1 <= len(names) <= max_names
@@ -165,31 +166,49 @@ def _names_from_call(completion, expected, catalog, max_names):
 
 def _semantic_selection(completion, catalog):
     """Optional typed LLM semantic intent; identifiers still server-authorized."""
-    allowed = {'agent_ranking': 'rank_agents',
+    allowed = {'team_ranking': 'rank_teams', 'qa_summary': 'get_qa_overview',
+               'critical_summary': 'get_critical_error_summary', 'call_volume': 'get_call_library_overview',
+               'agent_ranking': 'rank_agents',
                'repeated_criteria': 'find_repeated_mistakes',
                'repeated_critical': 'find_repeat_critical_errors',
                'leader_backlog': 'find_pending_reviews',
                'agent_violation_details': 'get_agent_critical_violations'}
+    for call in completion.message.get('tool_calls') or []:
+        if call.get('function', {}).get('name') == 'select_qa_tools':
+            try:
+                candidate = _arguments(call)
+            except ValidationError:
+                return None
+            if (candidate.get('request_kind') == 'conversation' and candidate.get('names') == []
+                    and candidate.get('social_topic') in SOCIAL_TOPICS
+                    and not set(candidate) - {'request_kind', 'social_topic', 'names'}):
+                return {'names': [], 'request_kind': 'conversation', 'social_topic': candidate['social_topic']}
     tools = _names_from_call(completion, 'select_qa_tools', catalog, 5)
     if not tools:
         return None
     intent, rank_metric = 'other', None
+    extra = {}
     for tc in (completion.message.get('tool_calls') or []):
         if tc.get('function', {}).get('name') == 'select_qa_tools':
             try:
                 data = json.loads(tc['function']['arguments'])
             except (KeyError, ValueError, TypeError):
                 break
+            extra = {k: data[k] for k in ('subject', 'operation', 'order', 'entity_name') if isinstance(data.get(k), str)}
             if data.get('intent') in (*allowed, 'other'):
                 intent = data['intent']
             if data.get('rank_metric') in ('critical_error_reviews', 'average_score', 'evaluation_count'):
                 rank_metric = data['rank_metric']
             break
+    if intent == 'other':
+        candidates = [(i, tool) for i, tool in allowed.items() if tool in tools]
+        if len(candidates) == 1:
+            intent = candidates[0][0]
     required = allowed.get(intent)
     if required and required not in tools:
         tools = (tools[:4] + [required])
     return {'names': tools, 'intent': intent, 'rank_metric': rank_metric,
-            'required': required}
+            'required': required, **extra}
 
 
 def _chooser(provider, question, history, now, window, previous, catalog):
@@ -198,8 +217,8 @@ def _chooser(provider, question, history, now, window, previous, catalog):
     menu = '\n'.join(f"{name}: {schema['function']['description'][:160]}" for name, schema in catalog.items())
     prompt = (f"Today (branch timezone): {now}; authoritative QA date window: "
               f"{window.start} through {window.end} ({window.label}).\nAvailable tools:\n{menu}\n"
-              'Identify the semantic task, not only keyword matches. For ranked follow-ups reuse last_analysis ranking metric and filters, for same mistake use find_repeated_mistakes, for repeated critical violations use find_repeat_critical_errors, for team-leader backlog use find_pending_reviews, and for a named agent critical violation use get_agent_critical_violations. No project/dialer substitution. '
-              'Include intent and rank_metric where applicable (e.g. repeated QA criterion versus repeated critical violation, average score versus critical-error reviews). You MUST call select_qa_tools; do not answer yet.')
+              'For a purely personal/social question about the assistant, call select_qa_tools with request_kind=conversation, social_topic and names=[] only. Never classify a QA/business-data question as conversation. For analytics, select 1-5 tools and request_kind=analytics. Identify the semantic task, not only keyword matches. For ranked follow-ups reuse last_analysis ranking metric and filters, for same mistake use find_repeated_mistakes, for repeated critical violations use find_repeat_critical_errors, for team-leader backlog use find_pending_reviews, and for a named agent critical violation use get_agent_critical_violations. No project/dialer substitution. '
+              'Team is not agent. For team performance select rank_teams and subject=team, metric=average_score; order must reflect best versus worst. Include subject, operation, order, entity_name (only if named in the current question), intent and rank_metric where applicable (e.g. repeated QA criterion versus repeated critical violation, average score versus critical-error reviews). You MUST call select_qa_tools; do not answer yet.')
     prior = '\n'.join(f"{entry.get('role')}: {str(entry.get('content',''))[:450]}"
                       for entry in list(history)[-3:])
     if previous:
@@ -226,7 +245,7 @@ def _bounded_data(data):
     """Reduce *details* sent to the model without changing authoritative aggregates."""
     if not isinstance(data, dict):
         raise AIProviderError('Unexpected analytics result shape.')
-    result = dict(data)
+    result = deepcopy(data)
     for field in ('reports','repeated_issues','matches','agents','teams','leaders','daily','criteria','projects','branches','events','dialers','examples','headings'):
         limit = 25 if field == 'agents' else 12
         if isinstance(result.get(field), list) and len(result[field]) > limit:
@@ -234,6 +253,11 @@ def _bounded_data(data):
             result.setdefault('warnings', []).append(f'{field} details shortened; aggregate counts are unchanged.')
     if result.get('completeness', {}).get('aggregate_complete') is False:
         raise AIProviderError('Incomplete analytical aggregate; result withheld.')
+    if len(json.dumps(result, default=str)) > 7500:
+        for field in ('reports', 'examples', 'events', 'headings'):
+            if isinstance(result.get(field), list) and len(result[field]) > 2:
+                result[field] = result[field][:2]
+                result.setdefault('warnings', []).append(field + ' model detail limited; original evidence remains server-side.')
     if len(json.dumps(result, default=str)) > 7500:
         raise AIProviderError('Analytics output too large to handle safely. Narrow the question.')
     return result
@@ -377,59 +401,6 @@ def _safe_fallback(outputs, question="", previous=None):
             'Try specifying a dialer, project, metric or reporting period.')
 
 
-def _recovery_args(name, question, window, project_scope_name=None):
-    """Minimal fail-safe query when the model fails to execute an essential tool.
-
-    This is not a replacement for semantic planning. It covers well-defined,
-    no-side-effect analytics only; guessed people/dialers and UUIDs are forbidden.
-    """
-    args = {'date_from': window.start.isoformat(), 'date_to': window.end.isoformat()}
-    if project_scope_name:
-        args['project_name'] = project_scope_name
-    q = question.casefold()
-    if name == 'rank_agents':
-        metric = 'average_score' if re.search(r'\b(?:score|scor(?:ed|ing)|average|quality|performance)\b', q) else 'critical_error_reviews'
-        return {**args, 'metric': metric, 'order': 'worst', 'limit': 25}
-    if name == 'find_pending_reviews':
-        return {**args, 'mode': 'current_backlog', 'limit': 20}
-    if name in ('find_repeated_mistakes', 'find_repeat_critical_errors'):
-        return {**args, 'minimum_occurrences': 2, 'limit': 20}
-    if name in ('get_qa_overview', 'get_critical_error_summary', 'get_team_leader_review_summary'):
-        return args
-    if name == 'get_agent_critical_violations':
-        match = re.search(r'\b(?:of|for|on|by)\s+([a-z][a-z0-9 .-]{1,70}?)(?:[?!.]|$)', q)
-        if match:
-            term = match.group(1).strip()
-            if term and not term.startswith(('the ', 'a ', 'an ')):
-                return {**args, 'search': term, 'limit': 12}
-    return None
-
-
-def _recover_required(user, conversation, required_tool, question, window, project_scope_name):
-    """Re-query accessible business data, never accept invented provider figures."""
-    args = _recovery_args(required_tool, question, window, project_scope_name)
-    if not args:
-        return None
-    started = time.monotonic()
-    outcome = 'ok'
-    try:
-        raw = invoke(required_tool, user, args)
-        data = _bounded_data(raw)
-        result = {'name': required_tool, 'arguments': args, 'data': data}
-    except PermissionDenied:
-        outcome = 'denied'
-        raise
-    except (FieldError, DatabaseError) as exc:
-        outcome = 'error'
-        logger.exception('V3 recovered analytic query failed: %s', required_tool)
-        raise AIProviderError('An authorized QA analytics tool is unavailable.') from exc
-    except (ValidationError, ValueError, TypeError, AIProviderError):
-        outcome = 'invalid'
-        return None
-    finally:
-        _audit(user, conversation, required_tool, outcome, time.monotonic()-started)
-    return result
-
 
 def _audit(user, conversation, name, outcome, elapsed):
     try:
@@ -450,7 +421,7 @@ def _context(outputs, window, chosen, previous=None, question=""):
                 out['data']['matches'][0].get('match_type') == 'direct'):
             m = out['data']['matches'][0]
             person = {k: m[k] for k in ('role','id','name','agent_user','dialer_id') if k in m}
-    context = {'time_window': {'date_from': window.start.isoformat(), 'date_to': window.end.isoformat()},
+    context = {'time_window': window.public(),
                'last_tools': chosen[:8]}
     for out in reversed(outputs):
         context_plan = ranking_context(out, period=window)
@@ -470,307 +441,397 @@ def _context(outputs, window, chosen, previous=None, question=""):
     return context
 
 
+
 def run_ai(user, question, *, conversation=None, history=()):
+    """One turn: interpret -> validate contract -> investigate -> finalize once.
+
+    The same finalizer handles normal responses, time/round/call limits and model
+    failure. Only a result satisfying the *current request* can answer it. We
+    reserve tool attempts for a primary query, not an unbounded extra retry loop.
+    """
     require_ai_access(user)
-    now = time.monotonic()
     question = _normalize_question(question)
-    if _is_greeting(question):
-        return {'answer': 'Yes, I’m here. Ask me about your accessible QA evaluations, agents, review backlog, or call library.',
-                'evidence': [], 'tools_used': [], 'interpretation': {}, 'warnings': [], 'context_state': {}}
-    previous = conversation.context_state if conversation else {}
+    previous = conversation.context_state if conversation and isinstance(conversation.context_state, dict) else {}
+    social = social_response(question)
+    if social is not None:
+        return {'answer': social, 'evidence': [], 'tools_used': [],
+                'interpretation': {'intent': 'conversation', 'response_kind': 'conversation'},
+                'warnings': [], 'context_state': dict(previous)}
+
+    precontract = plan_contract(question, previous=previous)
     try:
-        window = resolve_window(question, previous=previous if (_followup(question) or is_context_followup(question, previous)) else None)
+        window = resolve_window(question, previous=previous if (
+            precontract.reuse or _followup(question) or is_context_followup(question, previous)) else None)
     except ValueError:
-        return {'answer': 'Please choose a reporting interval of at most 366 days.',
-                'evidence': [], 'tools_used': [], 'interpretation': {}, 'warnings': [], 'context_state': {}}
-    calendar = window.public()
-    if is_ranking_followup(question, previous):
-        plan = previous['last_analysis']
-        args = {**plan.get('filters', {}), 'metric': plan['metric'],
-                'order': plan.get('order', 'worst'), 'limit': 25,
-                'date_from': window.start.isoformat(), 'date_to': window.end.isoformat()}
-        begin = time.monotonic()
+        return {'answer': 'Please use an ordered reporting interval of at most 366 days, or explicitly ask for all time.',
+                'evidence': [], 'tools_used': [], 'interpretation': {'intent': 'clarification'},
+                'warnings': [], 'context_state': dict(previous)}
+
+    started_at = time.monotonic()
+    catalog = _catalog()
+    outputs, seen, used, warnings = [], {}, [], []
+    attempts = 0
+    reason = ''
+    # Reuse only an explicit query contract, not prior model prose or stale rows.
+    fast_ranking = (precontract.reuse and precontract.operation == 'ranking' and
+                    precontract.subject in {'team', 'agent'})
+    provider = None
+    selection = None
+    if not fast_ranking:
+        provider = get_provider()
+        selection = _chooser(provider, question, history, timezone.localdate(), window, previous, catalog)
+    if (selection and selection.get('request_kind') == 'conversation' and
+            precontract.primary_tool is None and permits_social_classification(question)):
+        reply = classified_social_reply(selection.get('social_topic'))
+        if reply:
+            return {'answer': reply, 'evidence': [], 'tools_used': [],
+                    'interpretation': {'intent': 'conversation', 'response_kind': 'conversation'},
+                    'warnings': [], 'context_state': dict(previous)}
+    contract = plan_contract(question, selection, previous)
+    resolved = dict(contract.filters)
+    matched_leaders, matched_dialers = set(), set()
+    if resolved.get('team_leader_id'):
+        # Query specifications never grant access; the domain layer always
+        # reauthorizes. A named person is re-resolved before using that filter.
+        resolved.pop('team_leader_id', None)
+    primary = contract.primary_tool
+    selected = (selection or {}).get('names', [])
+    enabled = OrderedDict((name, catalog[name]) for name in selected if name in catalog)
+    if primary:
+        enabled.setdefault(primary, catalog[primary])
+    enabled.setdefault('lookup_visible_people', catalog['lookup_visible_people'])
+    if contract.subject == 'dialer':
+        enabled.setdefault('list_visible_dialers', catalog['list_visible_dialers'])
+        enabled.setdefault('get_qa_overview', catalog['get_qa_overview'])
+    if not selected and not primary:
+        return {'answer': 'I can help with QA analytics or questions about this assistant. What would you like to investigate?',
+                'evidence': [], 'tools_used': [], 'interpretation': {'intent': 'clarification'},
+                'warnings': ['No supported analytical intent was established; no data was queried.'],
+                'context_state': dict(previous)}
+
+    def has_time():
+        return time.monotonic() - started_at < MAX_SECONDS
+
+    def calendar_args(name):
+        props = catalog[name]['function']['parameters']['properties']
+        if 'date_from' in props or 'date_to' in props:
+            if window.all_time and 'all_time' not in props:
+                raise ValidationError('This analytic tool needs a bounded date range.')
+            return {k: v for k, v in window.tool_args().items() if k in props}
+        return {}
+
+    def expected_primary():
+        if not primary:
+            return None
+        props = catalog[primary]['function']['parameters']['properties']
+        args = {**calendar_args(primary), **{k: v for k, v in resolved.items() if k in props}}
+        if primary in {'rank_agents', 'rank_teams'}:
+            args.update(metric=contract.metric, order=contract.order, limit=25)
+        if primary == 'find_pending_reviews':
+            args.update(mode=contract.backlog_mode, limit=12)
+            if contract.entity_name:
+                if not resolved.get('team_leader_id'):
+                    return None
+                args['team_leader_id'] = resolved['team_leader_id']
+            else:
+                args.pop('team_leader_id', None)
+            if re.search(r'\boverdue\b', question, re.I):
+                args['older_than_days'] = 2
+        if primary == 'get_agent_critical_violations':
+            if not contract.entity_name:
+                return None
+            args.update(search=contract.entity_name, limit=12)
+        if primary in {'find_repeated_mistakes', 'find_repeat_critical_errors'}:
+            args.update(minimum_occurrences=2, limit=20)
+        if contract.subject == 'dialer' and primary == 'get_qa_overview' and not args.get('dialer_id'):
+            return None
+        return args
+
+    def record(name, args):
+        nonlocal attempts
+        if attempts >= MAX_CALLS or not has_time():
+            raise ValidationError('Investigation budget reached.')
+        attempts += 1  # Invalid/duplicate/discovery attempts also consume budget.
+        before = time.monotonic()
         outcome = 'ok'
         try:
-            current = invoke('rank_agents', user, args)
-            answer = describe_ranking(current, question, previous=previous)
+            identity = (name, json.dumps(args, sort_keys=True))
+            if identity in seen:
+                return seen[identity]  # Idempotent read replay within this turn.
+            raw = invoke(name, user, args)
+            validate_result_shape(name, raw)
+            compact = _bounded_data(raw)
+            item = {'name': name, 'arguments': dict(args), 'data': raw, 'model_data': compact}
+            outputs.append(item)
+            seen[identity] = item
+            used.append(name)
+            return item
         except PermissionDenied:
             outcome = 'denied'
             raise
         except (FieldError, DatabaseError) as exc:
             outcome = 'error'
-            logger.exception('Follow-up agent ranking failed')
-            raise AIProviderError('Ranking tool is temporarily unavailable.') from exc
-        except (ValidationError, ValueError, TypeError) as exc:
+            logger.exception('V3 analytics tool %s encountered a database/query error', name)
+            raise AIProviderError('A QA analytics tool is temporarily unavailable.') from exc
+        except (ValidationError, ValueError, TypeError, AIProviderError):
             outcome = 'invalid'
-            raise AIProviderError('The follow-up ranking could not be verified.') from exc
+            raise
         finally:
-            _audit(user, conversation, 'rank_agents', outcome, time.monotonic()-begin)
-        result = {'name': 'rank_agents', 'arguments': args, 'data': current}
-        return {'answer': answer + '\n\nResults are limited to your authorized QA records.',
-                'evidence': [], 'tools_used': ['rank_agents'],
-                'interpretation': {**calendar, 'engine': 'v3_investigation',
-                                   'intent': 'agent_ranking_followup', 'metric': plan['metric']},
-                'warnings': [], 'context_state': _context([result], window, ['rank_agents'], previous, question)}
-    project_scope_name = None
-    if re.search(r'\b(?:our|my|this) project\b', question, re.I):
-        # Singular 'our project' is not automatically 'every project in my branch'.
-        projects = list_available_projects(user=user, date_from=window.start.isoformat(),
-                                           date_to=window.end.isoformat()).get('projects', [])
-        names = [row['project_name'] for row in projects if row.get('project_name')]
-        if len(names) > 1:
-            choices = ', '.join(names[:8])
-            return {'answer': 'Which project should I analyze? Your accessible QA reports include: ' + choices,
-                    'evidence': [], 'tools_used': [], 'interpretation': calendar,
-                    'warnings': ['Multiple accessible projects; no project was assumed.'],
-                    'context_state': {}}
-        if len(names) == 1:
-            project_scope_name = names[0]
-        else:
-            return {'answer': 'I cannot identify a project with completed evaluations in your accessible scope for this period.',
-                    'evidence': [], 'tools_used': [], 'interpretation': calendar,
-                    'warnings': ['No matching submitted QA project to resolve.'],
-                    'context_state': {}}
-    catalog = _catalog()
-    provider = get_provider()
-    selection = _chooser(provider, question, history, timezone.localdate(), window, previous, catalog)
-    chosen = selection['names'] if selection else None
-    if not chosen and _requires_tool(question):
-        chosen = [_requires_tool(question)]
-    if not chosen:
-        return {'answer': 'I could not establish a reliable investigation plan. Could you rephrase what you want to check?',
-                'evidence': [], 'tools_used': [], 'interpretation': calendar,
-                'warnings': ['No approved analytics tools were selected.'], 'context_state': {}}
+            _audit(user, conversation, name, outcome, time.monotonic()-before)
 
-    # The actual tool loop is driven by Qwen, NOT a one-intent recipe.
-    enabled = OrderedDict((name, catalog[name]) for name in chosen)
-    # Always permit safe person discovery, including after an initial name/role mistake.
-    enabled.setdefault('lookup_visible_people', catalog['lookup_visible_people'])
-    # Required domain tool schema must be available, even if Qwen chose an adjacent tool.
-    required_tool = _requires_tool(question) or (selection or {}).get('required')
-    if required_tool and required_tool in catalog:
-        enabled.setdefault(required_tool, catalog[required_tool])
-    prompt = (SYSTEM + '\nCurrent authoritative Django date: '+str(timezone.localdate())+
-              '\nReporting interval: '+json.dumps(calendar)+
-              '\nCurrent data scope: logged-in user authorized QA reports ONLY.'+
-              '\n'+_rubric_outline()+
-              ('\nThe term our project refers to exact accessible project: ' + project_scope_name if project_scope_name else '')+
-              '\nFor a named team leader, first call lookup_visible_people and then find_pending_reviews with its returned team_leader_id. '
-              'Do NOT search for team leaders as agents.\n'+
-              'If you need another analytic angle, call load_more_qa_tools (at most 3 names).\n'+
-              'Question now: '+question)
+    class Clarify(Exception):
+        pass
+
+    def update_entities(item):
+        name, data, args = item['name'], item['data'], item['arguments']
+        if name == 'lookup_visible_people':
+            matches = data.get('matches', [])
+            if data.get('ambiguous') or any(m.get('match_type') == 'approximate' for m in matches):
+                options = ', '.join(f"{m.get('name', 'Unknown')} ({m.get('role', 'person')})" for m in matches[:8])
+                raise Clarify('Which person did you mean? Matching accessible names: ' + options + '. Please confirm the exact name.')
+            for match in matches:
+                if match.get('role') == 'team_leader' and match.get('match_type') == 'direct':
+                    matched_leaders.add(match['id'])
+                    if contract.entity_name and args.get('search', '').casefold() == contract.entity_name.casefold():
+                        resolved['team_leader_id'] = match['id']
+            if contract.entity_name and not matches and args.get('search', '').casefold() == contract.entity_name.casefold():
+                raise Clarify('No matching person was found within your accessible QA records. Please check the name or specify the team/dialer.')
+        elif name == 'list_visible_dialers':
+            matches = data.get('dialers', [])
+            if args.get('search') and (data.get('ambiguous') or any(m.get('match') == 'approximate' for m in matches)):
+                raise Clarify('Which dialer did you mean? Matching accessible names: ' +
+                              ', '.join(m['name'] for m in matches[:8]) + '. Please confirm the exact dialer name.')
+            for match in matches:
+                if match.get('match') == 'exact':
+                    matched_dialers.add(match['dialer_id'])
+                    if _mentioned(match['name'], question) or (args.get('search') and _mentioned(args['search'], question)):
+                        resolved['dialer_id'] = match['dialer_id']
+        elif name in {'list_available_teams', 'list_available_branches', 'list_available_projects'}:
+            candidates = data.get('teams', []) + data.get('branches', []) + data.get('projects', [])
+            for candidate in candidates:
+                for key, label in (('team_id', 'name'), ('branch_id', 'branch_name'),
+                                   ('company_id', 'company_name'), ('project_name', 'project_name')):
+                    if candidate.get(key) and candidate.get(label) and _mentioned(candidate[label], question):
+                        resolved[key] = str(candidate[key])
+
+    def args_for_call(name, raw):
+        validate_arguments(name, raw)
+        props = catalog[name]['function']['parameters']['properties']
+        args = dict(raw)
+        if 'date_from' in props or 'date_to' in props:
+            for field in ('date_from', 'date_to', 'all_time'):
+                args.pop(field, None)
+            args.update(calendar_args(name))
+        for key in SCOPE_KEYS:
+            value = args.get(key)
+            if not value:
+                continue
+            if key in resolved and value == resolved[key]:
+                continue
+            if key == 'project_name' and _mentioned(value, question):
+                # Still an exact narrowing filter over authorized reports.
+                resolved[key] = value
+                continue
+            if key == 'team_leader_id' and value in matched_leaders and contract.entity_name:
+                resolved[key] = value
+                continue
+            if key == 'dialer_id' and value in matched_dialers:
+                resolved[key] = value
+                continue
+            raise ValidationError(f'{key} was not resolved for this question; use an authorized discovery tool.')
+        if contract.subject == 'team' and name == 'rank_agents' or contract.subject == 'agent' and name == 'rank_teams':
+            raise ValidationError('Wrong ranking subject. Teams and agents are not interchangeable.')
+        if name == primary:
+            expected = expected_primary()
+            if expected is None:
+                raise ValidationError('Resolve the requested person/dialer before the primary analytic query.')
+            # Reject unasked narrowing rather than silently presenting it as all.
+            for key in SCOPE_KEYS + ('older_than_days',):
+                if args.get(key) not in (None, '', expected.get(key)):
+                    raise ValidationError('The primary query must cover the whole requested scope.')
+            args = expected
+        if name == 'compare_periods':
+            if window.all_time:
+                raise ValidationError('A period comparison needs a bounded interval.')
+            args['days'] = min(90, window.days)
+        return args
+
+    def context_state():
+        state = _context(outputs, window, list(dict.fromkeys(used)), previous, question)
+        state['query_contract'] = contract.state(window.public(), resolved)
+        if contract.collection:
+            state.pop('last_person', None)
+        if primary != 'rank_agents':
+            state.pop('last_analysis', None)
+        if contract.operation == 'ranking':
+            focus = rank_focus(question)
+            previous_cursor = ranking_cursor(previous)
+            cursor = focus.position or (int(previous_cursor) + 1 if contract.reuse and re.search(r'\bnext\b', question, re.I) and not focus.after else 1)
+            state['query_contract']['rank_cursor'] = min(25, max(1, cursor))
+        return state
+
+    def envelope(answer, *, status='complete', warning=None, primary_result=None):
+        ids = OrderedDict()
+        # Evidence belongs to the displayed primary, not an unrelated secondary lookup.
+        for item in ([primary_result] if primary_result else outputs if not primary else []):
+            for rid in _evidence_candidates(item['data']):
+                ids[rid] = item['name']
+        valid = {str(x) for x in permitted_management_reviews(user).filter(pk__in=list(ids)[:36]).values_list('pk', flat=True)} if ids else set()
+        evidence = [{'review_id': rid, 'tool': ids[rid]} for rid in ids if rid in valid][:24]
+        notices = list(warnings)
+        if warning:
+            notices.append(warning)
+        for item in ([primary_result] if primary_result else []):
+            notices.extend(item['data'].get('warnings', []))
+        suffix = 'Results are limited to your authorized QA records.'
+        # Exactly one scope notice, including budget exhaustion and old LLM suffixes.
+        answer = answer.replace(suffix, '').strip() + '\n\n' + suffix
+        interpretation = {**window.public(), **contract.public(), 'engine': 'v3_investigation',
+                          'intent': 'clarification' if status == 'clarification' else
+                                    f'{contract.subject}_{contract.operation}',
+                          'result_status': status, 'tools': list(dict.fromkeys(used)),
+                          'contract_revision': 1,
+                          'execution': {'attempts': attempts, 'queries': len(outputs),
+                                        'elapsed_ms': int((time.monotonic()-started_at)*1000)}}
+        if contract.operation != 'backlog':
+            interpretation.pop('backlog_mode', None)
+        return {'answer': answer, 'evidence': evidence, 'tools_used': list(dict.fromkeys(used)),
+                'interpretation': interpretation, 'warnings': list(dict.fromkeys(notices))[:12],
+                'context_state': context_state() if status == 'complete' else dict(previous)}
+
+    def finalize(narrative='', termination=''):
+        """Never use a narrowed last result when the required aggregate is absent."""
+        expected = expected_primary()
+        match = next((x for x in reversed(outputs) if expected is not None and contract.matches(x['name'], x['arguments'], expected)), None)
+        if primary and match is None and has_time() and attempts < MAX_CALLS:
+            try:
+                if primary == 'find_pending_reviews' and contract.entity_name and not resolved.get('team_leader_id'):
+                    update_entities(record('lookup_visible_people', {'search': contract.entity_name, 'role': 'team_leader'}))
+                expected = expected_primary()
+                if expected is not None:
+                    match = record(primary, expected)
+            except Clarify as exc:
+                return envelope(str(exc), status='clarification')
+            except (ValidationError, ValueError, TypeError):
+                match = None
+        if primary:
+            if match is None:
+                return envelope('I could not complete the requested analysis with verified data. I have not substituted an individual lookup or a different ranking.',
+                                status='incomplete', warning=termination or 'The requested scope/identity could not be resolved within this investigation.')
+            display_question = question
+            if contract.reuse and contract.operation == 'ranking' and re.search(r'\bnext\b', question, re.I) and not rank_focus(question).after:
+                previous_cursor = ranking_cursor(previous)
+                display_question += f' {min(25, max(1, int(previous_cursor) + 1))}th distinct group'
+            if narrative and _unverified_numbers(str(narrative), [match['data']], window_days=window.days):
+                warnings.append('The generated explanation was replaced because its numeric claims did not match the verified primary result.')
+            answer = render_primary(match, contract, display_question, previous)
+            if not answer:
+                answer = _safe_fallback([match], question, previous)
+            return envelope(answer, primary_result=match,
+                            warning=('Additional investigation stopped at its execution limit; the requested primary result was verified.' if termination else None))
+        if not outputs:
+            return envelope('I could not verify an analytical answer from the available tools. Please tell me which report, person, or metric you want to check.', status='incomplete')
+        # Unstructured narrative remains prototype-level; it cannot replace a
+        # typed primary metric response. Never expose raw HTML or tool messages.
+        answer = str(narrative or '').strip()[:4000]
+        if not answer or _unverified_numbers(answer, [x['data'] for x in outputs], window_days=window.days):
+            answer = _safe_fallback(outputs, question, previous)
+        return envelope(answer, warning=termination or None)
+
+    # Resolve singular "our project" without assuming it means all projects.
+    if re.search(r'\b(?:our|my|this) project\b', question, re.I):
+        item = record('list_available_projects', calendar_args('list_available_projects'))
+        projects = [x['project_name'] for x in item['data'].get('projects', []) if x.get('project_name')]
+        if len(projects) != 1:
+            return envelope('Which project should I analyze? Accessible projects in this period: ' + (', '.join(projects[:8]) or 'none with submitted evaluations') + '.', status='clarification')
+        resolved['project_name'] = projects[0]
+    if fast_ranking:
+        return finalize()
+
+    prompt = (SYSTEM + '\nCurrent request contract (binding subject, direction, scope and period): ' +
+              json.dumps({**contract.public(), **window.public()}, ensure_ascii=True) +
+              '\nPrimary tool required for this question: ' + str(primary) +
+              '\nNever answer a teams question with agents. Never silently filter a collective backlog to one leader. '
+              'Best and worst require opposite ranking order. All-time means no lower date bound. '
+              'Once the primary result answers the question, stop investigating and give the answer.\n' + _rubric_outline())
     messages = [{'role': 'system', 'content': prompt}]
-    if previous:
-        messages.append({'role':'system','content': 'Earlier referents (revalidate all access before use): '+
-                         json.dumps(previous, default=str)[:800]})
-    messages.extend({'role': r.get('role','user'), 'content': str(r.get('content',''))[:650]}
-                    for r in list(history)[-4:] if r.get('role') in ('user','assistant'))
+    if contract.reuse:
+        messages.append({'role': 'system', 'content': 'Previous query specification (not facts/permissions): ' + json.dumps(previous, default=str)[:1600]})
+        messages.extend({'role': r['role'], 'content': str(r.get('content', ''))[:650]}
+                        for r in list(history)[-4:] if r.get('role') in {'user', 'assistant'})
     messages.append({'role': 'user', 'content': question})
-    outputs, evidence_candidates, seen, used, warnings = [], OrderedDict(), set(), [], []
-    matched_ids = set()
-    matched_dialers = set()
-    # Conversation references are hints, not enduring grants. Reauthorize each turn.
-    last_person = previous.get('last_person', {}) if isinstance(previous, dict) else {}
-    if isinstance(last_person, dict) and last_person.get('role') == 'team_leader':
-        prior_id = last_person.get('id', '')
-        try:
-            parsed_id = UUID(prior_id)
-        except (TypeError, ValueError, AttributeError):
-            parsed_id = None
-        prior_name = str(last_person.get('name') or '').casefold()
-        referring_to_same = (prior_name and prior_name in question.casefold()) or bool(re.search(
-            r'\b(?:his|her|their|him|that leader|same leader)\b', question.casefold()))
-        if parsed_id and referring_to_same and permitted_management_reviews(user).filter(team_leader_id=parsed_id).exists():
-            matched_ids.add(str(parsed_id))
-    total_chars, failures = 0, 0
-    for round_number in range(MAX_ROUNDS):
-        if time.monotonic()-now > MAX_SECONDS:
-            warnings.append('Investigation time budget reached.')
+    total_chars = 0
+    for _round in range(MAX_ROUNDS):
+        if not has_time() or attempts >= max(1, MAX_CALLS - 2):
+            reason = 'Investigation execution budget reached.'
             break
         more = json.loads(json.dumps(LOAD_MORE))
         more['function']['parameters']['properties']['names']['items']['enum'] = list(catalog)
-        reply = provider.complete(messages, list(enabled.values()) + [more])
-        # Use model-prescribed tools only, but require approved schemas and valid arguments.
+        required = expected_primary()
+        primary_ready = (contract.operation in {'ranking', 'backlog', 'summary', 'critical_summary'} and
+                         required is not None and any(contract.matches(x['name'], x['arguments'], required) for x in outputs))
+        # Once a direct metric request is answered by its verified primary data,
+        # ask for a summary without offering more tools. A model cannot turn a
+        # completed collective request into an endless series of person lookups.
+        request_tools = [] if primary_ready else list(enabled.values()) + [more]
+        if len(json.dumps({'messages': messages, 'tools': request_tools}, default=str)) > MAX_PROMPT_CHARS:
+            reason = 'Prompt context budget reached.'
+            break
+        try:
+            reply = provider.complete(messages, request_tools)
+        except AIProviderError:
+            if outputs and primary:
+                return finalize(termination='The language model became unavailable after data retrieval.')
+            raise
         calls = reply.message.get('tool_calls') or []
         if not calls:
-            if required_tool and required_tool not in used:
-                recovered = _recover_required(user, conversation, required_tool,
-                                              question, window, project_scope_name)
-                if recovered:
-                    outputs.append(recovered)
-                    used.append(required_tool)
-                    for rid in _evidence_candidates(recovered['data']):
-                        evidence_candidates[rid] = required_tool
-                    warnings.append('A required authorized analytic query was executed after the model did not complete it.')
-            if not outputs:
-                return {'answer': 'I could not verify that answer from QA records. Please refine the question.',
-                        'evidence': [], 'tools_used': [], 'interpretation': calendar,
-                        'warnings': ['No database analytics were executed.'], 'context_state': {}}
-            answer = str(reply.message.get('content') or '').strip()[:3500]
-            # For ranked, recurring and named-violation facts, always render actual
-            # Django tool fields. LLM narratives may be helpful but cannot assign
-            # a person a rank/category unsupported by a structured analytic result.
-            precise = ('rank_agents', 'find_repeated_mistakes', 'find_repeat_critical_errors',
-                       'get_agent_critical_violations', 'get_team_leader_review_summary')
-            preferred = next((x for x in reversed(outputs) if x['name'] == required_tool), None)
-            if not preferred:
-                preferred = next((x for x in reversed(outputs) if x['name'] in precise), None)
-            if preferred:
-                answer = _safe_fallback([preferred], question, previous)
-            dialer_count_needs_verified_lookup = (bool(re.search(r'\bdialer\b', question, re.I)) and
-                bool(re.search(r'\b(?:how many|total|count)\b', question, re.I)) and
-                not any(item['name'] == 'get_qa_overview' and item['arguments'].get('dialer_id')
-                        for item in outputs))
-            if dialer_count_needs_verified_lookup or (required_tool and required_tool not in used) or not answer or (not preferred and _unverified_numbers(answer, [x['data'] for x in outputs],
-                                                          window_days=(window.end-window.start).days+1)) or re.search(
-                r'\b(?:everyone|everybody|all (?:staff|leaders|agents)).{0,45}\b(?:reviewed|completed|cleared)\b',
-                answer, re.I):
-                supporting = [item for item in outputs if item['name'] == required_tool] if required_tool else outputs
-                answer = _safe_fallback(supporting, question, previous)
-                warnings.append('The generated explanation was replaced because it lacked verifiable support.')
-            ids = list(evidence_candidates)[:24]
-            valid_ids = {str(x) for x in permitted_management_reviews(user).filter(pk__in=ids).values_list('pk', flat=True)}
-            evidence = [{'review_id': rid, 'tool': evidence_candidates[rid]} for rid in ids if rid in valid_ids]
-            for o in outputs:
-                warnings.extend(o['data'].get('warnings', []))
-            interpretation = {**calendar, 'engine': 'v3_investigation', 'intent': 'investigation', 'tools': used,
-                              'backlog_mode': next((x['arguments'].get('mode','current_backlog')
-                                                           for x in outputs if x['name']=='find_pending_reviews'),None)}
-            if not answer.endswith('Your data is limited to your authorized QA scope.'):
-                answer += '\n\nResults are limited to your authorized QA records.'
-            return {'answer': answer, 'evidence': evidence, 'tools_used': used,
-                    'interpretation': interpretation, 'warnings': list(dict.fromkeys(warnings))[:12],
-                    'context_state': _context(outputs, window, used, previous, question)}
+            return finalize(reply.message.get('content') or '')
+        if primary_ready:
+            # A noncompliant model may still emit calls when no tools are offered.
+            # Do not execute them: the complete primary metric already exists.
+            return finalize(reply.message.get('content') or '')
         if len(calls) > 4:
-            warnings.append('Excessive tool calls were refused.')
+            reason = 'Excessive simultaneous tool requests were rejected.'
             break
-        messages.append({'role': 'assistant', 'content': reply.message.get('content'),
-                         'tool_calls': calls})
-        for i, tc in enumerate(calls):
-            name = tc.get('function',{}).get('name','')
-            ident = str(tc.get('id') or f'v3tool-{round_number}-{i}')
-            if len(used) >= MAX_CALLS:
-                warnings.append('Tool budget reached; further investigations were stopped.')
+        normalized_calls = []
+        for index, tc in enumerate(calls):
+            normalized_calls.append({**tc, 'id': str(tc.get('id') or f'turn-{_round}-{index}')})
+        messages.append({'role': 'assistant', 'content': reply.message.get('content'), 'tool_calls': normalized_calls})
+        for tc in normalized_calls:
+            name = tc.get('function', {}).get('name', '')
+            if attempts >= max(1, MAX_CALLS - 2) or not has_time():
+                reason = 'Investigation execution budget reached.'
                 break
             if name == 'load_more_qa_tools':
-                names = _names_from_call(type('Response', (), {'message': {'tool_calls':[tc]}})(),
-                                         name, catalog, 3)
+                attempts += 1
+                names = _names_from_call(type('R', (), {'message': {'tool_calls': [tc]}})(), name, catalog, 3)
                 if not names or len(set(enabled) | set(names)) > MAX_ACTIVE_TOOLS:
-                    content = {'error': 'Invalid tool discovery or tool limit reached.'}
+                    data = {'error': 'Invalid tool discovery or active schema budget reached.'}
                 else:
                     enabled.update((n, catalog[n]) for n in names)
-                    content = {'enabled_tool_names': names}
-                messages.append({'role': 'tool', 'tool_call_id': ident,
-                                 'content': json.dumps(content)})
-                continue
-            if name not in enabled:
-                messages.append({'role': 'tool', 'tool_call_id': ident,
-                                 'content': json.dumps({'error':'Tool not enabled; use load_more_qa_tools.'})})
-                failures += 1
-                continue
-            started = time.monotonic()
-            outcome = 'ok'
-            try:
-                args = _arguments(tc)
-                # Server-owned dates prevent stale model time or conversation carryover.
-                props = catalog[name]['function']['parameters']['properties']
-                for key, value in (('date_from',window.start.isoformat()),('date_to',window.end.isoformat())):
-                    if key in props:
-                        args[key] = value
-                if project_scope_name and 'project_name' in props:
-                    args['project_name'] = project_scope_name
-                if name == 'find_pending_reviews' and 'mode' not in args:
-                    args['mode'] = 'current_backlog'
-                if name == 'rank_agents':
-                    args['limit'] = 25  # Retain ranked peers for ties and follow-ups.
-                if name == 'compare_periods':
-                    args['days'] = min(90, (window.end-window.start).days+1)
-                # 'Most violations' is ranked by agent, not by a count of error categories.
-                if name == 'rank_agents' and required_tool == 'rank_agents':
-                    args['metric'] = ('average_score' if re.search(r'\b(?:score|scoring|average|performance)\b', question.casefold())
-                                      else 'critical_error_reviews' if re.search(r'\b(?:critical|violation|problem|mistake|error)\b', question.casefold())
-                                      else (selection or {}).get('rank_metric') or 'critical_error_reviews')
-                    args['order'] = 'worst'
-                elif name == 'rank_agents' and (selection or {}).get('rank_metric'):
-                    args['metric'] = selection['rank_metric']
-                if name == 'get_qa_overview' and 'dialer' in question.casefold() and not args.get('dialer_id'):
-                    raise ValidationError('Dialer question requires a resolved dialer_id; do not substitute a project.')
-                if name in ('get_qa_overview', 'get_project_performance') and args.get('dialer_id') and args['dialer_id'] not in matched_dialers:
-                    raise ValidationError('Resolve an authorized dialer with list_visible_dialers before filtering by dialer_id.')
-                if name == 'find_pending_reviews' and args.get('team_leader_id') and args['team_leader_id'] not in matched_ids:
-                    raise ValidationError('Resolve that team leader through lookup_visible_people first.')
-                identity = (name, json.dumps(args, sort_keys=True))
-                if identity in seen:
-                    raise ValidationError('Identical query already executed; inspect the previous result.')
-                seen.add(identity)
-                raw = invoke(name, user, args)
-                data = _bounded_data(raw)
-                if name == 'list_visible_dialers':
-                    dialers = data.get('dialers', [])
-                    if args.get('search') and (data.get('ambiguous') or
-                                               (len(dialers) == 1 and dialers[0].get('match') == 'approximate')):
-                        # A fuzzy or non-unique name is not permission to choose an
-                        # arbitrary dialer silently; offer the authorized candidates.
-                        options = ', '.join(d['name'] for d in dialers[:8])
-                        return {'answer': 'Which dialer did you mean? Matching accessible names: ' + options +
-                                '. Please use the exact dialer name for the evaluation count.',
-                                'evidence': [], 'tools_used': [name],
-                                'interpretation': {**calendar, 'engine': 'v3_investigation', 'intent': 'clarification'},
-                                'warnings': ['Dialer name was ambiguous or approximately matched; no count was assumed.'],
-                                'context_state': {}}
-                    if not data.get('ambiguous'):
-                        matched_dialers.update(x['dialer_id'] for x in dialers if x.get('match') == 'exact')
-                if name == 'lookup_visible_people':
-                    people = data.get('matches', [])
-                    # A suggestion is not an identity grant. Never let the model
-                    # silently select a similar person or one of several people.
-                    if args.get('search') and (data.get('ambiguous') or
-                                               any(p.get('match_type') == 'approximate' for p in people)):
-                        options = ', '.join(f"{p.get('name', 'Unknown')} ({p.get('role', 'person')})"
-                                            for p in people[:8])
-                        return {'answer': 'Which person did you mean? Matching accessible names: ' + options +
-                                '. Please confirm the exact name before I analyze their reports.',
-                                'evidence': [], 'tools_used': [name],
-                                'interpretation': {**calendar, 'engine': 'v3_investigation', 'intent': 'clarification'},
-                                'warnings': ['Person name was ambiguous or approximately matched; no individual reports were queried.'],
-                                'context_state': {}}
-                    matched_ids.update(p['id'] for p in people
-                                       if p.get('role') == 'team_leader' and 'id' in p and
-                                          p.get('match_type') == 'direct')
-                for rid in _evidence_candidates(raw):
-                    evidence_candidates[rid] = name
-                result = {'name': name, 'arguments': args, 'data': data}
-                chars = len(json.dumps(result, default=str))
-                if total_chars + chars > MAX_TOTAL_CHARS:
-                    raise ValidationError('Conversation result budget exceeded; narrow the investigation.')
-                total_chars += chars
-                outputs.append(result)
-                used.append(name)
-                response_data = data
-            except PermissionDenied:
-                outcome = 'denied'
-                raise
-            except (FieldError, DatabaseError) as exc:
-                # A broken ORM expression or DB failure must fail closed, not
-                # expose a traceback/500 to someone using AI Insights.
-                outcome = 'error'
-                logger.exception('V3 analytics tool %s encountered a database/query error', name)
-                raise AIProviderError('A QA analytics tool is temporarily unavailable.') from exc
-            except (ValidationError, ValueError, TypeError, AIProviderError) as exc:
-                outcome = 'invalid'
-                failures += 1
-                response_data = {'error': 'That analytic query could not be verified.',
-                                 'hint': str(exc)[:230]}
-            finally:
-                _audit(user, conversation, name, outcome, time.monotonic()-started)
-            messages.append({'role': 'tool', 'tool_call_id': ident,
-                             'content': json.dumps(response_data, default=str, ensure_ascii=False)[:8000]})
-            if failures >= 3:
-                warnings.append('Too many invalid investigations; stopped for safety.')
+                    data = {'enabled_tool_names': names}
+            elif name not in enabled:
+                attempts += 1
+                data = {'error': 'Tool not enabled. Use approved discovery; no query ran.'}
+            else:
+                before_attempts = attempts
+                try:
+                    args = args_for_call(name, _arguments(tc))
+                    item = record(name, args)
+                    update_entities(item)
+                    data = item['model_data']
+                except Clarify as exc:
+                    return envelope(str(exc), status='clarification')
+                except (ValidationError, ValueError, TypeError) as exc:
+                    if attempts == before_attempts:
+                        attempts += 1
+                    data = {'error': 'Query does not satisfy the validated request.', 'hint': str(exc)[:220]}
+            encoded = json.dumps(data, default=str, ensure_ascii=False)
+            if total_chars + len(encoded) > MAX_TOTAL_CHARS:
+                reason = 'Model context budget reached.'
                 break
-        if failures >= 3 or len(used) >= MAX_CALLS:
+            total_chars += len(encoded)
+            messages.append({'role': 'tool', 'tool_call_id': tc['id'], 'content': encoded})
+        if reason:
             break
-    return {'answer': _safe_fallback(outputs, question, previous) if outputs else 'I could not complete a verified investigation.',
-            'evidence': [], 'tools_used': used, 'interpretation': {**calendar, 'engine':'v3_investigation'},
-            'warnings': warnings or ['Investigation ended at its bounded execution limit.'],
-            'context_state': _context(outputs, window, used, previous, question)}
+    return finalize(termination=reason or 'Investigation round limit reached.')

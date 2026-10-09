@@ -82,9 +82,9 @@ def _read_rows(qs, *, limit=SCAN_LIMIT):
 def _evidence(row):
     return {'review_id': str(row.pk), 'completed_at': row.completed_at.isoformat() if row.completed_at else None}
 
-def _period(user, *, date_from=None, date_to=None, company_id=None, branch_id=None, team_id=None, project_name=None, agent_user=None, dialer_id=None):
+def _period(user, *, date_from=None, date_to=None, company_id=None, branch_id=None, team_id=None, project_name=None, agent_user=None, dialer_id=None, all_time=False):
     return _base(user, date_from=date_from, date_to=date_to, company_id=company_id,
-                 branch_id=branch_id, team_id=team_id, project_name=project_name, agent_user=agent_user, dialer_id=dialer_id)
+                 branch_id=branch_id, team_id=team_id, project_name=project_name, agent_user=agent_user, dialer_id=dialer_id, all_time=all_time)
 
 def _summary(qs):
     stats = qs.aggregate(total=Count('pk'), scored=Count('pk', filter=Q(score__isnull=False)),
@@ -95,6 +95,8 @@ def _summary(qs):
             'critical_error_reviews': stats['critical_reviews'], 'below_85': stats['below_benchmark'],
             'partial_calls': stats['partial_calls']}
 
-def _date_args(date_from=None, date_to=None):
+def _date_args(date_from=None, date_to=None, all_time=False):
+    if all_time:
+        return {'date_from': None, 'date_to': None, 'all_time': True}
     start, end = _dates(date_from, date_to)
     return {'date_from': start.isoformat(), 'date_to': end.isoformat()}

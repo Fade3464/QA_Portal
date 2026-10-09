@@ -21,10 +21,12 @@ register('rank_agents', 'Rank dialer agents by average QA score, review volume o
           {**FILTERS, 'metric': E('Ranking metric', ('average_score', 'critical_error_reviews', 'evaluation_count')),
            'limit': I('Maximum agents', 1, 25),
            'order': E('best = highest score/fewest errors; worst = lowest score/most errors', ('best', 'worst'))}, ('metric',))(performance.rank_agents)
-register('rank_teams', 'Rank accessible teams by average scored QA percentage or number of completed reviews.',
+register('rank_teams', 'Rank TEAMS (not agents) by average QA score, evaluations with explicit critical errors, or completed review volume. Minimum 3 scored reviews for score ranking.',
           {**DATES, 'company_id': S('Company UUID', 36), 'branch_id': S('Branch UUID', 36),
            'project_name': S('Exact project name'),
-           'metric': E('Ranking metric', ('average_score', 'evaluation_count')),
+           'dialer_id': S('Optional resolved dialer UUID', 36),
+           'team_id': S('Optional resolved team UUID', 36),
+           'metric': E('Ranking metric', ('average_score', 'critical_error_reviews', 'evaluation_count')),
            'limit': I('Maximum teams', 1, 25),
            'order': E('best or worst', ('best', 'worst'))}, ('metric',))(performance.rank_teams)
 register('get_score_trend', 'Daily average QA score and completed-review volume, filtered to authorized reports.', FILTERS)(performance.get_score_trend)

@@ -64,10 +64,14 @@ function Transcript({ messages, waiting }: { messages: AIMessage[]; waiting: boo
           <div className="ai-message__body">
             <div className="ai-message__meta"><strong>{item.role === 'assistant' ? 'QA Assistant' : 'You'}</strong><span>{appDate(item.created_at).format('DD MMM, h:mm A')}</span></div>
             <div className="ai-message__content">{item.role === 'assistant' ? <SafeAIText content={item.content} /> : item.content}</div>
-            {item.role === 'assistant' && item.interpretation?.intent && (
+            {item.role === 'assistant' && item.interpretation?.intent && item.interpretation.response_kind !== 'conversation' && (
               <div className="ai-interpretation" aria-label="Reporting interpretation">
                 <Tag color="default">{item.interpretation.intent.replaceAll('_', ' ')}</Tag>
-                {item.interpretation.label && <Text type="secondary">{item.interpretation.label}</Text>}
+                {item.interpretation.all_time ? <Text type="secondary">All time · No submission-date cutoff</Text> : item.interpretation.label && <Text type="secondary">{item.interpretation.label}</Text>}
+                {item.interpretation.subject && <Tag>{item.interpretation.subject.replaceAll('_', ' ')}</Tag>}
+                {item.interpretation.metric && <Text type="secondary">Metric: {item.interpretation.metric.replaceAll('_', ' ')}</Text>}
+                {item.interpretation.operation === 'ranking' && item.interpretation.order && <Text type="secondary">{item.interpretation.order === 'best' ? 'Best first' : 'Worst first'}</Text>}
+                {item.interpretation.result_status === 'incomplete' && <Tag color="warning">Analysis incomplete</Tag>}
                 {item.interpretation.date_from && item.interpretation.date_to &&
                   <Text type="secondary">{item.interpretation.date_from} to {item.interpretation.date_to}</Text>}
                 {item.interpretation.backlog_mode === 'current_backlog' &&
@@ -82,7 +86,7 @@ function Transcript({ messages, waiting }: { messages: AIMessage[]; waiting: boo
           </div>
         </div>
       ))}
-      {waiting && <div className="ai-message ai-message--assistant ai-message--waiting"><div className="ai-message__avatar"><RobotOutlined /></div><div className="ai-message__body"><div className="ai-message__meta"><strong>QA Assistant</strong></div><div className="ai-message__thinking"><Spin size="small" /> Reviewing permitted QA records…</div></div></div>}
+      {waiting && <div className="ai-message ai-message--assistant ai-message--waiting"><div className="ai-message__avatar"><RobotOutlined /></div><div className="ai-message__body"><div className="ai-message__meta"><strong>QA Assistant</strong></div><div className="ai-message__thinking"><Spin size="small" /> Preparing a response…</div></div></div>}
       <div ref={bottom} />
     </div>
   );

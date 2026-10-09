@@ -22,8 +22,15 @@ export interface AIInterpretation {
   timezone?: string;
   engine?: string;
   backlog_mode?: string | null;
-  date_from?: string;
-  date_to?: string;
+  date_from?: string | null;
+  date_to?: string | null;
+  all_time?: boolean;
+  subject?: string;
+  operation?: string;
+  metric?: string | null;
+  order?: 'best' | 'worst';
+  result_status?: 'complete' | 'incomplete' | 'clarification';
+  response_kind?: 'conversation';
   project?: string | null;
   team?: string | null;
   agent?: string | null;

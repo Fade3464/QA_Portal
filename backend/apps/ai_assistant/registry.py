@@ -37,7 +37,7 @@ def tool_names():
     return sorted(_REGISTRY)
 
 
-def invoke(name, user, arguments):
+def validate_arguments(name, arguments):
     tool = _REGISTRY.get(name)
     if not tool:
         raise ValidationError({'tool': 'Unknown or disabled tool.'})
@@ -64,6 +64,13 @@ def invoke(name, user, arguments):
             raise ValidationError({key: 'Out of allowed range.'})
         if typ == 'string' and len(value) > prop.get('maxLength', 160):
             raise ValidationError({key: 'Value too long.'})
+    if arguments.get('all_time') and (arguments.get('date_from') or arguments.get('date_to')):
+        raise ValidationError({'dates': 'all_time cannot be combined with a date interval.'})
+    return tool
+
+
+def invoke(name, user, arguments):
+    tool = validate_arguments(name, arguments)
     return tool.handler(user=user, **arguments)
 
 
@@ -71,7 +78,7 @@ S = lambda description, max_len=160: {'type': 'string', 'description': descripti
 I = lambda description, minimum=1, maximum=100: {'type': 'integer', 'description': description,
                                                   'minimum': minimum, 'maximum': maximum}
 E = lambda description, choices: {'type': 'string', 'description': description, 'enum': list(choices)}
-DATES = {'date_from': S('Inclusive date YYYY-MM-DD', 10), 'date_to': S('Inclusive date YYYY-MM-DD', 10)}
+DATES = {'all_time': {'type': 'boolean', 'description': 'All accessible history; mutually exclusive with date_from/date_to'}, 'date_from': S('Inclusive date YYYY-MM-DD', 10), 'date_to': S('Inclusive date YYYY-MM-DD', 10)}
 FILTERS = {**DATES, 'company_id': S('Company UUID; cannot expand logged-in visibility', 36),
            'branch_id': S('Branch UUID; cannot expand logged-in visibility', 36), 'team_id': S('Team UUID, when explicitly selected', 36),
            'project_name': S('Exact project name, when requested'),

@@ -20,8 +20,8 @@ def get_scorecard_policy(*, user):
     return scorecard_payload()
 
 
-def list_available_branches(*, user, date_from=None, date_to=None):
-    rows = (_base(user, date_from=date_from, date_to=date_to)
+def list_available_branches(*, user, date_from=None, date_to=None, all_time=False):
+    rows = (_base(user, all_time=all_time, date_from=date_from, date_to=date_to)
             .values('call__branch_id', 'call__branch__name', 'call__branch__company_id',
                     'call__branch__company__name')
             .annotate(evaluations=Count('pk')).order_by('-evaluations')[:100])
@@ -32,8 +32,8 @@ def list_available_branches(*, user, date_from=None, date_to=None):
                          'evaluations': r['evaluations']} for r in rows]}
 
 
-def list_available_teams(*, user, date_from=None, date_to=None, company_id=None, branch_id=None):
-    rows = (_base(user, date_from=date_from, date_to=date_to, company_id=company_id, branch_id=branch_id)
+def list_available_teams(*, user, date_from=None, date_to=None, company_id=None, branch_id=None, all_time=False):
+    rows = (_base(user, all_time=all_time, date_from=date_from, date_to=date_to, company_id=company_id, branch_id=branch_id)
             .exclude(call__team__isnull=True)
             .values('call__team_id', 'call__team__name', 'call__team__team_leader__first_name',
                     'call__team__team_leader__last_name')
@@ -44,17 +44,17 @@ def list_available_teams(*, user, date_from=None, date_to=None, company_id=None,
                        'evaluations': r['evaluations']} for r in rows]}
 
 
-def list_available_projects(*, user, date_from=None, date_to=None, company_id=None, branch_id=None):
-    rows = (_base(user, date_from=date_from, date_to=date_to, company_id=company_id, branch_id=branch_id)
+def list_available_projects(*, user, date_from=None, date_to=None, company_id=None, branch_id=None, all_time=False):
+    rows = (_base(user, all_time=all_time, date_from=date_from, date_to=date_to, company_id=company_id, branch_id=branch_id)
             .exclude(project_name__isnull=True).values('project_name')
             .annotate(evaluations=Count('pk')).order_by('-evaluations')[:100])
     return {'projects': list(rows)}
 
 
-def find_agents(*, user, search, date_from=None, date_to=None, company_id=None, branch_id=None, limit=15):
+def find_agents(*, user, search, date_from=None, date_to=None, company_id=None, branch_id=None, limit=15, all_time=False):
     if len(search.strip()) < 2:
         raise ValidationError({'search': 'At least two characters required.'})
-    qs = (_base(user, date_from=date_from, date_to=date_to, company_id=company_id, branch_id=branch_id)
+    qs = (_base(user, all_time=all_time, date_from=date_from, date_to=date_to, company_id=company_id, branch_id=branch_id)
           .filter(Q(call__agent_user__icontains=search) | Q(call__agent_name__icontains=search))
           .values('call__dialer_id', 'call__agent_user', 'call__agent_name')
           .annotate(evaluations=Count('pk')).order_by('-evaluations')[:limit])

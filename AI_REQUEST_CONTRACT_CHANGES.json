@@ -1,0 +1,193 @@
+{
+  "baseline_archive": "CallLens_QA_Portal_V3_Identity_Fix_Complete.zip",
+  "baseline_sha256": "799572dbe6a8676e96fb88fa3867687bc8c40baaa03521188a2b60a86edf76fe",
+  "scope": "V3 query contracts, social channel, consistent all-time analytics, response validation, isolated tests and narrow AI UI feedback",
+  "migrations_added": false,
+  "gpu_changes": false,
+  "dependency_changes": false,
+  "deleted": [],
+  "manifest_excludes_itself": true,
+  "changes": [
+    {
+      "path": "AI_REQUEST_CONTRACT_UPDATE.md",
+      "change": "added",
+      "sha256": "d4947d91a37275f374cf65d9f483c9c210086a31d6627a4f65b0b118f395eeee",
+      "previous_sha256": null
+    },
+    {
+      "path": "backend/apps/ai_assistant/answer_contracts.py",
+      "change": "added",
+      "sha256": "e46e430f1b2dbc7731127834ac4718c004bdc5f888e9df8a6c1eb96f927ed2eb",
+      "previous_sha256": null
+    },
+    {
+      "path": "backend/apps/ai_assistant/conversation_analysis.py",
+      "change": "modified",
+      "sha256": "e9966a9fbcbffbdf2c20fd25665317890f3acce4a1deb8d57771da4590f7678e",
+      "previous_sha256": "123846d673f57255f44c31748006f5df62fb44e518f97527704568e797233b35"
+    },
+    {
+      "path": "backend/apps/ai_assistant/investigation.py",
+      "change": "modified",
+      "sha256": "27c1f930570dc7a056a84c1539f0f0eb695e32f33f6d4e338227df43e93f17d3",
+      "previous_sha256": "aa73cc8837a22d42b208d20a44008be29f6dc508006ba9f4848eda560095f392"
+    },
+    {
+      "path": "backend/apps/ai_assistant/query_contract.py",
+      "change": "added",
+      "sha256": "24757b1c9963f5823f46d0f6371aec185403ec72f789842b88e7c553c978c3d3",
+      "previous_sha256": null
+    },
+    {
+      "path": "backend/apps/ai_assistant/registry.py",
+      "change": "modified",
+      "sha256": "75cdce15e53eb6f65acc01a6ae9646424f16eb3765a04e2f405ea7a344feba7a",
+      "previous_sha256": "24b5bdc38f2c4a08684357f8288c6a7106a46c161b5e040dd0d919239b12bef9"
+    },
+    {
+      "path": "backend/apps/ai_assistant/social.py",
+      "change": "added",
+      "sha256": "c7a7d260a4c6f65fd36208c29fdca02b3bb8d81e0781973f543459170d797438",
+      "previous_sha256": null
+    },
+    {
+      "path": "backend/apps/ai_assistant/tests_contract_integration.py",
+      "change": "added",
+      "sha256": "fe66946f5d90c67333ed88159f47814bcf9eab77c375115f7f0cef021634102a",
+      "previous_sha256": null
+    },
+    {
+      "path": "backend/apps/ai_assistant/tests_contracts.py",
+      "change": "added",
+      "sha256": "ad226229409439c2e0ecd3b0b371cef8e45e310b10b33e959cca4f79a25945b2",
+      "previous_sha256": null
+    },
+    {
+      "path": "backend/apps/ai_assistant/tests_live_acceptance.py",
+      "change": "added",
+      "sha256": "e8a13420cec1a5dccda7f91a984ff675a39e0ce3a007e17e1ae4a6e93363da4a",
+      "previous_sha256": null
+    },
+    {
+      "path": "backend/apps/ai_assistant/timeframes.py",
+      "change": "modified",
+      "sha256": "e514541d4c4e89ac708e6b8312021661f963400e1164dcc471f700f121699ca3",
+      "previous_sha256": "5ec22836732bd88e73df82369d44c5deb6a70534ffc68ccd3ceb736ce4f0d782"
+    },
+    {
+      "path": "backend/apps/ai_assistant/tools.py",
+      "change": "modified",
+      "sha256": "70d425a913002e28b2e0c554e0f9b0f96cf557449598d7e5ef33e949e0103867",
+      "previous_sha256": "d822a44a0ff07bbde1a84c611187c1537f918d1bd708cdfe0ac6c4a496a81ac8"
+    },
+    {
+      "path": "backend/apps/ai_assistant/views.py",
+      "change": "modified",
+      "sha256": "92f226d350f14ac5a89e442c6b5b5d47375235faad9fc79709be5de01d3bca13",
+      "previous_sha256": "fcdbb57bdf2a58873f0e3b4e9f02ea68733a2929be624b391606b902f174f28c"
+    },
+    {
+      "path": "backend/apps/analytics/services/context.py",
+      "change": "modified",
+      "sha256": "e914986bffe1cd99437140df0c48477b6dded0abf7c04fbe1663d8e3928a3313",
+      "previous_sha256": "29ab915fdc4cbdc83d42c68dd691fe70a0e0e466b1310b5210181fb2be2dacdf"
+    },
+    {
+      "path": "backend/apps/analytics/services/core.py",
+      "change": "modified",
+      "sha256": "fed06b3361e8157b2ce9f4b8c12da0f9ad54c115816c020e8b823eb041d8045a",
+      "previous_sha256": "b759b9a3771d0419b8c1fa26da398d7bb04bbb7325b0b47a2837b74b1a871f1c"
+    },
+    {
+      "path": "backend/apps/analytics/services/discovery.py",
+      "change": "modified",
+      "sha256": "811eb40c9b33363e798b8ced392197845935a4f092cbc0f77c167e674f7d23f2",
+      "previous_sha256": "d690a8e13852556561327f2db7c08d48ce841c32e5c5dabc0246d4982d246e8c"
+    },
+    {
+      "path": "backend/apps/analytics/services/performance.py",
+      "change": "modified",
+      "sha256": "d7ae1d5b52a62866ef20c2ff3495475d9557aa2521b1cda1a7f0f0408618c5d6",
+      "previous_sha256": "d14baece431adf466da9e47de4061a8c2d98656e70e9a7134d9cc834afe06c0b"
+    },
+    {
+      "path": "backend/apps/analytics/services/recurrence.py",
+      "change": "modified",
+      "sha256": "ddd7936eed302a9a24cbba60724c3f04fe3d6d6bd3e9a20e1745641763fed4a7",
+      "previous_sha256": "71074265c966948e36b03089d2474f6b0576fb7d0ade8f5d7b456654214d37e0"
+    },
+    {
+      "path": "backend/apps/analytics/services/reviews.py",
+      "change": "modified",
+      "sha256": "e301b899032732e368f88981474d969f412cea0fbf1cec912f34cecf929d0af7",
+      "previous_sha256": "1ce2e479b898bc5de16d9a95b5a2e324f4c341b9aea67098f8d539cb568740c5"
+    },
+    {
+      "path": "backend/config/ai_test_settings.py",
+      "change": "added",
+      "sha256": "79b4d98e7d0cb7d8d11cad4aa4c4c5ddc784f1003649c63f40f1e2368d8c82bd",
+      "previous_sha256": null
+    },
+    {
+      "path": "frontend/src/lib/ai.ts",
+      "change": "modified",
+      "sha256": "813ad6f8f6355cf658c6bc3017d035e4c21dc8036e8c7c223648d4882671872e",
+      "previous_sha256": "db1400af3a93e5ce0bca506e85cec6de4f6c19268a5739788bbafb88da91088c"
+    },
+    {
+      "path": "frontend/src/pages/AIInsightsPage.tsx",
+      "change": "modified",
+      "sha256": "36973d1c10858d7baeac2e56d459e9dffe59ff79c38054290a5517ccd2aef5f8",
+      "previous_sha256": "706e9f5851b92e539685bb6f657106c54ffecb9551cbd2442851ea255269f465"
+    },
+    {
+      "path": "scripts/test_ai_contracts_offline.py",
+      "change": "added",
+      "sha256": "67ce0e450138f8cadbdd3cf601831846a7e79a71b1fdc36b9250fac1606826d0",
+      "previous_sha256": null
+    },
+    {
+      "path": "scripts/test_ai_engine_offline.py",
+      "change": "added",
+      "sha256": "b3e813c1542774d19c1365585b1ba2da788746489eb6e03a7608bcd2f820105c",
+      "previous_sha256": null
+    },
+    {
+      "path": "scripts/validate_ai.sh",
+      "change": "added",
+      "sha256": "7a1568185dae4d43d49818d100cb9d0da5b9c5d9921f85777bb4d86c7a08c749",
+      "previous_sha256": null
+    },
+    {
+      "path": "validation/request_contracts/frontend_syntax.txt",
+      "change": "added",
+      "sha256": "296d709850dd1dbefe512b5d43ad7bff8f900719312a5ea5ace8e3d924189d80",
+      "previous_sha256": null
+    },
+    {
+      "path": "validation/request_contracts/offline_contracts.txt",
+      "change": "added",
+      "sha256": "2f1cd40736c7d25709c98bb3fe67c4e5c58f7816708d8045c9a119af9302a4b8",
+      "previous_sha256": null
+    },
+    {
+      "path": "validation/request_contracts/offline_controller.txt",
+      "change": "added",
+      "sha256": "eb5653710e9fefdbb8982df85f8f0df231158e4df31cdb9b7a49b95022a53ca7",
+      "previous_sha256": null
+    }
+  ],
+  "validation": {
+    "offline_contract_tests": {
+      "passed": 28
+    },
+    "offline_controller_and_existing_pure_tests": {
+      "passed": 35
+    },
+    "django_postgresql": "not run here; staging required",
+    "live_qwen": "not run here; explicit acceptance suite provided",
+    "frontend": "syntax transpilation only; full build required",
+    "python_compile": "passed",
+    "shell_syntax": "passed"
+  }
+}
