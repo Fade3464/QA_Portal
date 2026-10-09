@@ -67,6 +67,7 @@ function Transcript({ messages, waiting }: { messages: AIMessage[]; waiting: boo
             {item.role === 'assistant' && item.interpretation?.intent && (
               <div className="ai-interpretation" aria-label="Reporting interpretation">
                 <Tag color="default">{item.interpretation.intent.replaceAll('_', ' ')}</Tag>
+                {item.interpretation.label && <Text type="secondary">{item.interpretation.label}</Text>}
                 {item.interpretation.date_from && item.interpretation.date_to &&
                   <Text type="secondary">{item.interpretation.date_from} to {item.interpretation.date_to}</Text>}
                 {item.interpretation.backlog_mode === 'current_backlog' &&
@@ -268,6 +269,14 @@ export function AIInsightsPage() {
         <div className="ai-page__heading-copy"><span className="ai-page__eyebrow"><RobotOutlined /> MANAGEMENT INTELLIGENCE</span><Title level={2} className="page-title">AI Insights</Title><Text type="secondary">Ask questions about report reviews, quality trends, coaching and repeated mistakes.</Text></div>
         <div className="ai-page__heading-actions"><Tag icon={<SafetyCertificateOutlined />} color="processing">Read-only analytics</Tag><Button icon={<PlusOutlined />} onClick={newConversation} disabled={sending}>New chat</Button></div>
       </div>
+      <Alert
+        className="ai-prototype-banner"
+        type="warning"
+        showIcon
+        title="AI Insights is an experimental prototype"
+        description="This feature is currently undergoing rigorous testing and validation. Responses may contain incorrect conclusions, incomplete analysis, or misinterpreted data. Do not rely on AI judgements for coaching, compliance, performance decisions, or disciplinary action without independently verifying the underlying QA reports."
+        role="status"
+      />
       <div className="ai-workspace">
         <aside className="ai-workspace__sidebar" aria-label="AI conversation history">{historyPanel}</aside>
         <main className="ai-workspace__main">

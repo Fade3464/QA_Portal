@@ -161,6 +161,10 @@ make test
 docker compose config
 ```
 
+## AI Insights V3 (experimental)
+
+The V3 bounded investigation engine and a permanent prototype warning in the AI Insights UI are described in [AI_ARCHITECTURE_V3.md](AI_ARCHITECTURE_V3.md). Set `AI_ENGINE_VERSION=v3` **only after staging and real-Qwen validation**; the default remains `v1`. Business calculations and authorization stay within Django.
+
 ## AI Insights V2
 
 See [`AI_ARCHITECTURE_V2.md`](AI_ARCHITECTURE_V2.md) for the provider-neutral semantic planner,

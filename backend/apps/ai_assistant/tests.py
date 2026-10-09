@@ -265,3 +265,129 @@ class V2BacklogIntegrationTests(AIAccessIntegrationTests):
         result = find_pending_reviews(user=self.other_supervisor)
         self.assertEqual(result['total_pending'],0)
         self.assertIn('does not establish', _render_backlog(result))
+
+
+class V3CalendarAndToolsTests(SimpleTestCase):
+    """No model output can override the Django business calendar or tool whitelist."""
+    def test_natural_date_phrases_use_authoritative_calendar(self):
+        from datetime import date
+        from .timeframes import resolve_window
+        now = date(2026, 10, 9)
+        self.assertEqual((resolve_window('critical errors yesterday', today=now).start,
+                          resolve_window('critical errors yesterday', today=now).end),
+                         (date(2026, 10, 8), date(2026, 10, 8)))
+        period = resolve_window('not reviewed in past 4 days', today=now)
+        self.assertEqual((period.start, period.end), (date(2026, 10, 6), now))
+        self.assertEqual(resolve_window('yesteray', today=now).start, date(2026, 10, 8))
+        self.assertEqual(resolve_window('past four days', today=now).start, date(2026, 10, 6))
+        self.assertEqual(resolve_window('what about last week', today=now).start,
+                         date(2026, 9, 28))
+        with self.assertRaises(ValueError):
+            resolve_window('last 400 days', today=now)
+
+    def test_tool_selection_rejects_unapproved_names(self):
+        from .investigation import _names_from_call, _catalog
+        from .provider import Completion
+        catalog = _catalog()
+        answer = Completion(message={'tool_calls': [{'type': 'function',
+            'function': {'name': 'select_qa_tools',
+                         'arguments':json.dumps({'names':['execute_sql']})}}]}, finish_reason='tool_calls')
+        self.assertIsNone(_names_from_call(answer, 'select_qa_tools', catalog, 6))
+        self.assertIn('lookup_visible_people', catalog)
+
+    def test_unverified_factual_numbers_are_detected(self):
+        from .investigation import _unverified_numbers
+        evidence = [{'total_pending': 12, 'submitted_in_period_pending': 2}]
+        self.assertFalse(_unverified_numbers('12 pending, 2 were submitted on 2026-10-08.', evidence))
+        self.assertEqual(_unverified_numbers('There are 999 pending.', evidence), ['999'])
+
+
+@override_settings(AI_ENABLED=True, AI_ENGINE_VERSION='v3')
+class V3InvestigationIntegrationTests(TestCase):
+    """Real authorized ORM fixtures, with only the provider transport mocked."""
+
+    @classmethod
+    def setUpTestData(cls):
+        # Use exactly the established team/project fixtures, without duplicating V2 tests.
+        AIAccessIntegrationTests.setUpTestData.__func__(cls)
+    def test_person_role_resolution_uses_authorized_tl_records(self):
+        from .person_tools import lookup_visible_people
+        matches = lookup_visible_people(user=self.pm, search='tl1 Test', role='any')['matches']
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]['role'], 'team_leader')
+        self.assertEqual(matches[0]['id'], str(self.tl1.pk))
+        self.assertFalse(lookup_visible_people(user=self.pm,
+                                               search='tl2 Test', role='team_leader')['matches'])
+        self.assertEqual(invoke('find_pending_reviews', self.pm,
+                                {'team_leader_id': str(self.tl2.pk)})['total_pending'], 0)
+
+    def test_model_driven_leader_lookup_then_backlog(self):
+        from .investigation import run_ai
+        from .provider import Completion
+        from unittest.mock import Mock
+        def tc(name, args, identifier):
+            return {'type': 'function', 'id': identifier,
+                    'function': {'name': name, 'arguments': json.dumps(args)}}
+        provider = Mock()
+        provider.complete.side_effect = [
+            Completion(message={'tool_calls': [tc('select_qa_tools',
+                {'names': ['find_pending_reviews', 'lookup_visible_people']}, 'select')]}, finish_reason='tool_calls'),
+            Completion(message={'tool_calls': [tc('lookup_visible_people',
+                {'search': 'tl1 Test', 'role': 'team_leader'}, 'look')]}, finish_reason='tool_calls'),
+            Completion(message={'tool_calls': [tc('find_pending_reviews',
+                {'team_leader_id': str(self.tl1.pk), 'date_from': '2023-10-01'}, 'pending')]},
+                finish_reason='tool_calls'),
+            Completion(message={'content': 'tl1 Test has 2 pending QA reports.'}, finish_reason='stop'),
+        ]
+        with patch('apps.ai_assistant.investigation.get_provider', return_value=provider):
+            result = run_ai(self.pm, 'How many reports has tl1 Test not reviewed?')
+        self.assertEqual(result['tools_used'], ['lookup_visible_people', 'find_pending_reviews'])
+        self.assertIn('2 pending', result['answer'])
+        self.assertTrue(result['evidence'])
+        self.assertEqual(result['context_state']['last_person']['role'], 'team_leader')
+        self.assertEqual(provider.complete.call_count, 4)
+
+    def test_yesterday_cannot_be_replaced_by_model_old_dates(self):
+        from datetime import date
+        from .timeframes import TimeWindow
+        from .investigation import run_ai
+        from .provider import Completion
+        from unittest.mock import Mock
+        provider = Mock()
+        provider.complete.side_effect = [
+            Completion(message={'tool_calls':[{'id':'choose','type':'function','function':{
+                'name':'select_qa_tools', 'arguments':'{"names":["get_critical_error_summary"]}'}}]},
+                       finish_reason='tool_calls'),
+            Completion(message={'tool_calls':[{'id':'errors','type':'function','function':{
+                'name':'get_critical_error_summary',
+                'arguments':'{"date_from":"2023-10-01","date_to":"2023-10-05"}'}}]},
+                       finish_reason='tool_calls'),
+            Completion(message={'content':'I found 0 critical errors yesterday.'},finish_reason='stop'),
+        ]
+        with patch('apps.ai_assistant.investigation.get_provider', return_value=provider), \
+             patch('apps.ai_assistant.investigation.resolve_window', return_value=TimeWindow(
+                date(2026,10,8), date(2026,10,8), 'yesterday', True)), \
+             patch('apps.ai_assistant.investigation.invoke', wraps=invoke) as database_tool:
+            result = run_ai(self.pm, 'How many critical violations yesterday?')
+        arguments = database_tool.call_args.args[2]
+        self.assertEqual(arguments['date_from'], '2026-10-08')
+        self.assertEqual(arguments['date_to'], '2026-10-08')
+        self.assertEqual(result['interpretation']['date_from'], '2026-10-08')
+
+    def test_unsupported_numeric_claim_does_not_reach_user(self):
+        from .investigation import run_ai
+        from .provider import Completion
+        from unittest.mock import Mock
+        provider = Mock()
+        provider.complete.side_effect = [
+            Completion(message={'tool_calls':[{'id':'choose','type':'function','function':{
+                'name':'select_qa_tools', 'arguments':'{"names":["find_pending_reviews"]}'}}]},
+                       finish_reason='tool_calls'),
+            Completion(message={'tool_calls':[{'id':'pending','type':'function','function':{
+                'name':'find_pending_reviews', 'arguments':'{}'}}]}, finish_reason='tool_calls'),
+            Completion(message={'content':'There are 999 pending reports.'},finish_reason='stop'),
+        ]
+        with patch('apps.ai_assistant.investigation.get_provider', return_value=provider):
+            result = run_ai(self.pm, 'How many reports pending?')
+        self.assertNotIn('999', result['answer'])
+        self.assertIn('replaced', result['warnings'][0])

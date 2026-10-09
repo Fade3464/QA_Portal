@@ -17,7 +17,7 @@ from .core import (
 
 def find_pending_reviews(*, user, mode='current_backlog', older_than_days=0, limit=20,
                          date_from=None, date_to=None, company_id=None, branch_id=None,
-                         team_id=None, project_name=None, agent_user=None):
+                         team_id=None, project_name=None, agent_user=None, team_leader_id=None):
     """Current outstanding ≠ submissions in period. No default 30-day exclusion.
 
     A historical snapshot cannot be derived from current leader_status; current_backlog
@@ -30,6 +30,9 @@ def find_pending_reviews(*, user, mode='current_backlog', older_than_days=0, lim
     all_pending = _base(user, all_time=True, **filters).filter(
         leader_status=Review.LeaderStatus.PENDING
     )
+    # The UUID is a narrowing filter over an already-authorized queryset.
+    if team_leader_id:
+        all_pending = all_pending.filter(team_leader_id=_uuid(team_leader_id, 'team_leader_id'))
     today = timezone.localdate()
     week_start = today - timedelta(days=today.weekday())
     # Explicit period bounds define a submission cohort; otherwise compare against

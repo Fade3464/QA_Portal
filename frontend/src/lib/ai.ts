@@ -18,6 +18,9 @@ export interface AIEvidence {
 export interface AIInterpretation {
   intent?: string;
   period?: string;
+  label?: string;
+  timezone?: string;
+  engine?: string;
   backlog_mode?: string | null;
   date_from?: string;
   date_to?: string;

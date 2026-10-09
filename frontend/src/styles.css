@@ -1103,3 +1103,12 @@ circle.db-chart__write { fill: #13c2c2; stroke: none; }
 /* Scope and interpretation metadata for AI results. Never render model HTML. */
 .ai-interpretation { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; margin-top: 11px; font-size: 11px; }
 .ai-warning { margin-top: 7px; font-size: 11px; }
+
+/* Prominent, persistent disclosure for the experimental AI Insights workspace. */
+.ai-prototype-banner {
+  margin: 0 0 20px;
+  border-radius: 12px;
+  border: 1px solid #d4a049;
+}
+.ai-prototype-banner .ant-alert-message { font-weight: 700; }
+.ai-prototype-banner .ant-alert-description { max-width: 100ch; line-height: 1.5; }

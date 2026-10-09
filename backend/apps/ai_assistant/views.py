@@ -15,6 +15,7 @@ from .access import require_ai_access, scope_digest
 from .models import AIConversation, AIMessage
 from .orchestrator import run_ai
 from .legacy_orchestrator import run_ai as legacy_run_ai
+from .investigation import run_ai as v3_run_ai
 from .provider import AIProviderError
 from .registry import tool_names
 
@@ -52,7 +53,7 @@ class AIMetadataView(APIView):
         return Response({'enabled': settings.AI_ENABLED,
                          'provider_configured': bool(settings.AI_LLM_MODEL and settings.AI_LLM_BASE_URL),
                          'engine_version': settings.AI_ENGINE_VERSION,
-                         'tools': tool_names(), 'capabilities': ['read_only_qa_analytics', 'semantic_query_planning', 'verified_review_backlog'],
+                         'tools': tool_names(), 'capabilities': ['read_only_qa_analytics', 'semantic_query_planning', 'verified_review_backlog', 'v3_bounded_investigation'],
                          'actions_enabled': False})
 
 
@@ -115,7 +116,7 @@ class AIChatView(APIView):
             raise ConversationBusy()
         try:
             # Never hold SQL row locks during network inference.
-            engine = run_ai if settings.AI_ENGINE_VERSION == 'v2' else legacy_run_ai
+            engine = {'v1': legacy_run_ai, 'v2': run_ai, 'v3': v3_run_ai}[settings.AI_ENGINE_VERSION]
             # Interpret calendar references using the user's branch timezone.
             user_tz = (request.user.branch.timezone if request.user.branch_id else settings.TIME_ZONE)
             with timezone.override(user_tz):

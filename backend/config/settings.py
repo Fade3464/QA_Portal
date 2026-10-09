@@ -298,8 +298,8 @@ LOGGING = {
 
 # V2 semantic engine is opt-in for staged cutover; v1 remains available for rollback.
 AI_ENGINE_VERSION = os.getenv('AI_ENGINE_VERSION', 'v1')
-if AI_ENGINE_VERSION not in {'v1', 'v2'}:
-    raise ValueError('AI_ENGINE_VERSION must be v1 or v2')
+if AI_ENGINE_VERSION not in {'v1', 'v2', 'v3'}:
+    raise ValueError('AI_ENGINE_VERSION must be v1, v2 or v3')
 
 # QA AI is opt-in. The provider endpoint is deployment configuration, never model input.
 AI_ENABLED = env_bool("AI_ENABLED", False)

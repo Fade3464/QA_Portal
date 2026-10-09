@@ -1,6 +1,7 @@
 """Model-facing typed tool declarations. All calculations live in apps.analytics.services."""
 from .registry import register, S, I, E, DATES, FILTERS
 from apps.analytics.services import discovery, performance, reviews, recurrence
+from .person_tools import lookup_visible_people
 
 register('get_scorecard_policy', 'Return the currently configured QA criteria, scoring benchmark and critical-error definitions. This is code-defined policy, not RAG.')(discovery.get_scorecard_policy)
 register('list_available_branches', 'Resolve company and branch UUIDs from names appearing in reports accessible to the signed-in user.', DATES)(discovery.list_available_branches)
@@ -31,7 +32,8 @@ register('compare_periods', 'Compare completed QA results across adjacent equal-
           {**{k: v for k, v in FILTERS.items() if k != 'date_from'}, 'days': I('Days per period', 1, 90)})(performance.compare_periods)
 register('find_pending_reviews', 'Current outstanding team-leader backlog (including carryover) or pending reports submitted in an explicit period. Default is CURRENT BACKLOG, never silently restrict to recent submissions.',
           {**FILTERS, 'mode': E('current_backlog = all currently outstanding including older reports; submitted_in_period = only reports submitted in date window', ('current_backlog', 'submitted_in_period')), 'older_than_days': I('Minimum days since submission', 0, 365),
-           'limit': I('Maximum reports', 1, 50)})(reviews.find_pending_reviews)
+           'limit': I('Maximum reports', 1, 50),
+           'team_leader_id': S('Team leader UUID returned by lookup_visible_people; always narrows existing access', 36)})(reviews.find_pending_reviews)
 register('get_team_leader_review_summary', 'Pending versus acknowledged/closed review counts grouped by assigned team leader.',
           {**DATES, 'company_id': S('Company UUID', 36), 'branch_id': S('Branch UUID', 36),
            'team_id': S('Optional team UUID', 36), 'project_name': S('Optional exact project name'),
@@ -55,3 +57,9 @@ register('get_coaching_backlog', 'Count QA reports in coaching-planned state or 
           {**FILTERS, 'limit': I('Maximum reports', 1, 50)})(reviews.get_coaching_backlog)
 register('get_review_workflow_events', 'Recent workflow event types, dates, responsible actors for ONE authorized review. Excludes free-form notes.',
           {'review_id': S('Exact review UUID', 36), 'limit': I('Maximum events', 1, 30)}, ('review_id',))(reviews.get_review_workflow_events)
+
+# V3 organizational directory: no raw account search or cross-tenant identifiers.
+register('lookup_visible_people', 'Look up authorized team leaders or dialer agents by natural name. ALWAYS use before filtering by a named leader; do not assume a leader is an agent.',
+         {'search': S('Person name or agent username', 120),
+          'role': E('Expected organizational role, or any to search both', ('any','team_leader','agent')),
+          'limit': I('Maximum matches', 1, 15)}, ('search',))(lookup_visible_people)
