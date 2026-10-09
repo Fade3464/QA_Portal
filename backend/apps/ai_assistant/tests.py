@@ -428,6 +428,9 @@ class V3InvestigationIntegrationTests(TestCase):
         self.assertNotIn('broken lookup', response.content.decode())
 
     def test_model_driven_leader_lookup_then_backlog(self):
+        # This PM normally sees only tl1. Give them access to tl2 as well so
+        # an accidental collective backlog (3 reports) cannot pass as tl1 (2).
+        QAProjectAssignment.objects.create(qa=self.pm, dialer_campaign=self.p2)
         from .investigation import run_ai
         from .provider import Completion
         from unittest.mock import Mock
@@ -451,6 +454,13 @@ class V3InvestigationIntegrationTests(TestCase):
         self.assertIn('2 pending', result['answer'])
         self.assertTrue(result['evidence'])
         self.assertEqual(result['context_state']['last_person']['role'], 'team_leader')
+        self.assertEqual(result['context_state']['last_person']['id'], str(self.tl1.pk))
+        query = result['context_state']['query_contract']
+        self.assertFalse(query['collection'])
+        self.assertEqual(query['entity_name'], 'tl1 Test')
+        self.assertEqual(query['filters']['team_leader_id'], str(self.tl1.pk))
+        self.assertTrue(all(item['review_id'] in {str(r.pk) for r in self.reviews[:2]}
+                            for item in result['evidence']))
         self.assertEqual(provider.complete.call_count, 4)
 
     def test_yesterday_cannot_be_replaced_by_model_old_dates(self):

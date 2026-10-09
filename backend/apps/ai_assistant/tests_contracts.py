@@ -64,6 +64,31 @@ class RequestContractTests(unittest.TestCase):
         self.assertEqual(p.entity_name, 'Ahsan Tanveer')
         self.assertFalse(p.collection)
 
+    def test_named_leader_as_verb_subject_is_not_collective(self):
+        for text, name in (
+            ('How many reports has tl1 Test not reviewed?', 'tl1 Test'),
+            ('How many reports has Ahsan Tanveer not reviewed this week?', 'Ahsan Tanveer'),
+            ('How many reports have Asim Jamal not reviewed?', 'Asim Jamal'),
+            ('How many reports has Ahsan Tanveer not yet reviewed?', 'Ahsan Tanveer'),
+        ):
+            with self.subTest(text=text):
+                plan = plan_contract(text, {'intent': 'leader_backlog'})
+                self.assertEqual(plan.entity_name, name)
+                self.assertFalse(plan.collection)
+                self.assertEqual(plan.primary_tool, 'find_pending_reviews')
+
+    def test_generic_review_questions_do_not_invent_people(self):
+        for text in (
+            'How many reports have not been reviewed?',
+            'How many reports have been reviewed?',
+            'How many reports have all team leaders reviewed?',
+            'Which team leaders have not reviewed reports?',
+        ):
+            with self.subTest(text=text):
+                plan = plan_contract(text, {'intent': 'leader_backlog'})
+                self.assertFalse(plan.entity_name)
+                self.assertTrue(plan.collection)
+
     def test_query_contract_matches_direction_and_metric(self):
         p = plan_contract('which team performed best')
         needed = {'metric': 'average_score', 'order': 'best', 'date_from': '2026-10-01'}

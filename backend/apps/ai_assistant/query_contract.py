@@ -71,6 +71,22 @@ def named_reference(text, selection=None):
         name = selected.strip()
         if name.casefold() in text.casefold() and name.casefold() not in {'all', 'our', 'my', 'the team', 'the agents'}:
             return name
+    # In natural leader-backlog questions the person may be the subject of the
+    # verb, not the object of "for"/"by": "How many reports has Ahsan Tanveer
+    # not reviewed?". Without this, a single-leader request incorrectly
+    # becomes a collective query and loses last_person for follow-ups.
+    # Exclude auxiliaries, pronouns and collective quantifiers so "have not
+    # been reviewed" / "have all leaders reviewed" cannot become identities.
+    verbal = re.search(
+        r'\b(?:has|have)\s+([\w][\w .@\-]{1,100}?)\s+'
+        r'(?:not\s+)?(?:yet\s+)?(?:reviewed|acknowledged|approved|completed)\b',
+        text, re.I)
+    if verbal:
+        name = ' '.join(verbal.group(1).split())
+        if not _has(name,
+                    r'^(?:not|been|the|all|any|every|each|no|a|an|this|that|'
+                    r'we|they|you|he|she|it|our|my|team|leaders?|tls?|agents?)\b'):
+            return name
     # Safe fallback only for an explicit person target, not every prepositional
     # phrase ("for all time" / "in the past 10 days" are NOT people).
     m = re.search(r'\b(?:for|by|about|of)\s+([\w][\w .@\-]{1,100}?)(?:[?!.]|$)', text, re.I)
@@ -161,7 +177,7 @@ def plan_contract(question, selection=None, previous=None):
     subject = explicit or (prior.get('subject') if reuse else None) or proposed_subject
     operation = proposed_op
     ranking = _has(q, r'\b(?:best|worst|most|least|highest|lowest|top|bottom|rank\w*|strongest|weakest|underperform\w*)\b')
-    workflow = _has(q, r'\b(?:pending|unreviewed|outstanding|backlog|overdue|not reviewed|not reviewing|reviewing|behind on reviews|awaiting review)\b')
+    workflow = _has(q, r'\b(?:pending|unreviewed|outstanding|backlog|overdue|not (?:yet |been )?reviewed|not reviewing|reviewing|behind on reviews|awaiting review)\b')
     recurrence = _has(q, r'\b(?:repeat\w*|recurring|constantly|again and again)\b')
     critical = _has(q, r'\b(?:critical|violations?)\b')
     if workflow:
