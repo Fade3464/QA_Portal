@@ -316,7 +316,10 @@ def _audit(user, conversation, name, outcome, elapsed):
 def _context(outputs, window, chosen):
     person = None
     for out in outputs:
-        if out['name'] == 'lookup_visible_people' and len(out['data'].get('matches', [])) == 1:
+        if (out['name'] == 'lookup_visible_people' and
+                not out['data'].get('ambiguous') and
+                len(out['data'].get('matches', [])) == 1 and
+                out['data']['matches'][0].get('match_type') == 'direct'):
             m = out['data']['matches'][0]
             person = {k: m[k] for k in ('role','id','name','agent_user','dialer_id') if k in m}
     context = {'time_window': {'date_from': window.start.isoformat(), 'date_to': window.end.isoformat()},
@@ -521,8 +524,22 @@ def run_ai(user, question, *, conversation=None, history=()):
                     if not data.get('ambiguous'):
                         matched_dialers.update(x['dialer_id'] for x in dialers if x.get('match') == 'exact')
                 if name == 'lookup_visible_people':
-                    matched_ids.update(m['id'] for m in data.get('matches',[])
-                                       if m.get('role') == 'team_leader' and 'id' in m)
+                    people = data.get('matches', [])
+                    # A suggestion is not an identity grant. Never let the model
+                    # silently select a similar person or one of several people.
+                    if args.get('search') and (data.get('ambiguous') or
+                                               any(p.get('match_type') == 'approximate' for p in people)):
+                        options = ', '.join(f"{p.get('name', 'Unknown')} ({p.get('role', 'person')})"
+                                            for p in people[:8])
+                        return {'answer': 'Which person did you mean? Matching accessible names: ' + options +
+                                '. Please confirm the exact name before I analyze their reports.',
+                                'evidence': [], 'tools_used': [name],
+                                'interpretation': {**calendar, 'engine': 'v3_investigation', 'intent': 'clarification'},
+                                'warnings': ['Person name was ambiguous or approximately matched; no individual reports were queried.'],
+                                'context_state': {}}
+                    matched_ids.update(p['id'] for p in people
+                                       if p.get('role') == 'team_leader' and 'id' in p and
+                                          p.get('match_type') == 'direct')
                 for rid in _evidence_candidates(raw):
                     evidence_candidates[rid] = name
                 result = {'name': name, 'arguments': args, 'data': data}

@@ -10,6 +10,15 @@ from apps.access.policy import permitted_management_reviews
 from apps.analytics.services.core import COMPLETE
 
 
+def _compatible_identity_tokens(query, candidate):
+    """Never treat a different numbered person/agent identifier as a typo.
+
+    For example tl2 Test cannot approximate-match tl1 Test. Real name
+    misspellings remain suggestible, but the caller must confirm them.
+    """
+    return re.findall(r'\d+', query.casefold()) == re.findall(r'\d+', (candidate or '').casefold())
+
+
 def lookup_visible_people(*, user, search, role='any', limit=12):
     query = ' '.join(search.split()).strip()
     if len(query) < 2 or len(query) > 120:
@@ -60,7 +69,7 @@ def lookup_visible_people(*, user, search, role='any', limit=12):
                 for row in directory:
                     full = ' '.join(filter(None, (row['team_leader__first_name'], row['team_leader__last_name'])))
                     ratio = SequenceMatcher(None, term, norm(full)).ratio()
-                    if ratio >= 0.84:
+                    if ratio >= 0.84 and _compatible_identity_tokens(query, full):
                         fuzzy.append((ratio, {'role': 'team_leader', 'id': str(row['team_leader_id']),
                                               'name': full, 'visible_evaluations': row['visible_evaluations'],
                                               'match_type': 'approximate'}))
@@ -73,7 +82,7 @@ def lookup_visible_people(*, user, search, role='any', limit=12):
                     label = row['call__agent_name'] or row['call__agent_user']
                     ratio = max(SequenceMatcher(None, term, norm(label)).ratio(),
                                 SequenceMatcher(None, term, norm(row['call__agent_user'])).ratio())
-                    if ratio >= 0.84:
+                    if ratio >= 0.84 and _compatible_identity_tokens(query, label):
                         fuzzy.append((ratio, {'role': 'agent', 'dialer_id': str(row['call__dialer_id']),
                                               'agent_user': row['call__agent_user'], 'name': label,
                                               'visible_evaluations': row['visible_evaluations'],

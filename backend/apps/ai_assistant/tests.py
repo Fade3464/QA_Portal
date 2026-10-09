@@ -335,8 +335,36 @@ class V3InvestigationIntegrationTests(TestCase):
         self.assertEqual(matches[0]['id'], str(self.tl1.pk))
         self.assertFalse(lookup_visible_people(user=self.pm,
                                                search='tl2 Test', role='team_leader')['matches'])
+        self.assertFalse(lookup_visible_people(user=self.pm,
+                                               search='tl3 Test', role='team_leader')['matches'])
+        typo = lookup_visible_people(user=self.pm, search='tl1 Tset', role='team_leader')
+        self.assertEqual(len(typo['matches']), 1)
+        self.assertEqual(typo['matches'][0]['match_type'], 'approximate')
         self.assertEqual(invoke('find_pending_reviews', self.pm,
                                 {'team_leader_id': str(self.tl2.pk)})['total_pending'], 0)
+
+    def test_approximate_person_requires_confirmation_not_an_id_grant(self):
+        from .investigation import run_ai
+        from .provider import Completion
+        from unittest.mock import Mock
+        provider = Mock()
+        provider.complete.side_effect = [
+            Completion(message={'tool_calls':[{'id':'select', 'type':'function','function':{
+                'name':'select_qa_tools','arguments':'{"names":["lookup_visible_people","find_pending_reviews"]}'}}]},
+                finish_reason='tool_calls'),
+            Completion(message={'tool_calls':[{'id':'lookup','type':'function','function':{
+                'name':'lookup_visible_people',
+                'arguments':'{"search":"tl1 Tset","role":"team_leader"}'}}]},
+                finish_reason='tool_calls'),
+        ]
+        with patch('apps.ai_assistant.investigation.get_provider', return_value=provider):
+            result = run_ai(self.pm, 'How many reports are pending for tl1 Tset?')
+        self.assertEqual(result['interpretation']['intent'], 'clarification')
+        self.assertIn('tl1 Test', result['answer'])
+        self.assertIn('confirm', result['answer'].casefold())
+        self.assertEqual(result['tools_used'], ['lookup_visible_people'])
+        self.assertFalse(result['evidence'])
+        self.assertEqual(provider.complete.call_count, 2)
 
     def test_person_lookup_uses_actual_portal_user_fields(self):
         from .person_tools import lookup_visible_people
