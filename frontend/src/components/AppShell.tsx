@@ -1,5 +1,5 @@
 import {
-  AppstoreOutlined,
+  ArrowRightOutlined,
   AuditOutlined,
   BarChartOutlined,
   BellOutlined,
@@ -29,6 +29,14 @@ import { ThemeControls } from './ThemeControls';
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
 
+const SIDEBAR_SHORTCUTS = {
+  qa: { title: 'Find your next call', description: 'Open the call library and start an evaluation.', path: '/calls', action: 'Browse calls', icon: <CustomerServiceOutlined /> },
+  team_leader: { title: 'Keep reviews moving', description: 'Review QA feedback and plan your next steps.', path: '/queue', action: 'Open QA inbox', icon: <AuditOutlined /> },
+  project_manager: { title: 'See the bigger picture', description: 'Explore quality trends across your projects.', path: '/team', action: 'View performance', icon: <BarChartOutlined /> },
+  supervisor: { title: 'See the bigger picture', description: 'Explore quality trends across your projects.', path: '/team', action: 'View performance', icon: <BarChartOutlined /> },
+  administrator: { title: 'Manage your workspace', description: 'Manage users, teams, and portal settings.', path: '/admin', action: 'Open administration', icon: <SettingOutlined /> },
+};
+
 const SYSTEM_ADMIN_ALERT_MESSAGE = 'An alert has been issued by the System Administrator. Navigate to the notification section for more information.';
 
 function readDismissedAdminAlerts(storageKey: string): string[] {
@@ -53,6 +61,7 @@ export function AppShell() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [browserPermission, setBrowserPermission] = useState<NotificationPermission | 'unsupported'>(() => browserNotificationPermission());
   const isQa = user?.role === 'qa' && !user.is_superuser;
+  const sidebarShortcut = SIDEBAR_SHORTCUTS[user?.is_superuser ? 'administrator' : user?.role ?? 'qa'];
 
   const showSystemAdminAlert = useCallback((item: SystemNotification) => {
     if (!user || item.category !== 'custom') return;
@@ -251,7 +260,12 @@ export function AppShell() {
         <Menu mode="inline" theme="light" selectedKeys={[location.pathname]} items={items} className="app-menu" classNames={{ itemIcon: 'app-menu__icon', itemContent: 'app-menu__content' }} />
         {!collapsed && (
           <div className="sider-foot">
-            <div className="workspace-card"><span className="workspace-card__icon"><AppstoreOutlined /></span><span><small>{isQa ? 'Assigned branch' : 'Active branch'}</small><strong>{user?.branch?.name ?? 'System-wide'}</strong></span></div>
+            <Link to={sidebarShortcut.path} className="sidebar-shortcut">
+              <span className="sidebar-shortcut__head"><span className="sidebar-shortcut__icon" aria-hidden="true">{sidebarShortcut.icon}</span><span className="sidebar-shortcut__label">Quick access</span></span>
+              <strong>{sidebarShortcut.title}</strong>
+              <span className="sidebar-shortcut__description">{sidebarShortcut.description}</span>
+              <span className="sidebar-shortcut__action">{sidebarShortcut.action}<ArrowRightOutlined aria-hidden="true" /></span>
+            </Link>
           </div>
         )}
       </Sider>

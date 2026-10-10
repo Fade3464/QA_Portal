@@ -42,20 +42,20 @@ import { formatEvidenceTime } from '../components/CriterionEvidenceEditor';
 import { ContentLoader, TableSkeleton } from '../components/LoadingStates';
 import {
   EMPTY_TEAM_LEADER_FILTERS,
-  TeamLeaderReportFilters,
   teamLeaderFilterCount,
+  TeamLeaderReportFilters,
   type TeamLeaderReportFilterValue,
 } from '../components/TeamLeaderReportFilters';
 import { api, ApiError } from '../lib/api';
 import { appCalendarDate, appDate, appWallTimeToIso, isValidAppWallTime } from '../lib/datetime';
 import type {
   PaginatedResponse,
+  QACriterionEvidence,
+  QAEvidencePatch,
   QAReport,
   QAReportDetail,
   QAReportSummary,
   QAScorecard,
-  QACriterionEvidence,
-  QAEvidencePatch,
   TeamLeaderReportStatus,
 } from '../types';
 
@@ -474,7 +474,7 @@ function ReportManagementDrawer({ report, loading, canManage, oversight, persona
   const unmappedCriteria = report ? [...new Set([...Object.keys(report.scores), ...Object.keys(report.criterion_evidence ?? {}), ...Object.keys(report.criterion_applicability ?? {})])].filter((key) => !mappedCriteria.has(key)) : [];
   const evaluation = report ? <div className="tl-report-evaluation">
     {!isSubmitted && <Alert type={report.status === 'revision_required' ? 'warning' : 'info'} showIcon title={report.status === 'revision_required' ? 'QA reassessment required' : 'QA evaluation in progress'} description={report.status === 'revision_required' ? report.revision_reason || 'The Team Leader returned this evaluation to QA for revision.' : `${report.reviewer_name} is preparing this evaluation. Draft information below may still change.`} />}
-    {isSubmitted && <Alert type="info" showIcon title={report.evaluation_type === 'zero_defect' ? 'Zero-Defect · Good call' : `${snapshot?.evaluation_types?.find((item) => item.value === report.evaluation_type)?.label ?? report.evaluation_type.replaceAll('_', ' ')} · ${report.coverage ?? 0}% coverage`} description={report.evaluation_type === 'zero_defect' ? 'Completed without a numeric score. No management review or notification is required.' : report.critical_errors.length ? 'Numeric scoring was waived for this critical failure.' : report.score === null ? 'This interaction did not contain enough applicable material for a numeric quality score.' : `Quality is normalized across ${report.applicable_points ?? 0} applicable points.`} />}
+    {isSubmitted && <Alert type="info" showIcon title={report.evaluation_type === 'zero_defect' ? 'Zero-Defect · Good call' : `${snapshot?.evaluation_types?.find((item) => item.value === report.evaluation_type)?.label ?? report.evaluation_type.replaceAll('_', ' ')} · ${report.coverage ?? 0}% coverage`} description={report.evaluation_type === 'zero_defect' ? 'No review is required.' : report.critical_errors.length ? 'Numeric scoring was waived for this critical failure.' : report.score === null ? 'This call did not contain enough applicable material for a quality score.' : `Quality is normalized across ${report.applicable_points ?? 0} applicable points.`} />}
     {!report.call.recording_available && <Text type="secondary">Recording is currently unavailable. Saved evidence timestamps remain visible.</Text>}
     {report.critical_errors.length > 0 && <Alert type="error" showIcon icon={<WarningFilled />} title="Automatic fail · immediate escalation" description={`${report.critical_errors.length} critical violation${report.critical_errors.length === 1 ? '' : 's'} recorded.`} />}
     {report.critical_errors.length > 0 && <section className="tl-critical-evidence"><div className="tl-section-heading"><span><strong>Critical violations</strong></span><Tag color="error">{report.critical_errors.length}</Tag></div><div className="tl-evaluation-entries">{report.critical_errors.map((criticalKey) => <EvaluationEntry key={criticalKey} label={criticalLabels.get(criticalKey) ?? criticalKey} evidence={report.critical_error_evidence?.[criticalKey]} critical recordingAvailable={report.call.recording_available} onPlay={onPlayPatch} />)}</div></section>}
