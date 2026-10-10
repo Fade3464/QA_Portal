@@ -18,7 +18,7 @@ backend-test:
 	cd backend && pytest
 
 frontend-check:
-	cd frontend && npm run lint && npm run build
+	cd frontend && npm run lint && npm test && npm run build
 
 migrations:
 	docker compose run --rm backend python manage.py makemigrations

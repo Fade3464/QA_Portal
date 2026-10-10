@@ -1,4 +1,4 @@
-import { App as AntApp, ConfigProvider, theme } from 'antd';
+import { App as AntApp, ConfigProvider } from 'antd';
 import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './auth/AuthContext';
@@ -52,62 +52,10 @@ function ManagementRoute() {
 }
 
 export default function App() {
-  const { resolvedMode, primaryColor, borderRadius, compact } = useThemeSettings();
-  const dark = resolvedMode === 'dark';
-  const surface = dark ? '#161a23' : '#ffffff';
-  const text = dark ? '#edf1f7' : '#172033';
-  const muted = dark ? '#a2aaba' : '#70798d';
-  const soft = dark ? '#1b202b' : '#f4f7fb';
+  const { providerProps } = useThemeSettings();
 
   return (
-    <ConfigProvider
-      theme={{
-        algorithm: [dark ? theme.darkAlgorithm : theme.defaultAlgorithm, ...(compact ? [theme.compactAlgorithm] : [])],
-        token: {
-          colorPrimary: primaryColor,
-          colorInfo: primaryColor,
-          colorSuccess: '#16a67a',
-          colorWarning: '#e6a23c',
-          colorError: '#e05260',
-          colorTextBase: dark ? '#edf1f7' : '#172033',
-          colorBgBase: dark ? '#10131a' : '#f5f7fb',
-          borderRadius,
-          borderRadiusLG: borderRadius + 6,
-          fontFamily: "'DM Sans', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-          controlHeight: 40,
-        },
-        components: {
-          Button: { controlHeightLG: 48, fontWeight: 650, primaryShadow: `0 10px 28px ${primaryColor}38` },
-          Card: { headerFontSize: 15, headerBg: surface },
-          Input: { controlHeightLG: 48, activeShadow: `0 0 0 3px ${primaryColor}1f` },
-          Layout: { bodyBg: dark ? '#10131a' : '#f5f7fb', headerBg: surface, siderBg: surface, lightSiderBg: surface, lightTriggerBg: surface },
-          Menu: {
-            itemBg: surface,
-            subMenuItemBg: surface,
-            itemColor: muted,
-            itemHoverColor: text,
-            itemHoverBg: soft,
-            itemSelectedBg: `${primaryColor}18`,
-            itemSelectedColor: primaryColor,
-            itemBorderRadius: 10,
-            itemHeight: 46,
-            itemMarginBlock: 4,
-            itemMarginInline: 12,
-            iconSize: 17,
-            collapsedIconSize: 17,
-            iconMarginInlineEnd: 12,
-          },
-          Statistic: { titleFontSize: 12, contentFontSize: 29 },
-          Table: {
-            headerBg: 'var(--qa-surface-soft)',
-            bodySortBg: 'transparent',
-            headerSortActiveBg: 'var(--qa-surface-soft)',
-            headerSortHoverBg: 'var(--qa-surface-soft)',
-            fixedHeaderSortActiveBg: 'var(--qa-surface-soft)',
-          },
-        },
-      }}
-    >
+    <ConfigProvider {...providerProps}>
       <AntApp>
         <AppErrorBoundary>
           <Suspense fallback={<ContentLoader fullPage label="Loading workspace" />}>

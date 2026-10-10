@@ -25,7 +25,7 @@ export interface CurrentUser {
 
 export interface AppearancePreferences {
   mode: 'light' | 'dark' | 'system';
-  preset: 'calllens' | 'ant_blue' | 'geek_blue' | 'purple' | 'cyan' | 'emerald' | 'magenta' | 'volcano' | 'gold' | 'neutral';
+  preset: import('./theme/styles').ThemePresetId;
   compact: boolean;
 }
 

@@ -78,7 +78,11 @@ class CurrentUserSerializer(serializers.ModelSerializer):
     def get_appearance(self, obj):
         return {
             "mode": obj.appearance_mode,
-            "preset": obj.appearance_preset,
+            "preset": (
+                obj.appearance_preset
+                if obj.appearance_preset in User.AppearancePreset.values
+                else User.AppearancePreset.DEFAULT
+            ),
             "compact": obj.appearance_compact,
         }
 
@@ -107,14 +111,39 @@ class CurrentUserSerializer(serializers.ModelSerializer):
         ]
 
 
+# Accept in-flight requests from the previous frontend during a rolling deployment.
+# Legacy rows stay intact; serialize them as Default until the user saves a new style.
+LEGACY_APPEARANCE_PRESETS = (
+    "calllens",
+    "ant_blue",
+    "geek_blue",
+    "purple",
+    "cyan",
+    "emerald",
+    "magenta",
+    "volcano",
+    "gold",
+    "neutral",
+)
+
+
 class AppearanceSerializer(serializers.ModelSerializer):
     mode = serializers.ChoiceField(
         source="appearance_mode", choices=User.AppearanceMode.choices
     )
     preset = serializers.ChoiceField(
-        source="appearance_preset", choices=User.AppearancePreset.choices
+        source="appearance_preset",
+        choices=User.AppearancePreset.choices
+        + [(value, value) for value in LEGACY_APPEARANCE_PRESETS],
     )
     compact = serializers.BooleanField(source="appearance_compact")
+
+    def validate_preset(self, value):
+        return (
+            User.AppearancePreset.DEFAULT
+            if value in LEGACY_APPEARANCE_PRESETS
+            else value
+        )
 
     class Meta:
         model = User

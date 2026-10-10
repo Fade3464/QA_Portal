@@ -44,8 +44,10 @@ class AuthenticationTests(TestCase):
     @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
     def test_password_reset_email_remains_available(self):
         response = self.client.post(
-            reverse("password-reset"), {"email": self.user.email},
-            content_type="application/json", HTTP_X_CSRFTOKEN=self.csrf(),
+            reverse("password-reset"),
+            {"email": self.user.email},
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=self.csrf(),
         )
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(len(mail.outbox), 1)
@@ -171,21 +173,23 @@ class AccountSettingsTests(TestCase):
         self.client.force_login(self.qa)
         response = self.client.get(reverse("account-detail"))
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["appearance"]["preset"], "calllens")
+        self.assertEqual(response.json()["appearance"]["preset"], "default")
         self.assertEqual(response.json()["assigned_projects"][0]["name"], "Retention")
-        self.assertEqual(self.client.patch(reverse("account-detail"), {}).status_code, 405)
+        self.assertEqual(
+            self.client.patch(reverse("account-detail"), {}).status_code, 405
+        )
 
     def test_appearance_is_whitelisted_and_persisted(self):
         self.client.force_login(self.qa)
         response = self.client.patch(
             reverse("account-appearance"),
-            {"mode": "dark", "preset": "purple", "compact": True},
+            {"mode": "dark", "preset": "glass", "compact": True},
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 200)
         self.qa.refresh_from_db()
         self.assertEqual(self.qa.appearance_mode, User.AppearanceMode.DARK)
-        self.assertEqual(self.qa.appearance_preset, User.AppearancePreset.PURPLE)
+        self.assertEqual(self.qa.appearance_preset, User.AppearancePreset.GLASS)
         self.assertTrue(self.qa.appearance_compact)
         invalid = self.client.patch(
             reverse("account-appearance"),
@@ -194,13 +198,86 @@ class AccountSettingsTests(TestCase):
         )
         self.assertEqual(invalid.status_code, 400)
 
+    def test_all_workspace_styles_preserve_mode_density_and_other_users(self):
+        self.client.force_login(self.qa)
+        self.qa.appearance_mode = User.AppearanceMode.DARK
+        self.qa.appearance_compact = True
+        self.qa.save()
+        for preset in User.AppearancePreset.values:
+            with self.subTest(preset=preset):
+                response = self.client.patch(
+                    reverse("account-appearance"),
+                    {"preset": preset},
+                    content_type="application/json",
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(
+                    response.json()["appearance"],
+                    {
+                        "mode": "dark",
+                        "preset": preset,
+                        "compact": True,
+                    },
+                )
+                self.qa.refresh_from_db()
+                self.assertEqual(self.qa.appearance_preset, preset)
+        self.leader.refresh_from_db()
+        self.assertEqual(self.leader.appearance_preset, User.AppearancePreset.DEFAULT)
+        response = self.client.patch(
+            reverse("account-appearance"),
+            {"mode": "light"},
+            content_type="application/json",
+        )
+        self.assertEqual(
+            response.json()["appearance"],
+            {
+                "mode": "light",
+                "preset": "geek",
+                "compact": True,
+            },
+        )
+
+    def test_legacy_appearance_is_readable_and_old_clients_can_save(self):
+        from .serializers import LEGACY_APPEARANCE_PRESETS
+
+        self.client.force_login(self.qa)
+        for preset in LEGACY_APPEARANCE_PRESETS:
+            with self.subTest(preset=preset):
+                User.objects.filter(pk=self.qa.pk).update(
+                    appearance_preset=preset,
+                    appearance_mode="dark",
+                    appearance_compact=True,
+                )
+                response = self.client.get(reverse("account-detail"))
+                self.assertEqual(
+                    response.json()["appearance"],
+                    {
+                        "mode": "dark",
+                        "preset": "default",
+                        "compact": True,
+                    },
+                )
+                self.qa.refresh_from_db()
+                self.assertEqual(self.qa.appearance_preset, preset)
+                response = self.client.patch(
+                    reverse("account-appearance"),
+                    {"preset": preset},
+                    content_type="application/json",
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()["appearance"]["preset"], "default")
+
     def test_profile_picture_is_normalized_and_can_be_removed(self):
         source = io.BytesIO()
         Image.new("RGB", (900, 500), color=(30, 120, 210)).save(source, "PNG")
         self.client.force_login(self.qa)
         response = self.client.post(
             reverse("account-avatar"),
-            {"avatar": SimpleUploadedFile("portrait.png", source.getvalue(), "image/png")},
+            {
+                "avatar": SimpleUploadedFile(
+                    "portrait.png", source.getvalue(), "image/png"
+                )
+            },
         )
         self.assertEqual(response.status_code, 200)
         self.qa.refresh_from_db()

@@ -215,7 +215,8 @@ export function AppShell() {
       { key: '/admin', icon: <SettingOutlined />, label: <Link to="/admin">Administration</Link>, roles: ['administrator'] },
       { key: '/account', icon: <UserOutlined />, label: <Link to="/account">Account</Link> },
     ];
-    return all.filter((item) => ('allowAI' in item ? canUseAI(user ?? null) : (!item.roles || item.roles.includes(user?.role ?? ''))));
+    return all.filter((item) => ('allowAI' in item ? canUseAI(user ?? null) : (!item.roles || item.roles.includes(user?.role ?? ''))))
+      .map(({ key, icon, label }) => ({ key, icon, label }));
   }, [isQa, user]);
 
   const accountMenu: MenuProps['items'] = [

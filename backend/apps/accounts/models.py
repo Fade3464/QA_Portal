@@ -22,16 +22,11 @@ class User(AbstractUser):
         SYSTEM = "system", "System"
 
     class AppearancePreset(models.TextChoices):
-        CALLLENS = "calllens", "CallLens"
-        ANT_BLUE = "ant_blue", "Ant Blue"
-        GEEK_BLUE = "geek_blue", "Geek Blue"
-        PURPLE = "purple", "Purple"
-        CYAN = "cyan", "Cyan"
-        EMERALD = "emerald", "Emerald"
-        MAGENTA = "magenta", "Magenta"
-        VOLCANO = "volcano", "Volcano"
-        GOLD = "gold", "Gold"
-        NEUTRAL = "neutral", "Neutral"
+        DEFAULT = "default", "Default"
+        MUI = "mui", "MUI"
+        SHADCN = "shadcn", "shadcn"
+        GLASS = "glass", "Glass"
+        GEEK = "geek", "Geek"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     username = None
@@ -63,7 +58,7 @@ class User(AbstractUser):
     appearance_preset = models.CharField(
         max_length=24,
         choices=AppearancePreset.choices,
-        default=AppearancePreset.CALLLENS,
+        default=AppearancePreset.DEFAULT,
     )
     appearance_compact = models.BooleanField(default=False)
     last_password_change = models.DateTimeField(null=True, blank=True)
