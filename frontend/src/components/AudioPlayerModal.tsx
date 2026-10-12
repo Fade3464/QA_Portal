@@ -8,7 +8,7 @@ import {
   PlayCircleFilled,
   SoundOutlined,
 } from '@ant-design/icons';
-import { Button, Modal, Select, Slider, Tag, Typography } from 'antd';
+import { Button, Modal, Select, Slider, Typography } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CallEvent } from '../types';
 
@@ -191,9 +191,7 @@ export function AudioPlayer({ call, onPlaybackStateChange, rangeRequest }: Audio
         <div className="audio-player__meta">
           <div>
             <Text strong>{call.phone_number || 'Unknown number'}</Text>
-            <Text type="secondary">{call.agent_name || call.agent_user || 'Unknown agent'} · {call.project_name || 'Unmapped project'}</Text>
           </div>
-          <Tag color={isPlaying ? 'processing' : 'default'}>{isBuffering ? 'Buffering' : isPlaying ? 'Playing' : 'Ready'}</Tag>
         </div>
 
         <div className="audio-player__timeline">

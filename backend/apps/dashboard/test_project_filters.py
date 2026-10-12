@@ -62,7 +62,8 @@ class MultiProjectPerformanceTests(TestCase):
                         call=call,
                         reviewer=self.reviewer,
                         status=Review.Status.COMPLETED,
-                        score=score,
+                        score=0 if score == 60 else score,
+                        scorecard_score=score,
                         completed_at=timezone.now(),
                         critical_errors=["privacy_violation"] if score == 60 else [],
                     )
@@ -110,7 +111,7 @@ class MultiProjectPerformanceTests(TestCase):
                 payload = response.json()
                 self.assertEqual(payload["selected_projects"], selections)
                 self.assertEqual(payload["metrics"]["evaluated"], 2)
-                self.assertEqual(payload["metrics"]["average_score"], 75)
+                self.assertEqual(payload["metrics"]["average_score"], 45)
                 self.assertEqual(payload["metrics"]["critical"], 1)
                 self.assertEqual(payload["metrics"]["below_benchmark"], 1)
                 self.assertEqual(sum(row["evaluated"] for row in payload["trend"]), 2)
@@ -245,7 +246,7 @@ class MultiProjectPerformanceTests(TestCase):
         self.assertEqual(result.status_code, 200, result.content)
         self.assertEqual(result.json()["metrics"]["evaluated"], 2)
         self.assertEqual(result.json()["metrics"]["scored"], 1)
-        self.assertEqual(result.json()["metrics"]["average_score"], 60)
+        self.assertEqual(result.json()["metrics"]["average_score"], 0)
 
     def test_other_roles_cannot_query_management_performance(self):
         self.client.force_login(self.reviewer)

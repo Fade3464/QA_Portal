@@ -122,6 +122,7 @@ export interface QAReview {
   status: 'assigned' | 'in_progress' | 'revision_required' | 'completed' | 'disputed';
   status_label: string;
   score: string | null;
+  scorecard_score: string | null;
   evaluation_type: QAEvaluationType;
   evaluation_reason: string;
   category_applicability: Record<string, QACategoryApplicability>;

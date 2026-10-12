@@ -31,8 +31,8 @@ class ContractFixtures:
     @classmethod
     def setUpTestData(cls):
         fixtures.AIAccessIntegrationTests.setUpTestData.__func__(cls)
-        Review.objects.filter(pk__in=[r.pk for r in cls.reviews[:2]]).update(score=95)
-        Review.objects.filter(pk=cls.reviews[2].pk).update(score=65)
+        Review.objects.filter(pk__in=[r.pk for r in cls.reviews[:2]]).update(score=95, critical_errors=[])
+        Review.objects.filter(pk=cls.reviews[2].pk).update(score=65, critical_errors=[])
         for i, team, campaign, score in [(20, cls.team1, 'CAMP-A',95),
                                           (21, cls.team2, 'CAMP-B',65), (22, cls.team2, 'CAMP-B',65)]:
             call = CallEvent.objects.create(dialer=cls.dialer, branch=cls.branch, team=team,
@@ -40,7 +40,7 @@ class ContractFixtures:
                 agent_user=f'fixture-{i}', agent_name=f'Synthetic Agent {i}')
             Review.objects.create(call=call, reviewer=cls.qa, team_leader=team.team_leader,
                 status=Review.Status.COMPLETED, completed_at=timezone.now()-timedelta(days=1),
-                score=score, leader_status=Review.LeaderStatus.PENDING, critical_errors=['wasted_lead'])
+                score=score, leader_status=Review.LeaderStatus.PENDING, critical_errors=[])
 
 
 @override_settings(AI_ENABLED=True, AI_ENGINE_VERSION='v3')

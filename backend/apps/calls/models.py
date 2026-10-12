@@ -402,6 +402,15 @@ class Review(models.Model):
         blank=True,
     )
 
+    scorecard_score = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Normalized score before the critical-failure override.",
+        editable=False,
+    )
+
     class EvaluationType(models.TextChoices):
         ZERO_DEFECT = "zero_defect", "Zero-Defect"
         FULL = "full", "Full call"
@@ -495,6 +504,8 @@ class Review(models.Model):
                 errors["rating"] = "A critical call cannot have a Not Evaluable rating."
             if self.outcome == self.Outcome.NOT_EVALUABLE:
                 errors["outcome"] = "A critical call cannot have a Not Evaluable outcome."
+            if self.status in {self.Status.COMPLETED, self.Status.DISPUTED} and self.score != 0:
+                errors["score"] = "A submitted critical failure must have a final score of 0%."
             if errors:
                 raise ValidationError(errors)
 
@@ -507,6 +518,14 @@ class Review(models.Model):
                     & ~models.Q(outcome="not_evaluable")
                 ),
                 name="review_critical_is_evaluable",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    ~models.Q(status__in=["completed", "disputed"])
+                    | models.Q(critical_errors=[])
+                    | (models.Q(score__isnull=False) & models.Q(score=0))
+                ),
+                name="review_critical_final_score_zero",
             ),
         ]
         ordering = [

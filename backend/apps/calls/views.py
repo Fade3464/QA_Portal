@@ -3,6 +3,7 @@ import logging
 import mimetypes
 import re
 from datetime import timedelta
+from decimal import Decimal
 from pathlib import Path
 from uuid import UUID
 
@@ -284,7 +285,10 @@ class CallReviewDraftView(APIView):
             # A reassessment's previous result no longer describes this draft.
             rating="",
             outcome="",
-            score=evaluation.score,
+            score=Decimal("0.00") if serializer.validated_data.get(
+                "critical_errors", review.critical_errors
+            ) else evaluation.score,
+            scorecard_score=evaluation.score,
             scores=evaluation.scores,
             category_applicability=evaluation.category_applicability,
             category_applicability_reasons=evaluation.category_applicability_reasons,
@@ -373,14 +377,16 @@ class CallReviewSubmitView(APIView):
                 complete_evaluation = calculate_evaluation(
                     merged["scores"], require_complete=True, **evaluation_kwargs
                 )
-                score = complete_evaluation.score
+                scorecard_score = complete_evaluation.score
             except ValidationError:
-                score = None
+                scorecard_score = None
+            score = Decimal("0.00")
         else:
             evaluation = calculate_evaluation(
                 merged["scores"], require_complete=True, **evaluation_kwargs
             )
             score = evaluation.score
+            scorecard_score = evaluation.score
         rating, outcome = (
             (Review.Rating.GOOD, Review.Outcome.GOOD_CALL)
             if zero_defect else rating_for(score, bool(critical_errors))
@@ -396,6 +402,7 @@ class CallReviewSubmitView(APIView):
         )
         review.criterion_applicability = evaluation.criterion_applicability
         review.score = score
+        review.scorecard_score = scorecard_score
         review.earned_points = evaluation.earned_points
         review.applicable_points = evaluation.applicable_points
         review.coverage = evaluation.coverage

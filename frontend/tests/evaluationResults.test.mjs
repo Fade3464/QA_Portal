@@ -9,7 +9,7 @@ test('unscored non-evaluable calls show N/A with a neutral result', () => {
 });
 
 test('critical results stay failures with or without a numeric score', () => {
-  for (const score of [null, '98.00']) {
+  for (const score of ['0.00', null, '98.00']) {
     const result = { evaluation_type: 'partial', critical_errors: ['misrepresentation'], score };
     assert.equal(scoreDisplay(result), 'FAIL');
     assert.equal(outcomeColor(result), 'error');

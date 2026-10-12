@@ -362,7 +362,8 @@ class WebhookTests(TestCase):
             call=hidden_call,
             reviewer=reviewer,
             status=Review.Status.COMPLETED,
-            score=40,
+            score=0,
+            scorecard_score=40,
             critical_errors=["privacy_violation"],
             completed_at=timezone.now(),
         )
@@ -1309,11 +1310,11 @@ class AnalysisReservationTests(TestCase):
         critical = snapshot["critical_errors"][0]["value"]
         review.critical_errors = [critical]
         review.critical_error_evidence = {critical: evidence}
-        review.score = None
+        review.score = 0
         review.save(update_fields=["critical_errors", "critical_error_evidence", "score"])
         data = self.client.get(url).json()
         self.assertEqual(data["critical_error_evidence"], {critical: evidence})
-        self.assertIsNone(data["score"])
+        self.assertEqual(data["score"], "0.00")
 
     def test_qa_report_filters_and_details_cannot_expose_another_qa_or_management_actions(self):
         review = Review.objects.create(call=self.call, reviewer=self.qa_two, team_leader=self.team_leader,
@@ -1988,7 +1989,7 @@ class AnalysisReservationTests(TestCase):
         self.assertEqual(response.json()["rating"], Review.Rating.AUTOMATIC_FAIL)
         self.assertEqual(response.json()["outcome"], Review.Outcome.IMMEDIATE_ESCALATION)
         self.assertEqual(response.json()["evaluation_type"], "partial")
-        self.assertIsNone(response.json()["score"])
+        self.assertEqual(response.json()["score"], "0.00")
 
     def test_critical_call_is_consistent_in_each_roles_reports_and_filters(self):
         self.client.force_login(self.qa_one)
@@ -2455,7 +2456,9 @@ class AnalysisReservationTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(response.json()["score"], "100.00")
+        self.assertEqual(response.json()["score"], "0.00")
+        self.assertEqual(response.json()["scorecard_score"], "100.00")
+        self.assertEqual(response.json()["scores"], self.full_scores())
         self.assertEqual(response.json()["rating"], Review.Rating.AUTOMATIC_FAIL)
         self.assertEqual(
             response.json()["outcome"], Review.Outcome.IMMEDIATE_ESCALATION
@@ -2473,7 +2476,8 @@ class AnalysisReservationTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 200, response.content)
-        self.assertIsNone(response.json()["score"])
+        self.assertEqual(response.json()["score"], "0.00")
+        self.assertIsNone(response.json()["scorecard_score"])
         self.assertEqual(response.json()["rating"], Review.Rating.AUTOMATIC_FAIL)
         self.assertEqual(
             response.json()["outcome"], Review.Outcome.IMMEDIATE_ESCALATION
@@ -2641,7 +2645,7 @@ class NotificationMailMigrationTests(TransactionTestCase):
                 email_status="failed", email_last_error="Old transport error",
             )
             MigrationExecutor(connection).migrate(current)
-            review = Review.objects.get(pk=old_review.pk)
+            review = MigrationExecutor(connection).loader.project_state(current).apps.get_model("calls", "Review").objects.get(pk=old_review.pk)
             self.assertEqual(review.score, 92)
             self.assertEqual(review.feedback_summary, "Preserve the evaluation.")
             self.assertEqual(review.reviewer_id, reviewer.pk)
@@ -2985,9 +2989,9 @@ class CriticalClassificationMigrationTests(TransactionTestCase):
                 review_id=saved_ids[0], actor=self.team_leader,
                 event_type="note_added", note="Keep the review history.",
             )
-            MigrationExecutor(connection).migrate(latest)
+            MigrationExecutor(connection).migrate([("calls", "0017_critical_is_evaluable")])
             for index, review_id in enumerate(saved_ids):
-                result = Review.objects.filter(pk=review_id).values().get()
+                result = executor.loader.project_state([("calls", "0017_critical_is_evaluable")]).apps.get_model("calls", "Review").objects.filter(pk=review_id).values().get()
                 expected = originals[index].copy()
                 if index < 2:
                     expected.update(evaluation_type="partial", evaluation_reason="")

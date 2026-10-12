@@ -79,7 +79,7 @@ class AIAccessIntegrationTests(TestCase):
             review = Review.objects.create(call=call, reviewer=cls.qa, team_leader=team.team_leader,
                                            status=Review.Status.COMPLETED,
                                            completed_at=timezone.now() - timedelta(days=1),
-                                           score=75, leader_status=Review.LeaderStatus.PENDING,
+                                           score=0, scorecard_score=75, leader_status=Review.LeaderStatus.PENDING,
                                            critical_errors=critical,
                                            scores={'professional_greeting': 0})
             cls.reviews.append(review)
@@ -844,7 +844,7 @@ class V3ConversationalRegressionTests(TestCase):
                               status=Review.Status.COMPLETED,
                               completed_at=timezone.now(),
                               leader_status=Review.LeaderStatus.PENDING,
-                              critical_errors=['wasted_lead'], scores={})
+                              critical_errors=['wasted_lead'], score=0, scores={})
         result = get_agent_critical_violations(user=self.pm, search='Agent agent001')
         self.assertTrue(result['ambiguous'])
         self.assertEqual({x['agent_user'] for x in result['candidates']},
@@ -866,7 +866,7 @@ class V3ConversationalRegressionTests(TestCase):
                               status=Review.Status.COMPLETED,
                               completed_at=timezone.now(),
                               leader_status=Review.LeaderStatus.PENDING,
-                              critical_errors=['wasted_lead'], scores={})
+                              critical_errors=['wasted_lead'], score=0, scores={})
         # Supervisor legitimately sees both dialers; it must not merge logins.
         ambiguous = get_agent_critical_violations(user=self.supervisor,
                                                    search='agent001')
