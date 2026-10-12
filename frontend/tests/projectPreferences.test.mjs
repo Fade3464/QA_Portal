@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { projectKey, rankProjectGroups, readProjectUsage, recordProjectUsage, saveProjectUsage } from '../src/lib/projectPreferences.ts';
+import { projectKey, rankProjectGroups, readProjectUsage, recordProjectUsage, saveProjectUsage, projectFilterPayload } from '../src/lib/projectPreferences.ts';
 
 const groups = [
   { dialer_id: 'a', dialer_name: 'Alpha', projects: ['First', 'Shared'] },
@@ -49,4 +49,19 @@ test('unselected projects stay alphabetical and histories are bounded', () => {
   assert.deepEqual(rankProjectGroups([...groups].reverse(), {})[0], groups[0]);
   const oversized = Object.fromEntries(Array.from({ length: 300 }, (_, i) => [`id-${i}`, 1]));
   assert.equal(Object.keys(readProjectUsage({ getItem: () => JSON.stringify(oversized) }, 'key')).length, 200);
+});
+
+
+test('multi-project requests preserve exact dialer/name pairs and deduplicate selections', () => {
+  const a = { dialer: 'a', project: 'Shared' };
+  const b = { dialer: 'b', project: 'Shared' };
+  const selections = [a, b, a];
+  assert.deepEqual(projectFilterPayload(7, selections), { days: 7, projects: [a, b] });
+  assert.deepEqual(selections, [a, b, a]);
+  assert.deepEqual(projectFilterPayload(30, []), { days: 30, projects: [] });
+});
+
+test('project names containing punctuation, Unicode and long labels survive the JSON payload', () => {
+  const selection = { dialer: 'dialer-id', project: 'Retention, \"Premium\" / تجديد ' + 'x'.repeat(160) };
+  assert.deepEqual(JSON.parse(JSON.stringify(projectFilterPayload(90, [selection]))).projects, [selection]);
 });

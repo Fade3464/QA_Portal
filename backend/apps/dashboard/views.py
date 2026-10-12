@@ -17,6 +17,8 @@ from apps.accounts.models import User
 from apps.tenancy.access import branch_projects
 from apps.tenancy.models import DialerCampaign, QAProjectAssignment
 
+from .project_filters import parse_project_selections
+
 
 def health(request):
     return JsonResponse({"status": "ok"})
@@ -70,6 +72,15 @@ class ProjectPerformanceView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        return self._response(request, request.query_params)
+
+    def post(self, request):
+        # A body keeps large selections and long project names out of URL limits.
+        if not isinstance(request.data, dict) or set(request.data) - {"days", "projects"}:
+            raise ValidationError({"projects": "Send days and a list of dialer projects."})
+        return self._response(request, request.data)
+
+    def _response(self, request, filters):
         if not request.user.is_superuser and request.user.role not in {
             User.Role.PROJECT_MANAGER,
             User.Role.SUPERVISOR,
@@ -77,7 +88,7 @@ class ProjectPerformanceView(APIView):
             raise PermissionDenied("Project performance is available to management users.")
 
         try:
-            days = int(request.query_params.get("days", "30"))
+            days = int(str(filters.get("days", "30")))
         except ValueError as exc:
             raise ValidationError({"days": "Choose today or a 7, 30, or 90 day window."}) from exc
         if days not in {1, 7, 30, 90}:
@@ -109,10 +120,11 @@ class ProjectPerformanceView(APIView):
             name for group in project_groups.values() for name in group["projects"]
         })
 
-        project = request.query_params.get("project", "").strip()
+        selections = parse_project_selections(filters, project_groups)
+        project = filters.get("project", "").strip()
         if project and project not in available_projects:
             raise ValidationError({"project": "Choose a project assigned to you."})
-        dialer_id = request.query_params.get("dialer", "").strip()
+        dialer_id = filters.get("dialer", "").strip()
         if dialer_id and (
             dialer_id not in project_groups
             or (project and project not in project_groups[dialer_id]["projects"])
@@ -130,6 +142,14 @@ class ProjectPerformanceView(APIView):
             queryset = queryset.filter(project_name=project)
         if dialer_id:
             queryset = queryset.filter(call__dialer_id=dialer_id)
+
+        if selections:
+            selected_scope = Q()
+            for selection in selections:
+                selected_scope |= Q(
+                    project_name=selection["project"], call__dialer_id=selection["dialer"]
+                )
+            queryset = queryset.filter(selected_scope)
 
         totals = queryset.aggregate(
             evaluated=Count("id"),
@@ -220,6 +240,7 @@ class ProjectPerformanceView(APIView):
         return Response(
             {
                 "window": {"days": days, "from": start_date, "to": end_date},
+                "selected_projects": selections or [],
                 "selected_project": project or None,
                 "selected_dialer": dialer_id or None,
                 "projects": available_projects,

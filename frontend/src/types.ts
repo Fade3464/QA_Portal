@@ -282,6 +282,7 @@ export interface DashboardSummary {
 
 export interface ProjectPerformance {
   window: { days: number; from: string; to: string };
+  selected_projects: import('./lib/projectPreferences').ProjectSelection[];
   selected_project: string | null;
   projects: string[];
   project_groups: Array<{ dialer_id: string; dialer_name: string; projects: string[] }>;

@@ -51,3 +51,8 @@ export function rankProjectGroups(groups: ProjectGroup[], usage: ProjectUsage): 
     projects: [...group.projects].sort((a, b) => frequency(group.dialer_id, b) - frequency(group.dialer_id, a) || a.localeCompare(b)),
   })).sort((a, b) => groupFrequency(b) - groupFrequency(a) || a.dialer_name.localeCompare(b.dialer_name) || a.dialer_id.localeCompare(b.dialer_id));
 }
+
+export function projectFilterPayload(days: number, selections: ProjectSelection[]) {
+  const projects = Array.from(new Map(selections.map((selection) => [projectKey(selection), selection])).values());
+  return { days, projects };
+}
