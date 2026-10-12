@@ -136,6 +136,19 @@ class ReviewSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         attrs = super().validate(attrs)
         instance = self.instance
+        evaluation_type = attrs.get(
+            "evaluation_type", instance.evaluation_type if instance else Review.EvaluationType.FULL
+        )
+        critical_errors = attrs.get(
+            "critical_errors", instance.critical_errors if instance else []
+        )
+        if evaluation_type == Review.EvaluationType.NOT_EVALUABLE and critical_errors:
+            raise serializers.ValidationError({
+                "evaluation_type": (
+                    "A critical call cannot be Non Evaluable. Select Full call, Partial call, "
+                    "or Agent ended early, or remove the critical errors."
+                ),
+            })
         calculate_evaluation(
             attrs.get("scores", instance.scores if instance else {}),
             evaluation_type=attrs.get(

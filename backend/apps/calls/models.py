@@ -1,6 +1,7 @@
 import uuid
 
 from django.db import models
+from django.core.exceptions import ValidationError
 
 
 class CallEvent(models.Model):
@@ -484,7 +485,30 @@ class Review(models.Model):
         blank=True,
     )
 
+    def clean(self):
+        super().clean()
+        if self.critical_errors:
+            errors = {}
+            if self.evaluation_type == self.EvaluationType.NOT_EVALUABLE:
+                errors["evaluation_type"] = "A critical call cannot be Non Evaluable."
+            if self.rating == self.Rating.NOT_EVALUABLE:
+                errors["rating"] = "A critical call cannot have a Not Evaluable rating."
+            if self.outcome == self.Outcome.NOT_EVALUABLE:
+                errors["outcome"] = "A critical call cannot have a Not Evaluable outcome."
+            if errors:
+                raise ValidationError(errors)
+
     class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(critical_errors=[]) | (
+                    ~models.Q(evaluation_type="not_evaluable")
+                    & ~models.Q(rating="not_evaluable")
+                    & ~models.Q(outcome="not_evaluable")
+                ),
+                name="review_critical_is_evaluable",
+            ),
+        ]
         ordering = [
             "-assigned_at",
         ]

@@ -18,6 +18,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { ContentLoader } from '../components/LoadingStates';
 import { api } from '../lib/api';
+import { scoreDisplay } from '../lib/evaluationResults';
 import { appDate } from '../lib/datetime';
 import type { CallEvent, DashboardSummary, PaginatedResponse, QAReport, QAReportSummary } from '../types';
 import { ProjectPerformancePage } from './ProjectPerformancePage';
@@ -77,7 +78,7 @@ function QAAnalystCommandCenter() {
   const reportColumns: TableProps<QAReport>['columns'] = [
     { title: 'Agent', key: 'agent', render: (_, row) => <div className="table-primary"><strong>{row.agent_name || row.agent_user || 'Unassigned'}</strong><small>{row.project_name || 'Unmapped project'}</small></div> },
     { title: 'Status', key: 'status', width: 142, render: (_, row) => row.status === 'revision_required' ? <Tag color="warning">Needs revision</Tag> : ['completed', 'disputed'].includes(row.status) ? <Tag color="success">Submitted</Tag> : <Tag color="processing">In progress</Tag> },
-    { title: 'Result', key: 'result', width: 125, render: (_, row) => ['completed', 'disputed'].includes(row.status) ? row.critical_errors.length ? <Tag color="error">Critical fail</Tag> : <strong>{row.score}%</strong> : <Text type="secondary">—</Text> },
+    { title: 'Result', key: 'result', width: 125, render: (_, row) => ['completed', 'disputed'].includes(row.status) ? row.critical_errors.length ? <Tag color="error">Critical fail</Tag> : <strong>{scoreDisplay(row)}</strong> : <Text type="secondary">—</Text> },
     { title: 'Updated', key: 'updated', width: 140, render: (_, row) => <div className="leader-date"><strong>{appDate(row.revision_requested_at || row.completed_at || row.assigned_at).format('DD MMM')}</strong><small>{appDate(row.revision_requested_at || row.completed_at || row.assigned_at).format('h:mm A')} ET</small></div> },
     { title: '', key: 'action', width: 128, align: 'right', render: (_, row) => ['assigned', 'in_progress', 'revision_required'].includes(row.status) ? <Button type="link" icon={<ArrowRightOutlined />} iconPlacement="end" onClick={() => navigate(`/calls?analysis=${encodeURIComponent(row.call_id)}`)}>{row.status === 'revision_required' ? 'Reassess' : 'Continue'}</Button> : <Button type="link" onClick={() => navigate('/queue')}>View report</Button> },
   ];
@@ -150,7 +151,7 @@ function TeamLeaderCommandCenter() {
   const reportColumns: TableProps<QAReport>['columns'] = [
     { title: 'Agent', key: 'agent', render: (_, row) => <div className="table-primary"><strong>{row.agent_name || row.agent_user || 'Unassigned'}</strong><small>{row.team_name || 'Unassigned team'}</small></div> },
     { title: 'Project', dataIndex: 'project_name', key: 'project', render: (value) => value || 'Unmapped' },
-    { title: 'Result', key: 'result', width: 140, render: (_, row) => row.critical_errors.length ? <Tag color="error" icon={<WarningFilled />}>Critical fail</Tag> : <div className="leader-score"><strong>{row.score ?? 0}%</strong><small>{row.rating_label}</small></div> },
+    { title: 'Result', key: 'result', width: 140, render: (_, row) => row.critical_errors.length ? <Tag color="error" icon={<WarningFilled />}>Critical fail</Tag> : <div className="leader-score"><strong>{scoreDisplay(row)}</strong><small>{row.rating_label}</small></div> },
     { title: 'QA analyst', dataIndex: 'reviewer_name', key: 'reviewer', width: 150 },
     { title: 'Submitted', key: 'submitted', width: 142, render: (_, row) => row.completed_at ? <div className="leader-date"><strong>{appDate(row.completed_at).format('DD MMM')}</strong><small>{appDate(row.completed_at).format('h:mm A')} ET</small></div> : '—' },
     { title: '', key: 'action', width: 48, align: 'center', render: () => <ArrowRightOutlined className="leader-row-arrow" /> },

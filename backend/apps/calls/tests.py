@@ -14,7 +14,7 @@ from cryptography.fernet import Fernet
 from django.core.exceptions import ValidationError
 from django.core import mail
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
-from django.db import connection
+from django.db import IntegrityError, connection, transaction
 from django.db.migrations.executor import MigrationExecutor
 from django.urls import reverse
 from django.utils import timezone
@@ -1925,6 +1925,122 @@ class AnalysisReservationTests(TestCase):
         self.assertEqual(response.json()["coverage"], "0.00")
         self.assertEqual(response.json()["rating"], "not_evaluable")
 
+    def test_non_evaluable_rejects_critical_errors_for_draft_and_submit(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        payload = self.submission(
+            scores={}, evaluation_type="not_evaluable", evaluation_reason="voicemail",
+            critical_errors=["misrepresentation"],
+        )
+        for name, method in (("call-review-draft", self.client.patch),
+                             ("call-review-submit", self.client.post)):
+            with self.subTest(endpoint=name):
+                response = method(self.url(name), payload, content_type="application/json")
+                self.assertEqual(response.status_code, 400, response.content)
+                self.assertIn("critical call cannot be Non Evaluable", str(response.json()))
+                review = Review.objects.get(call=self.call)
+                self.assertEqual(review.evaluation_type, "full")
+                self.assertEqual(review.critical_errors, [])
+                self.assertNotEqual(review.status, Review.Status.COMPLETED)
+        self.assertFalse(SystemNotification.objects.exists())
+
+    def test_partial_draft_updates_cannot_create_a_conflicting_combination(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        review = Review.objects.get(call=self.call)
+        for evaluation_type, critical_errors, patch in (
+            ("full", ["misrepresentation"], {"evaluation_type": "not_evaluable"}),
+            ("not_evaluable", [], {"critical_errors": ["misrepresentation"]}),
+        ):
+            with self.subTest(patch=patch):
+                review.evaluation_type = evaluation_type
+                review.critical_errors = critical_errors
+                review.save()
+                response = self.client.patch(self.url("call-review-draft"), patch,
+                                             content_type="application/json")
+                self.assertEqual(response.status_code, 400, response.content)
+                response = self.client.post(self.url("call-review-submit"), patch,
+                                            content_type="application/json")
+                self.assertEqual(response.status_code, 400, response.content)
+                review.refresh_from_db()
+                self.assertEqual(review.evaluation_type, evaluation_type)
+                self.assertEqual(review.critical_errors, critical_errors)
+
+    def test_non_evaluable_can_be_changed_to_partial_critical_during_reassessment(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        review = Review.objects.get(call=self.call)
+        review.status = Review.Status.REVISION_REQUIRED
+        review.evaluation_type = "not_evaluable"
+        review.rating = Review.Rating.NOT_EVALUABLE
+        review.outcome = Review.Outcome.NOT_EVALUABLE
+        review.save()
+        response = self.client.patch(
+            self.url("call-review-draft"),
+            {"evaluation_type": "partial", "critical_errors": ["misrepresentation"]},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["rating"], "")
+        self.assertEqual(response.json()["outcome"], "")
+        response = self.client.post(self.url("call-review-submit"), {}, content_type="application/json")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["rating"], Review.Rating.AUTOMATIC_FAIL)
+        self.assertEqual(response.json()["outcome"], Review.Outcome.IMMEDIATE_ESCALATION)
+        self.assertEqual(response.json()["evaluation_type"], "partial")
+        self.assertIsNone(response.json()["score"])
+
+    def test_critical_call_is_consistent_in_each_roles_reports_and_filters(self):
+        self.client.force_login(self.qa_one)
+        self.client.post(self.url("call-reserve"))
+        submitted = self.client.post(
+            self.url("call-review-submit"),
+            self.submission(scores={}, evaluation_type="partial", critical_errors=["misrepresentation"]),
+            content_type="application/json",
+        )
+        self.assertEqual(submitted.status_code, 200, submitted.content)
+        review = Review.objects.get(call=self.call)
+        users = [self.qa_one, self.team_leader]
+        for role in (User.Role.PROJECT_MANAGER, User.Role.SUPERVISOR, User.Role.ADMINISTRATOR):
+            user = User.objects.create_user(
+                email=f"critical-{role}@example.com", role=role, first_name="Critical", last_name="Reviewer",
+                company=None if role == User.Role.ADMINISTRATOR else self.branch.company,
+                branch=None if role == User.Role.ADMINISTRATOR else self.branch,
+                is_superuser=role == User.Role.ADMINISTRATOR,
+                is_staff=role == User.Role.ADMINISTRATOR, must_change_password=False,
+            )
+            if role == User.Role.PROJECT_MANAGER:
+                assignment = QAProjectAssignment.objects.get(qa=self.qa_one)
+                QAProjectAssignment.objects.create(qa=user, dialer_campaign=assignment.dialer_campaign)
+            users.append(user)
+        for user in users:
+            with self.subTest(role=user.role):
+                self.client.force_login(user)
+                response = self.client.get(reverse("review-report-detail", kwargs={"pk": review.pk}))
+                self.assertEqual(response.status_code, 200, response.content)
+                self.assertEqual(response.json()["evaluation_type"], "partial")
+                self.assertEqual(response.json()["rating"], "automatic_fail")
+                self.assertEqual(response.json()["outcome"], "immediate_escalation")
+                for filters, expected in (({"critical": "true"}, 1),
+                                          ({"evaluation_type": "not_evaluable"}, 0),
+                                          ({"rating": "not_evaluable"}, 0)):
+                    reports = self.client.get(reverse("review-report-list"), filters)
+                    self.assertEqual(reports.status_code, 200, reports.content)
+                    self.assertEqual(reports.json()["count"], expected)
+
+    def test_database_and_admin_validation_reject_conflicting_classification(self):
+        review = Review.objects.create(call=self.call, reviewer=self.qa_one,
+                                       critical_errors=["misrepresentation"])
+        for field in ("evaluation_type", "rating", "outcome"):
+            with self.subTest(field=field):
+                setattr(review, field, "not_evaluable")
+                with self.assertRaises(ValidationError) as error:
+                    review.clean()
+                self.assertIn(field, error.exception.message_dict)
+                with self.assertRaises(IntegrityError), transaction.atomic():
+                    Review.objects.filter(pk=review.pk).update(**{field: "not_evaluable"})
+                review.refresh_from_db()
+
     def test_draft_saves_criterion_comments_and_multiple_timestamp_patches(self):
         self.client.force_login(self.qa_one)
         self.client.post(self.url("call-reserve"))
@@ -2495,6 +2611,7 @@ class NotificationMailMigrationTests(TransactionTestCase):
     def test_retirement_preserves_existing_report_and_workflow(self):
         previous = [("calls", "0014_review_criterion_applicability")]
         current = [("calls", "0015_remove_legacy_notification_email")]
+        latest = MigrationExecutor(connection).loader.graph.leaf_nodes()
         executor = MigrationExecutor(connection)
         executor.migrate(previous)
         try:
@@ -2534,7 +2651,7 @@ class NotificationMailMigrationTests(TransactionTestCase):
                     columns = {column.name for column in connection.introspection.get_table_description(cursor, model._meta.db_table)}
                     self.assertTrue(columns.isdisjoint({"email_status", "email_sent_at", "email_last_error"}))
         finally:
-            MigrationExecutor(connection).migrate(current)
+            MigrationExecutor(connection).migrate(latest)
 
 
 class RecordingTaskConfigurationTests(TestCase):
@@ -2829,3 +2946,56 @@ class RecordingResponseParsingTests(SimpleTestCase):
             lookup_recording(dialer, event)
 
         self.assertTrue(client_factory.call_args.kwargs["verify"])
+
+
+@override_settings(DIALER_CREDENTIAL_KEY=Fernet.generate_key().decode())
+class CriticalClassificationMigrationTests(TransactionTestCase):
+    def test_conflicts_are_repaired_without_changing_evidence_or_workflow(self):
+        executor = MigrationExecutor(connection)
+        latest = executor.loader.graph.leaf_nodes()
+        previous = [("calls", "0016_alter_review_evaluation_type_alter_review_outcome")]
+        executor.migrate(previous)
+        try:
+            AnalysisReservationTests.setUp(self)
+            OldReview = executor.loader.project_state(previous).apps.get_model("calls", "Review")
+            saved_ids = []
+            originals = []
+            for index, (scope, errors, rating, outcome) in enumerate((
+                ("not_evaluable", ["misrepresentation"], "automatic_fail", "immediate_escalation"),
+                ("not_evaluable", ["privacy_violation"], "not_evaluable", "not_evaluable"),
+                ("partial", ["misrepresentation"], "not_evaluable", "not_evaluable"),
+                ("not_evaluable", [], "not_evaluable", "not_evaluable"),
+                ("zero_defect", [], "good", "good_call"),
+            )):
+                call = self.call if index == 0 else CallEvent.objects.create(
+                    dialer=self.dialer, branch=self.branch,
+                    event_key=f"critical-migration-{index}".ljust(64, "0"), campaign="analysis",
+                )
+                review = OldReview.objects.create(
+                    call_id=call.pk, reviewer_id=self.qa_one.pk, team_leader_id=self.team_leader.pk,
+                    status="completed", completed_at=timezone.now(),
+                    evaluation_type=scope, evaluation_reason="voicemail" if scope == "not_evaluable" else "",
+                    rating=rating, outcome=outcome, score=None, critical_errors=errors,
+                    critical_error_evidence={errors[0]: {"comment": "Keep this evidence."}} if errors else {},
+                    leader_status="escalated", feedback_summary="Keep the original feedback.",
+                )
+                saved_ids.append(review.pk)
+                originals.append(OldReview.objects.filter(pk=review.pk).values().get())
+            event = ReviewWorkflowEvent.objects.create(
+                review_id=saved_ids[0], actor=self.team_leader,
+                event_type="note_added", note="Keep the review history.",
+            )
+            MigrationExecutor(connection).migrate(latest)
+            for index, review_id in enumerate(saved_ids):
+                result = Review.objects.filter(pk=review_id).values().get()
+                expected = originals[index].copy()
+                if index < 2:
+                    expected.update(evaluation_type="partial", evaluation_reason="")
+                if index in (1, 2):
+                    expected.update(rating="automatic_fail", outcome="immediate_escalation")
+                self.assertEqual(result, expected)
+            self.assertEqual(ReviewWorkflowEvent.objects.get(pk=event.pk).note, "Keep the review history.")
+            with self.assertRaises(IntegrityError), transaction.atomic():
+                Review.objects.filter(pk=saved_ids[0]).update(evaluation_type="not_evaluable")
+        finally:
+            MigrationExecutor(connection).migrate(latest)

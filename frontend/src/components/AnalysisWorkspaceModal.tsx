@@ -239,6 +239,11 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
   const criticalFail = !zeroDefect && watchedCritical.length > 0;
 
   const changeEvaluationType = useCallback((value: QAEvaluationType) => {
+    if (value === 'not_evaluable' && (form.getFieldValue('critical_errors') ?? []).length > 0) {
+      form.setFieldValue('evaluation_type', watchedEvaluationType);
+      void message.warning('Remove the critical errors before marking this call Non Evaluable.');
+      return;
+    }
     form.setFieldValue('evaluation_type', value);
     form.setFieldValue('evaluation_reason', '');
     if (value === 'zero_defect') {
@@ -261,7 +266,7 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
     );
     form.setFieldValue('category_applicability_reasons', {});
     form.setFieldValue('criterion_applicability', {});
-  }, [form, scorecard]);
+  }, [form, message, scorecard, watchedEvaluationType]);
 
   const changeCategoryState = useCallback((categoryKey: string, value: QACategoryApplicability) => {
     form.setFieldValue(['category_applicability', categoryKey], value);
@@ -583,15 +588,21 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
               <Form.Item name="evaluation_type" noStyle>
                 <Select
                   className="qa-call-classification__select"
-                  options={scorecard.evaluation_types}
+                  aria-label="Evaluation scope"
+                  options={scorecard.evaluation_types.map((option) => ({
+                    ...option,
+                    disabled: option.value === 'not_evaluable' && criticalFail,
+                  }))}
                   onChange={(value) => changeEvaluationType(value as QAEvaluationType)}
                 />
               </Form.Item>
             </div>
+            {criticalFail && <Text type="secondary">Critical calls cannot be Non Evaluable. Remove the critical errors to use that scope.</Text>}
             {watchedEvaluationType === 'not_evaluable' && <div className="qa-not-evaluable">
               <Form.Item name="evaluation_reason" label="Why is this call not evaluable?" rules={[{ required: true, message: 'Select a reason' }]}>
                 <Select options={scorecard.applicability_reasons} placeholder="Select reason" />
               </Form.Item>
+              <Text type="secondary">Critical errors are unavailable for Non Evaluable calls. Choose another evaluation scope to record a critical violation.</Text>
             </div>}
             {zeroDefect && <Alert type="success" showIcon title="Zero-Defect · Good call" description="No numeric score or additional information is required. This call is completed without a Team Leader notification or management review." />}
             {!zeroDefect && <div className={`qa-score-summary${criticalFail ? ' qa-score-summary--critical' : ''}`}>
@@ -608,7 +619,7 @@ export function AnalysisWorkspaceModal({ call, onClose, onReservationChange }: A
               </span>
             </div>}
             {watchedEvaluationType !== 'not_evaluable' && !zeroDefect && <Collapse items={categoryItems} defaultActiveKey={[scorecard.categories[0]?.key]} size="small" />}
-            {!zeroDefect && <div className="qa-critical-block"><div><WarningFilled /><span><strong>Critical errors</strong></span></div><Form.Item name="critical_errors"><Checkbox.Group options={scorecard.critical_errors.map((item) => ({ label: item.label, value: item.value }))} className="qa-critical-options" /></Form.Item>{watchedCritical.length > 0 && <div className="qa-critical-evidence">{watchedCritical.map((criticalKey) => { const critical = scorecard.critical_errors.find((item) => item.value === criticalKey); return <div className="qa-critical-evidence__item" key={criticalKey}><strong>{critical?.label ?? criticalKey}</strong><CriterionEvidenceEditor criterionLabel={critical?.label ?? criticalKey} value={watchedCriticalEvidence[criticalKey]} editable={editable} currentTimeSeconds={playback.currentTime} durationSeconds={playback.duration || activeCall?.talk_time || 0} onChange={(value) => updateCriticalEvidence(criticalKey, value)} onPlayRange={playEvidencePatch} /></div>; })}</div>}</div>}
+            {!zeroDefect && watchedEvaluationType !== 'not_evaluable' && <div className="qa-critical-block"><div><WarningFilled /><span><strong>Critical errors</strong></span></div><Form.Item name="critical_errors"><Checkbox.Group options={scorecard.critical_errors.map((item) => ({ label: item.label, value: item.value }))} className="qa-critical-options" /></Form.Item>{watchedCritical.length > 0 && <div className="qa-critical-evidence">{watchedCritical.map((criticalKey) => { const critical = scorecard.critical_errors.find((item) => item.value === criticalKey); return <div className="qa-critical-evidence__item" key={criticalKey}><strong>{critical?.label ?? criticalKey}</strong><CriterionEvidenceEditor criterionLabel={critical?.label ?? criticalKey} value={watchedCriticalEvidence[criticalKey]} editable={editable} currentTimeSeconds={playback.currentTime} durationSeconds={playback.duration || activeCall?.talk_time || 0} onChange={(value) => updateCriticalEvidence(criticalKey, value)} onPlayRange={playEvidencePatch} /></div>; })}</div>}</div>}
             <div className="qa-feedback-grid"><Form.Item name="feedback_summary" label="Summary"><TextArea rows={3} maxLength={4000} showCount /></Form.Item><Form.Item name="strengths" label="Strengths"><TextArea rows={3} maxLength={4000} showCount /></Form.Item><Form.Item name="expected_behavior" label="Expected behavior"><TextArea rows={3} maxLength={4000} showCount /></Form.Item><Form.Item name="coaching_plan" label="Coaching / follow-up"><TextArea rows={3} maxLength={4000} showCount /></Form.Item></div>
             {editable && <div className="qa-form-actions"><Button icon={<SaveOutlined />} loading={saving} onClick={() => void saveDraft()}>Save draft</Button><Popconfirm title={revisionRequired ? 'Resubmit this QA report?' : 'Submit this QA report?'} description={zeroDefect ? 'The call will be saved as a good call without notifications or management review.' : revisionRequired ? 'The revised evaluation will be locked and returned to the Team Leader’s queue.' : 'The report will be locked and sent to the agent’s Team Leader.'} okText={revisionRequired ? 'Resubmit report' : 'Submit report'} onConfirm={submit}><Button type="primary" icon={<SendOutlined />} loading={submitting}>{revisionRequired ? 'Resubmit report' : 'Submit report'}</Button></Popconfirm></div>}
           </Form>}

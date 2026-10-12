@@ -281,6 +281,9 @@ class CallReviewDraftView(APIView):
             require_complete=False,
         )
         serializer.save(
+            # A reassessment's previous result no longer describes this draft.
+            rating="",
+            outcome="",
             score=evaluation.score,
             scores=evaluation.scores,
             category_applicability=evaluation.category_applicability,
