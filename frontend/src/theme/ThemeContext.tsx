@@ -84,17 +84,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     root.dataset.density = preferences.compact ? 'compact' : 'comfortable';
     const glass = preferences.preset === 'glass';
     const variables: Record<string, string> = {
-      primary: token.colorPrimary, secondary: token.colorPrimaryHover,
+      primary: token.colorPrimary, accent: token.colorPrimaryText, secondary: token.colorPrimaryHover,
       'on-primary': providerProps.theme?.components?.Button?.primaryColor ?? '#ffffff',
       bg: token.colorBgLayout,
-      'page-background': glass
-        ? `radial-gradient(ellipse at 10% 0%, ${token.colorPrimary}22, transparent 55%), radial-gradient(ellipse at 90% 70%, #8b5cf622, transparent 55%), ${token.colorBgLayout}`
-        : token.colorBgLayout,
-      surface: glass ? `color-mix(in srgb, ${token.colorBgContainer} 88%, transparent)` : token.colorBgContainer,
+      'page-background': token.colorBgLayout,
+      surface: token.colorBgContainer,
       'surface-soft': token.colorFillAlter, 'surface-raised': token.colorBgElevated,
-      text: token.colorText, 'text-muted': token.colorTextSecondary, 'text-faint': token.colorTextTertiary,
+      text: token.colorText, 'text-muted': token.colorTextSecondary, 'text-faint': token.colorTextSecondary,
       border: token.colorBorder, 'border-soft': token.colorBorderSecondary,
-      hover: token.colorFillAlter, header: `color-mix(in srgb, ${token.colorBgContainer} 92%, transparent)`,
+      hover: token.colorFillAlter,
+      header: glass ? `color-mix(in srgb, ${token.colorBgContainer} 94%, transparent)` : token.colorBgContainer,
+      'overlay-blur': glass ? 'blur(16px)' : 'none',
       shadow: token.boxShadow, radius: `${token.borderRadius}px`, 'radius-lg': `${token.borderRadiusLG}px`,
       font: token.fontFamily,
     };

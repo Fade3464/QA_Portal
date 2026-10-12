@@ -30,11 +30,11 @@ const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
 
 const SIDEBAR_SHORTCUTS = {
-  qa: { title: 'Find your next call', description: 'Open the call library and start an evaluation.', path: '/calls', action: 'Browse calls', icon: <CustomerServiceOutlined /> },
-  team_leader: { title: 'Keep reviews moving', description: 'Review QA feedback and plan your next steps.', path: '/queue', action: 'Open QA inbox', icon: <AuditOutlined /> },
-  project_manager: { title: 'See the bigger picture', description: 'Explore quality trends across your projects.', path: '/team', action: 'View performance', icon: <BarChartOutlined /> },
-  supervisor: { title: 'See the bigger picture', description: 'Explore quality trends across your projects.', path: '/team', action: 'View performance', icon: <BarChartOutlined /> },
-  administrator: { title: 'Manage your workspace', description: 'Manage users, teams, and portal settings.', path: '/admin', action: 'Open administration', icon: <SettingOutlined /> },
+  qa: { title: 'Evaluate a call', description: 'Find a recording and complete its evaluation.', path: '/calls', action: 'Browse calls', icon: <CustomerServiceOutlined /> },
+  team_leader: { title: 'Review QA reports', description: 'Review feedback and record your next steps.', path: '/queue', action: 'Open QA inbox', icon: <AuditOutlined /> },
+  project_manager: { title: 'Project performance', description: 'Compare quality and coverage across projects.', path: '/team', action: 'View performance', icon: <BarChartOutlined /> },
+  supervisor: { title: 'Project performance', description: 'Compare quality and coverage across projects.', path: '/team', action: 'View performance', icon: <BarChartOutlined /> },
+  administrator: { title: 'Workspace administration', description: 'Manage users, teams, and portal settings.', path: '/admin', action: 'Open administration', icon: <SettingOutlined /> },
 };
 
 const SYSTEM_ADMIN_ALERT_MESSAGE = 'An alert has been issued by the System Administrator. Navigate to the notification section for more information.';

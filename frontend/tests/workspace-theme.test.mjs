@@ -9,6 +9,21 @@ const luminance = (hex) => {
   return values[0] * 0.2126 + values[1] * 0.7152 + values[2] * 0.0722;
 };
 
+// Resolve translucent text against its actual opaque content surface.
+const contrast = (foreground, background) => {
+  const channels = (color) => color.startsWith('#')
+    ? color.slice(1).match(/.{2}/g).map((part) => parseInt(part, 16))
+    : color.match(/[\d.]+/g).map(Number);
+  const bg = channels(background);
+  const fg = channels(foreground);
+  const alpha = fg[3] ?? 1;
+  const opaque = fg.slice(0, 3).map((v, i) => Math.round(v * alpha + bg[i] * (1 - alpha)));
+  const hex = (values) => '#' + values.map((v) => v.toString(16).padStart(2, '0')).join('');
+  const a = luminance(hex(opaque));
+  const b = luminance(hex(bg));
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+};
+
 test('only the requested five workspace styles are exposed', () => {
   assert.deepEqual(THEME_PRESETS.map((p) => p.id), ['default', 'mui', 'shadcn', 'glass', 'geek']);
 });
@@ -36,6 +51,16 @@ for (const dark of [false, true]) {
       assert.ok((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) >= 3, 'Filled button text needs contrast');
       assert.equal(normal.components.Table.headerBg, normalToken.colorFillAlter);
       assert.equal(normal.components.Layout.lightSiderBg, normalToken.colorBgContainer);
+      for (const surface of [normalToken.colorBgContainer, normalToken.colorFillAlter]) {
+        assert.ok(contrast(normalToken.colorTextSecondary, surface) >= 4.5,
+          `Secondary text needs 4.5:1 against ${surface}`);
+        assert.ok(contrast(normalToken.colorTextDescription, surface) >= 4.5,
+          `Metric titles and descriptions need 4.5:1 against ${surface}`);
+        assert.ok(contrast(normalToken.colorPrimaryText, surface) >= 4.5,
+          `Links need 4.5:1 against ${surface}`);
+      }
+      assert.ok(contrast(normal.components.Button.primaryColor, normalToken.colorPrimary) >= 4.5,
+        'Filled buttons need readable normal-size text');
     });
   }
 }
