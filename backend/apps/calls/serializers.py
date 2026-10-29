@@ -281,6 +281,12 @@ class CallEventSerializer(serializers.ModelSerializer):
             "dial_method",
             "phone_number",
             "disposition",
+            "stale",
+            "client_status",
+            "sold",
+            "client_20_plus",
+            "client_30_plus",
+            "preset",
             "talk_time",
             "termination_reason",
             "dialer",
@@ -323,3 +329,83 @@ class ReviewDetailSerializer(ReviewListSerializer):
 
     class Meta(ReviewListSerializer.Meta):
         fields = ReviewListSerializer.Meta.fields + ("call", "workflow_events")
+
+
+class CallEditorSerializer(CallEventSerializer):
+    """Manual business editor for explicitly authorized Project Managers."""
+
+    class Meta(CallEventSerializer.Meta):
+        read_only_fields = tuple(
+            field
+            for field in CallEventSerializer.Meta.fields
+            if field
+            not in {
+                "disposition",
+                "client_status",
+                "sold",
+                "client_20_plus",
+                "client_30_plus",
+                "preset",
+            }
+        )
+
+    def validate_disposition(self, value):
+        cleaned = " ".join((value or "").split()).upper()
+        if not cleaned:
+            raise serializers.ValidationError("Disposition is required.")
+        if len(cleaned) > 40:
+            raise serializers.ValidationError("Disposition cannot exceed 40 characters.")
+        return cleaned
+
+    def validate_client_status(self, value):
+        if value is None:
+            return None
+        cleaned = " ".join(value.split())
+        return cleaned[:160] or None
+
+    def validate_preset(self, value):
+        if value is None:
+            return None
+        cleaned = " ".join(value.split())
+        return cleaned[:160] or None
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        instance = self.instance
+        disposition = attrs.get(
+            "disposition",
+            instance.disposition if instance else "",
+        ).upper()
+
+        # Leaving SALE invalidates all SALE-only business fields. Clear them
+        # atomically instead of leaving contradictory state behind.
+        if disposition != "SALE":
+            if instance and "disposition" in attrs and instance.disposition.upper() == "SALE":
+                attrs["client_20_plus"] = False
+                attrs["client_30_plus"] = False
+                attrs["sold"] = False
+                attrs["preset"] = None
+            else:
+                requested_sale_only = {
+                    "client_20_plus": attrs.get("client_20_plus"),
+                    "client_30_plus": attrs.get("client_30_plus"),
+                    "sold": attrs.get("sold"),
+                    "preset": attrs.get("preset"),
+                }
+                invalid = [
+                    key
+                    for key, value in requested_sale_only.items()
+                    if value not in (None, False, "")
+                ]
+                if invalid:
+                    raise serializers.ValidationError(
+                        {key: "This field is only valid when disposition is SALE." for key in invalid}
+                    )
+            return attrs
+
+        if attrs.get(
+            "client_30_plus",
+            instance.client_30_plus if instance else False,
+        ):
+            attrs["client_20_plus"] = True
+        return attrs

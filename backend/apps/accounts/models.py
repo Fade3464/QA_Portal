@@ -61,6 +61,9 @@ class User(AbstractUser):
         default=AppearancePreset.DEFAULT,
     )
     appearance_compact = models.BooleanField(default=False)
+    # Grants Project Managers access to the manual call editor. Their existing
+    # QAProjectAssignment mappings still define which projects they can edit.
+    call_editor_access = models.BooleanField(default=False)
     last_password_change = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -101,6 +104,10 @@ class User(AbstractUser):
         if self.role == self.Role.ADMINISTRATOR:
             raise ValidationError(
                 {"role": "The Administrator role is reserved for system superusers."}
+            )
+        if self.call_editor_access and self.role != self.Role.PROJECT_MANAGER:
+            raise ValidationError(
+                {"call_editor_access": "Call editor access is only available to Project Managers."}
             )
 
     @property

@@ -192,6 +192,50 @@ class CallEvent(models.Model):
         db_index=True,
     )
 
+    # True only when an INCALL record exceeded the two-hour disposition
+    # window. This is independent from business outcome fields such as sold.
+    stale = models.BooleanField(
+        default=False,
+        db_index=True,
+    )
+
+    # Client-side/business status is intentionally independent from VICIdial
+    # disposition. It is nullable until a future manual workflow sets it.
+    client_status = models.CharField(
+        max_length=160,
+        null=True,
+        blank=True,
+    )
+
+    # Sales are business-critical and must be set manually; a dialer SALE
+    # disposition never flips this flag automatically.
+    sold = models.BooleanField(
+        default=False,
+        db_index=True,
+    )
+
+    # Client-side duration flags are maintained manually in the editor
+    # workspace. They are only valid for SALE dispositions.
+    client_20_plus = models.BooleanField(
+        default=False,
+        db_index=True,
+    )
+
+    client_30_plus = models.BooleanField(
+        default=False,
+        db_index=True,
+    )
+
+    # Latest VICIdial XFER_3WAY preset resolved from the User Stats report.
+    # This is intentionally nullable because some SALE calls may have no
+    # matching preset and require manual review.
+    preset = models.CharField(
+        max_length=160,
+        null=True,
+        blank=True,
+        db_index=True,
+    )
+
     talk_time = models.PositiveIntegerField(
         default=0,
     )
@@ -303,7 +347,31 @@ class CallEvent(models.Model):
                     "event_key",
                 ],
                 name="unique_event_per_dialer",
-            )
+            ),
+            models.CheckConstraint(
+                condition=models.Q(client_20_plus=False) | models.Q(disposition="SALE"),
+                name="calls_20_plus_requires_sale",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(client_30_plus=False) | models.Q(disposition="SALE"),
+                name="calls_30_plus_requires_sale",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(client_30_plus=False) | models.Q(client_20_plus=True),
+                name="calls_30_plus_implies_20",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(sold=False) | models.Q(disposition="SALE"),
+                name="calls_sold_requires_sale",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(preset__isnull=True)
+                    | models.Q(preset="")
+                    | models.Q(disposition="SALE")
+                ),
+                name="calls_preset_requires_sale",
+            ),
         ]
 
         indexes = [
@@ -325,6 +393,14 @@ class CallEvent(models.Model):
                     "campaign",
                     "-received_at",
                 ]
+            ),
+            models.Index(
+                fields=[
+                    "disposition",
+                    "stale",
+                    "received_at",
+                ],
+                name="calls_stale_scan_idx",
             ),
         ]
 

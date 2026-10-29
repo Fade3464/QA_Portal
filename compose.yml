@@ -149,6 +149,41 @@ services:
       backend: { condition: service_healthy }
     networks: [internal]
 
+  beat:
+    build: ./backend
+    restart: unless-stopped
+    command: ["celery", "-A", "config", "beat", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      PRODUCTION: ${PRODUCTION:-false}
+      PGDATABASE: ${POSTGRES_DB:-qa_portal}
+      PGUSER: ${POSTGRES_USER:-qa_portal}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-qa_portal_dev_only}
+      PGHOST: db
+      PGPORT: 5432
+      PGAPPNAME: calllens-beat
+      DB_USE_PGBOUNCER: ${DB_USE_PGBOUNCER:-true}
+      DB_DIRECT: "false"
+      PGBOUNCER_HOST: pgbouncer
+      PGBOUNCER_PORT: 6432
+      REDIS_URL: redis://redis:6379/0
+      CACHE_URL: redis://redis:6379/2
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      TIME_ZONE: ${TIME_ZONE:-America/New_York}
+      TZ: ${TIME_ZONE:-America/New_York}
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      backend: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [internal]
+
   frontend:
     build:
       context: ./frontend

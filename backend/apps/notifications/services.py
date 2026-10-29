@@ -7,6 +7,8 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
+from apps.accounts.models import User
+
 from .models import SystemNotification
 
 
@@ -309,3 +311,67 @@ def queue_custom_notification(
         lambda notification_id=notification.pk: _broadcast_notification(notification_id)
     )
     return notification
+
+
+@transaction.atomic
+def queue_missing_preset_notification(event) -> SystemNotification | None:
+    """Notify editor-enabled PMs mapped to the call project."""
+    recipient_ids = list(
+        User.objects.filter(
+            role=User.Role.PROJECT_MANAGER,
+            is_active=True,
+            call_editor_access=True,
+            qa_project_assignments__dialer_campaign__dialer_id=event.dialer_id,
+            qa_project_assignments__dialer_campaign__campaign__iexact=event.campaign,
+        )
+        .values_list("pk", flat=True)
+        .distinct()
+    )
+    if not recipient_ids:
+        return None
+
+    notification, _created = SystemNotification.objects.update_or_create(
+        dedupe_key=f"missing-preset:{event.pk}",
+        defaults={
+            "category": SystemNotification.Category.MISSING_PRESET,
+            "severity": SystemNotification.Severity.WARNING,
+            "title": "SALE call is missing a preset",
+            "message": (
+                f"SALE call {event.phone_number or event.lead_id or event.call_id} "
+                "has no VICIdial transfer preset. Review the call in the editor workspace."
+            ),
+            "branch": event.branch,
+            "call": event,
+            "metadata": {
+                "target_path": f"/editor?call={event.pk}",
+                "lead_id": event.lead_id,
+                "call_id": event.call_id,
+                "phone_number": event.phone_number,
+                "campaign": event.campaign,
+            },
+            "resolved_at": None,
+        },
+    )
+    notification.recipients.set(recipient_ids)
+    notification.read_by.clear()
+    transaction.on_commit(lambda: _broadcast_notification(notification.pk))
+    return notification
+
+
+@transaction.atomic
+def resolve_missing_preset_notification(event) -> None:
+    notification = (
+        SystemNotification.objects.select_for_update()
+        .filter(
+            dedupe_key=f"missing-preset:{event.pk}",
+            resolved_at__isnull=True,
+        )
+        .first()
+    )
+    if not notification:
+        return
+    notification.resolved_at = timezone.now()
+    notification.save(update_fields=["resolved_at", "updated_at"])
+    transaction.on_commit(
+        lambda: _broadcast_notification(notification.pk, "notification.resolved")
+    )

@@ -47,6 +47,7 @@ from .scorecard import (
     scorecard_payload,
 )
 from .serializers import (
+    CallEditorSerializer,
     CallEventSerializer,
     ReviewDetailSerializer,
     ReviewListSerializer,
@@ -55,6 +56,8 @@ from .serializers import (
 from apps.accounts.models import User
 from apps.access.report_scope import scoped_reports, _report_base_queryset
 from apps.tenancy.models import DialerCampaign, QAProjectAssignment
+from apps.notifications.services import resolve_missing_preset_notification
+from .tasks import resolve_sale_preset
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +125,8 @@ def _analysis_call(user, pk, *, for_update=False):
     call = queryset.filter(pk=pk).first()
     if not call:
         raise NotFound("Call not found.")
+    if call.stale:
+        raise ReservationConflict("Stale calls are not eligible for QA analysis.")
     if (
         call.recording_download_status != CallEvent.Status.DOWNLOADED
         or not call.recording_path
@@ -1175,6 +1180,7 @@ class CallListView(ListAPIView):
                 | Q(project_name__icontains=search)
                 | Q(phone_number__icontains=search)
                 | Q(disposition__icontains=search)
+                | Q(client_status__icontains=search)
                 | Q(source_recording_id__icontains=search)
                 | Q(source_recording_filename__icontains=search)
             )
@@ -1423,3 +1429,97 @@ class RecordingView(ListAPIView):
             as_attachment, path.name
         )
         return response
+
+
+def _require_call_editor(user):
+    if (
+        not user.is_authenticated
+        or not user.is_active
+        or user.must_change_password
+        or user.role != User.Role.PROJECT_MANAGER
+        or not user.call_editor_access
+    ):
+        raise PermissionDenied("Call editor access is not enabled for this account.")
+
+
+class CallEditorListView(ListAPIView):
+    serializer_class = CallEditorSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = CallPagination
+
+    def get_queryset(self):
+        _require_call_editor(self.request.user)
+        queryset = scoped_calls(self.request.user)
+        search = self.request.query_params.get("search", "").strip()
+        if len(search) > 200:
+            raise ValidationError({"search": "Search cannot exceed 200 characters."})
+        if search:
+            queryset = queryset.filter(
+                Q(phone_number__icontains=search)
+                | Q(lead_id__icontains=search)
+                | Q(call_id__icontains=search)
+                | Q(unique_id__icontains=search)
+                | Q(agent_user__icontains=search)
+                | Q(agent_name__icontains=search)
+                | Q(disposition__icontains=search)
+                | Q(preset__icontains=search)
+                | Q(client_status__icontains=search)
+            )
+
+        disposition = self.request.query_params.get("disposition", "").strip()
+        if disposition:
+            queryset = queryset.filter(disposition__iexact=disposition)
+
+        date_from = parse_date(self.request.query_params.get("date_from", ""))
+        date_to = parse_date(self.request.query_params.get("date_to", ""))
+        if self.request.query_params.get("date_from") and not date_from:
+            raise ValidationError({"date_from": "Enter a valid date."})
+        if self.request.query_params.get("date_to") and not date_to:
+            raise ValidationError({"date_to": "Enter a valid date."})
+        if date_from and date_to and date_from > date_to:
+            raise ValidationError({"date_to": "End date must be on or after start date."})
+        if date_from:
+            queryset = queryset.filter(call_date__date__gte=date_from)
+        if date_to:
+            queryset = queryset.filter(call_date__date__lte=date_to)
+        return queryset.order_by("-call_date", "-received_at", "-id")
+
+
+class CallEditorDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def _call(self, request, pk):
+        _require_call_editor(request.user)
+        call = scoped_calls(request.user).filter(pk=pk).first()
+        if not call:
+            raise NotFound("Call not found in your assigned projects.")
+        return call
+
+    def get(self, request, pk):
+        call = self._call(request, pk)
+        return Response(CallEditorSerializer(call, context={"request": request}).data)
+
+    @transaction.atomic
+    def patch(self, request, pk):
+        visible = self._call(request, pk)
+        call = CallEvent.objects.select_for_update().get(pk=visible.pk)
+        old_disposition = call.disposition.upper()
+        old_preset = call.preset
+        serializer = CallEditorSerializer(
+            call,
+            data=request.data,
+            partial=True,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        call = serializer.save()
+
+        if call.disposition.upper() != "SALE":
+            transaction.on_commit(lambda: resolve_missing_preset_notification(call))
+        elif call.preset:
+            transaction.on_commit(lambda: resolve_missing_preset_notification(call))
+        elif old_disposition != "SALE" or old_preset:
+            transaction.on_commit(lambda: resolve_sale_preset.delay(str(call.pk)))
+
+        refreshed = scoped_calls(request.user).get(pk=call.pk)
+        return Response(CallEditorSerializer(refreshed, context={"request": request}).data)

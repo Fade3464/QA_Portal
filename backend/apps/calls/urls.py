@@ -2,6 +2,8 @@ from django.urls import path
 
 from .views import (
     CallAnalysisView,
+    CallEditorDetailView,
+    CallEditorListView,
     CallFilterOptionsView,
     CallListView,
     CallReleaseView,
@@ -17,6 +19,8 @@ from .views import (
 
 urlpatterns = [
     path("", CallListView.as_view(), name="call-list"),
+    path("editor/", CallEditorListView.as_view(), name="call-editor-list"),
+    path("editor/<uuid:pk>/", CallEditorDetailView.as_view(), name="call-editor-detail"),
     path(
         "filter-options/", CallFilterOptionsView.as_view(), name="call-filter-options"
     ),

@@ -40,7 +40,7 @@ class UserAdmin(BaseUserAdmin):
         (None, {"fields": ("email", "password")}),
         (
             "Identity",
-            {"fields": ("first_name", "last_name", "role", "company", "branch")},
+            {"fields": ("first_name", "last_name", "role", "company", "branch", "call_editor_access")},
         ),
         (
             "Security",
@@ -74,6 +74,7 @@ class UserAdmin(BaseUserAdmin):
                     "password1",
                     "password2",
                     "is_active",
+                    "call_editor_access",
                     "is_staff",
                 ),
             },

@@ -16,6 +16,9 @@ class CallEventAdmin(admin.ModelAdmin):
         "call_direction",
         "dial_method",
         "disposition",
+        "stale",
+        "sold",
+        "client_status",
         "recording_download_status",
         "received_at",
     )
@@ -27,6 +30,8 @@ class CallEventAdmin(admin.ModelAdmin):
         "dial_method",
         "team",
         "disposition",
+        "stale",
+        "sold",
         "recording_download_status",
     )
     search_fields = (

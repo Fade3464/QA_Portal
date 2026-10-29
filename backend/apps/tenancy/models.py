@@ -110,6 +110,12 @@ class Dialer(models.Model):
     api_username = models.CharField(max_length=120)
     api_password_ciphertext = models.TextField(blank=True, editable=False)
     api_source = models.CharField(max_length=120, default="qa_portal")
+    # Optional VICIdial User Stats credentials used only for resolving the
+    # latest XFER_3WAY preset after a SALE disposition.
+    preset_lookup_url = models.URLField(max_length=500, blank=True)
+    preset_lookup_username = models.CharField(max_length=120, blank=True)
+    preset_lookup_password_ciphertext = models.TextField(blank=True, editable=False)
+    preset_lookup_verify_tls = models.BooleanField(default=True)
     webhook_secret_hash = models.CharField(max_length=256, blank=True, editable=False)
     request_timeout_seconds = models.PositiveSmallIntegerField(default=15)
     is_active = models.BooleanField(default=True)
@@ -150,6 +156,33 @@ class Dialer(models.Model):
             raise ValidationError(
                 "The stored dialer credential cannot be decrypted."
             ) from exc
+
+    def set_preset_lookup_password(self, raw_password: str) -> None:
+        self.preset_lookup_password_ciphertext = (
+            self._fernet().encrypt(raw_password.encode()).decode()
+        )
+
+    def get_preset_lookup_password(self) -> str:
+        if not self.preset_lookup_password_ciphertext:
+            return ""
+        try:
+            return (
+                self._fernet()
+                .decrypt(self.preset_lookup_password_ciphertext.encode())
+                .decode()
+            )
+        except (InvalidToken, ValueError) as exc:
+            raise ValidationError(
+                "The stored preset lookup credential cannot be decrypted."
+            ) from exc
+
+    @property
+    def has_preset_lookup_config(self) -> bool:
+        return bool(
+            self.preset_lookup_url
+            and self.preset_lookup_username
+            and self.preset_lookup_password_ciphertext
+        )
 
     def set_webhook_secret(self, raw_secret: str) -> None:
         self.webhook_secret_hash = make_password(raw_secret)

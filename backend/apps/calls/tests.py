@@ -34,6 +34,7 @@ from config.celery import app as celery_app
 from .models import CallEvent, Review, ReviewWorkflowEvent
 from .scorecard import CRITICAL_ERRORS, SCORECARD
 from .serializers import CallEventSerializer
+from .preset_lookup import parse_latest_preset
 from .services import (
     RecordingResult,
     download_recording,
@@ -47,6 +48,7 @@ from .tasks import (
     RECORDING_FETCH_PRIORITY,
     RECORDING_RESOLVE_PRIORITY,
     fetch_recording,
+    mark_stale_calls,
     resolve_recording,
 )
 from .webhooks import infer_call_direction, infer_dial_method
@@ -742,9 +744,278 @@ class WebhookTests(TestCase):
             self.assertEqual(invalid.status_code, 416)
             self.assertEqual(invalid["Content-Range"], "bytes */10")
 
+
     @patch("apps.calls.webhooks.announce_call")
     @patch("apps.calls.webhooks.resolve_recording.delay")
-    def test_ingestion_is_idempotent_and_branch_scoped(self, queue_task, announce):
+    def test_start_call_incall_is_logged_without_post_disposition_processing(
+        self, queue_task, announce
+    ):
+        payload = {
+            "token": self.secret,
+            "lead_id": "START-LEAD-1",
+            "call_id": "V-START-1",
+            "uniqueid": "START-UNIQUE-1",
+            "agent_log_id": "START-LOG-1",
+            "user": "8102",
+            "agent_full_name": "Alpha - Agent One",
+            "campaign": "002",
+            "phone_number": "2695390577",
+            "dispo": "INCALL",
+            "talk_time": "0",
+            "call_date": "2026-10-29 10:40:34",
+        }
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.get(self.url, payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["created"])
+        self.assertTrue(response.json()["pending_disposition"])
+        self.assertFalse(response.json()["finalized"])
+        event = CallEvent.objects.get(call_id="V-START-1")
+        self.assertEqual(event.disposition, "INCALL")
+        self.assertFalse(event.stale)
+        self.assertIsNone(event.client_status)
+        self.assertFalse(event.sold)
+        queue_task.assert_not_called()
+        announce.assert_called_once_with(event)
+
+    @patch("apps.calls.webhooks.announce_call")
+    @patch("apps.calls.webhooks.resolve_sale_preset.delay")
+    @patch("apps.calls.webhooks.resolve_recording.delay")
+    def test_final_disposition_updates_existing_incall_and_starts_pipeline_once(
+        self, queue_task, preset_task, announce
+    ):
+        base = {
+            "token": self.secret,
+            "lead_id": "START-LEAD-2",
+            "call_id": "V-START-2",
+            "uniqueid": "START-UNIQUE-2",
+            "agent_log_id": "START-LOG-2",
+            "user": "8102",
+            "campaign": "002",
+            "phone_number": "2695390577",
+            "call_date": "2026-10-29 10:40:34",
+        }
+        with self.captureOnCommitCallbacks(execute=True):
+            start = self.client.get(self.url, {**base, "dispo": "INCALL"})
+        event_id = start.json()["event_id"]
+        queue_task.reset_mock()
+        announce.reset_mock()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            final = self.client.get(
+                self.url,
+                {
+                    **base,
+                    "dispo": "SALE",
+                    "talk_time": "2723",
+                    "term_reason": "AGENT",
+                    "recording_id": "9375687",
+                    "recording_filename": "20261029-104034_2695390577",
+                    "call_date": "2026-10-29 11:26:00",
+                },
+            )
+            duplicate = self.client.get(
+                self.url,
+                {
+                    **base,
+                    "dispo": "SALE",
+                    "talk_time": "2723",
+                    "term_reason": "AGENT",
+                    "recording_id": "9375687",
+                    "recording_filename": "20261029-104034_2695390577",
+                    "call_date": "2026-10-29 11:26:00",
+                },
+            )
+
+        self.assertEqual(CallEvent.objects.count(), 1)
+        self.assertEqual(final.json()["event_id"], event_id)
+        self.assertTrue(final.json()["finalized"])
+        self.assertFalse(final.json()["created"])
+        self.assertFalse(duplicate.json()["finalized"])
+        event = CallEvent.objects.get(pk=event_id)
+        self.assertEqual(event.disposition, "SALE")
+        self.assertEqual(event.talk_time, 2723)
+        self.assertEqual(event.source_recording_id, "9375687")
+        self.assertEqual(event.call_date.hour, 10)
+        self.assertIn("ingested_started_at", event.raw_payload)
+        self.assertIn("ingested_finalized_at", event.raw_payload)
+        self.assertFalse(event.stale)
+        self.assertFalse(event.sold)
+        queue_task.assert_called_once_with(event_id)
+        preset_task.assert_called_once_with(event_id)
+        announce.assert_called_once_with(event)
+
+    @patch("apps.calls.webhooks.announce_call")
+    @patch("apps.calls.webhooks.resolve_sale_preset.delay")
+    @patch("apps.calls.webhooks.resolve_recording.delay")
+    def test_late_disposition_recovers_stale_without_touching_manual_business_fields(
+        self, queue_task, preset_task, _announce
+    ):
+        base = {
+            "token": self.secret,
+            "lead_id": "STALE-LEAD-1",
+            "call_id": "V-STALE-1",
+            "uniqueid": "STALE-UNIQUE-1",
+            "agent_log_id": "STALE-LOG-1",
+            "user": "8102",
+            "campaign": "002",
+            "phone_number": "2695390577",
+            "call_date": "2026-10-29 10:40:34",
+        }
+        with self.captureOnCommitCallbacks(execute=True):
+            start = self.client.get(self.url, {**base, "dispo": "INCALL"})
+        event_id = start.json()["event_id"]
+        # Simulate a PM manually classifying the stale call as SALE before
+        # VICIdial eventually sends its authoritative final callback. The stale
+        # flag remains true until that real callback is received.
+        CallEvent.objects.filter(pk=event_id).update(
+            disposition="SALE",
+            stale=True,
+            sold=True,
+            client_20_plus=True,
+            client_status="Confirmed by client",
+            preset="D42",
+            recording_lookup_status=CallEvent.Status.SKIPPED,
+            recording_download_status=CallEvent.Status.SKIPPED,
+        )
+        queue_task.reset_mock()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.get(
+                self.url,
+                {**base, "dispo": "SALE", "talk_time": "300"},
+            )
+
+        self.assertTrue(response.json()["recovered_from_stale"])
+        event = CallEvent.objects.get(pk=event_id)
+        self.assertEqual(event.disposition, "SALE")
+        self.assertFalse(event.stale)
+        self.assertTrue(event.sold)
+        self.assertEqual(event.client_status, "Confirmed by client")
+        self.assertEqual(event.recording_lookup_status, CallEvent.Status.PENDING)
+        self.assertEqual(event.recording_download_status, CallEvent.Status.PENDING)
+        queue_task.assert_called_once_with(event_id)
+        preset_task.assert_called_once_with(event_id)
+
+    @patch("apps.calls.webhooks.announce_call")
+    @patch("apps.calls.webhooks.resolve_recording.delay")
+    def test_late_non_sale_disposition_clears_sale_only_fields_on_stale_row(
+        self, queue_task, _announce
+    ):
+        base = {
+            "token": self.secret,
+            "lead_id": "STALE-LEAD-2",
+            "call_id": "V-STALE-2",
+            "uniqueid": "STALE-UNIQUE-2",
+            "agent_log_id": "STALE-LOG-2",
+            "user": "8102",
+            "campaign": "002",
+            "phone_number": "2695390577",
+            "call_date": "2026-10-29 10:40:34",
+        }
+        with self.captureOnCommitCallbacks(execute=True):
+            start = self.client.get(self.url, {**base, "dispo": "INCALL"})
+        event_id = start.json()["event_id"]
+        CallEvent.objects.filter(pk=event_id).update(
+            disposition="SALE",
+            stale=True,
+            sold=True,
+            client_20_plus=True,
+            client_30_plus=True,
+            preset="D42",
+            client_status="Keep client note",
+            recording_lookup_status=CallEvent.Status.SKIPPED,
+            recording_download_status=CallEvent.Status.SKIPPED,
+        )
+        queue_task.reset_mock()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.get(
+                self.url,
+                {**base, "dispo": "DNC", "talk_time": "300"},
+            )
+
+        self.assertTrue(response.json()["recovered_from_stale"])
+        event = CallEvent.objects.get(pk=event_id)
+        self.assertEqual(event.disposition, "DNC")
+        self.assertFalse(event.stale)
+        self.assertFalse(event.sold)
+        self.assertFalse(event.client_20_plus)
+        self.assertFalse(event.client_30_plus)
+        self.assertIsNone(event.preset)
+        self.assertEqual(event.client_status, "Keep client note")
+        queue_task.assert_called_once_with(event_id)
+
+    @patch("apps.calls.webhooks.announce_call")
+    @patch("apps.calls.webhooks.resolve_recording.delay")
+    def test_unresolved_start_dispo_placeholder_is_treated_as_incall(
+        self, queue_task, _announce
+    ):
+        response = self.client.get(
+            self.url,
+            {
+                "token": self.secret,
+                "lead_id": "PLACEHOLDER-1",
+                "call_id": "V-PLACEHOLDER-1",
+                "user": "8102",
+                "dispo": "--A--dispo--B--",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["pending_disposition"])
+        self.assertEqual(CallEvent.objects.get().disposition, "INCALL")
+        queue_task.assert_not_called()
+
+    def test_stale_sweep_marks_only_old_incall_rows(self):
+        old = CallEvent.objects.create(
+            dialer=self.dialer,
+            branch=self.branch,
+            event_key="old-incall".ljust(64, "0"),
+            event_type=CallEvent.EventType.DISPOSITION,
+            call_id="V-OLD-INCALL",
+            disposition="INCALL",
+        )
+        fresh = CallEvent.objects.create(
+            dialer=self.dialer,
+            branch=self.branch,
+            event_key="fresh-incall".ljust(64, "0"),
+            event_type=CallEvent.EventType.DISPOSITION,
+            call_id="V-FRESH-INCALL",
+            disposition="INCALL",
+        )
+        finalized = CallEvent.objects.create(
+            dialer=self.dialer,
+            branch=self.branch,
+            event_key="finalized".ljust(64, "0"),
+            event_type=CallEvent.EventType.DISPOSITION,
+            call_id="V-FINALIZED",
+            disposition="SALE",
+        )
+        CallEvent.objects.filter(pk=old.pk).update(
+            received_at=timezone.now() - timedelta(hours=2, minutes=1)
+        )
+
+        result = mark_stale_calls()
+
+        self.assertEqual(result["marked_stale"], 1)
+        old.refresh_from_db()
+        fresh.refresh_from_db()
+        finalized.refresh_from_db()
+        self.assertEqual(old.disposition, "STALE")
+        self.assertTrue(old.stale)
+        self.assertEqual(old.recording_lookup_status, CallEvent.Status.SKIPPED)
+        self.assertEqual(old.recording_download_status, CallEvent.Status.SKIPPED)
+        self.assertEqual(fresh.disposition, "INCALL")
+        self.assertFalse(fresh.stale)
+        self.assertEqual(finalized.disposition, "SALE")
+        self.assertFalse(finalized.stale)
+
+    @patch("apps.calls.webhooks.announce_call")
+    @patch("apps.calls.webhooks.resolve_sale_preset.delay")
+    @patch("apps.calls.webhooks.resolve_recording.delay")
+    def test_ingestion_is_idempotent_and_branch_scoped(self, queue_task, preset_task, announce):
         payload = {
             "token": self.secret,
             "lead_id": "123",
@@ -2664,6 +2935,12 @@ class RecordingTaskConfigurationTests(TestCase):
             route = celery_app.amqp.router.route({}, task.name, args=(), kwargs={})
             self.assertEqual(route["queue"].name, "recordings")
 
+    def test_stale_sweep_routes_to_default_queue(self):
+        route = celery_app.amqp.router.route(
+            {}, mark_stale_calls.name, args=(), kwargs={}
+        )
+        self.assertEqual(route["queue"].name, "celery")
+
     def test_recording_tasks_are_rate_limited(self):
         self.assertEqual(resolve_recording.rate_limit, "20/s")
         self.assertEqual(fetch_recording.rate_limit, "20/s")
@@ -3003,3 +3280,162 @@ class CriticalClassificationMigrationTests(TransactionTestCase):
                 Review.objects.filter(pk=saved_ids[0]).update(evaluation_type="not_evaluable")
         finally:
             MigrationExecutor(connection).migrate(latest)
+
+
+@override_settings(TIME_ZONE="America/New_York")
+class PresetLookupParsingTests(SimpleTestCase):
+    def test_latest_xfer_3way_preset_is_selected_for_lead(self):
+        html = """
+        <font><b>Manual Outbound Calls for this Time Period: </b></font>
+        <table>
+          <tr><td>#</td><td>DATE/TIME</td><td>CALL TYPE</td><td>SERVER</td><td>PHONE</td><td>DIALED</td><td>LEAD</td><td>CALLERID</td><td>ALIAS</td><td>PRESET</td><td>C3HU</td></tr>
+          <tr><td>1</td><td>2026-10-29 10:55:11</td><td>XFER_3WAY</td><td>srv</td><td>8600063</td><td>Local/1</td><td>15394831</td><td>2695390577</td><td></td><td>D42</td><td></td></tr>
+          <tr><td>2</td><td>2026-10-29 10:55:05</td><td>XFER_3WAY</td><td>srv</td><td>8600063</td><td>Local/2</td><td>15394831</td><td>2695390577</td><td></td><td>D33</td><td></td></tr>
+        </table>
+        """
+        result = parse_latest_preset(
+            html,
+            lead_id="15394831",
+            window_start=datetime(2026, 10, 29, 10, 40, tzinfo=timezone.get_current_timezone()),
+            window_end=datetime(2026, 10, 29, 11, 0, tzinfo=timezone.get_current_timezone()),
+            timezone_name="America/New_York",
+        )
+        self.assertIsNotNone(result)
+        self.assertEqual(result.preset, "D42")
+
+    def test_preset_outside_call_window_is_ignored(self):
+        html = """<b>Manual Outbound Calls for this Time Period: </b><table>
+        <tr><td>#</td><td>DATE/TIME</td><td>CALL TYPE</td><td>LEAD</td><td>PRESET</td></tr>
+        <tr><td>1</td><td>2026-10-29 12:00:00</td><td>XFER_3WAY</td><td>15394831</td><td>D99</td></tr>
+        </table>"""
+        result = parse_latest_preset(
+            html,
+            lead_id="15394831",
+            window_start=datetime(2026, 10, 29, 10, 40, tzinfo=timezone.get_current_timezone()),
+            window_end=datetime(2026, 10, 29, 11, 0, tzinfo=timezone.get_current_timezone()),
+            timezone_name="America/New_York",
+        )
+        self.assertIsNone(result)
+
+
+@override_settings(DIALER_CREDENTIAL_KEY=Fernet.generate_key().decode())
+class CallEditorTests(TestCase):
+    def setUp(self):
+        company = Company.objects.create(name="Editor Co", slug="editor-co")
+        branch = Branch.objects.create(company=company, name="Editor Branch", code="editor")
+        self.dialer = Dialer(
+            branch=branch,
+            name="Editor Dialer",
+            api_url="https://dialer.example.com/non_agent_api.php",
+            api_username="api",
+        )
+        self.dialer.set_api_password("secret")
+        self.dialer.set_webhook_secret("webhook-secret-long-enough")
+        self.dialer.save()
+        self.project = DialerCampaign.objects.create(
+            dialer=self.dialer, campaign="002", project_name="Sales Project"
+        )
+        self.other_project = DialerCampaign.objects.create(
+            dialer=self.dialer, campaign="003", project_name="Other Project"
+        )
+        self.pm = User.objects.create_user(
+            email="pm-editor@example.com",
+            password="StrongPassword123!",
+            first_name="Project",
+            last_name="Editor",
+            role=User.Role.PROJECT_MANAGER,
+            company=company,
+            branch=branch,
+            must_change_password=False,
+            call_editor_access=True,
+        )
+        QAProjectAssignment.objects.create(qa=self.pm, dialer_campaign=self.project)
+        self.call = CallEvent.objects.create(
+            dialer=self.dialer,
+            branch=branch,
+            event_key="editor-call".ljust(64, "0"),
+            event_type=CallEvent.EventType.DISPOSITION,
+            call_id="V-EDITOR-1",
+            lead_id="12345",
+            agent_user="8102",
+            campaign="002",
+            phone_number="2695390577",
+            disposition="SALE",
+            client_20_plus=False,
+            client_30_plus=False,
+            sold=False,
+            preset=None,
+            call_date=timezone.now(),
+        )
+        self.other_call = CallEvent.objects.create(
+            dialer=self.dialer,
+            branch=branch,
+            event_key="other-call".ljust(64, "0"),
+            event_type=CallEvent.EventType.DISPOSITION,
+            call_id="V-OTHER-1",
+            lead_id="98765",
+            campaign="003",
+            disposition="SALE",
+            call_date=timezone.now(),
+        )
+        self.client.force_login(self.pm)
+
+    @patch("apps.calls.views.resolve_sale_preset.delay")
+    def test_sale_editor_enforces_30_plus_implies_20_plus(self, lookup_task):
+        response = self.client.patch(
+            reverse("call-editor-detail", kwargs={"pk": self.call.pk}),
+            data=json.dumps({
+                "client_20_plus": False,
+                "client_30_plus": True,
+                "sold": True,
+                "preset": "D42",
+                "client_status": "Confirmed",
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.call.refresh_from_db()
+        self.assertTrue(self.call.client_20_plus)
+        self.assertTrue(self.call.client_30_plus)
+        self.assertTrue(self.call.sold)
+        self.assertEqual(self.call.preset, "D42")
+        lookup_task.assert_not_called()
+
+    def test_moving_away_from_sale_clears_sale_only_fields(self):
+        CallEvent.objects.filter(pk=self.call.pk).update(
+            client_20_plus=True, client_30_plus=True, sold=True, preset="D42", client_status="Keep me"
+        )
+        response = self.client.patch(
+            reverse("call-editor-detail", kwargs={"pk": self.call.pk}),
+            data=json.dumps({"disposition": "DNC"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.call.refresh_from_db()
+        self.assertEqual(self.call.disposition, "DNC")
+        self.assertFalse(self.call.client_20_plus)
+        self.assertFalse(self.call.client_30_plus)
+        self.assertFalse(self.call.sold)
+        self.assertIsNone(self.call.preset)
+        self.assertEqual(self.call.client_status, "Keep me")
+
+    def test_sale_only_fields_rejected_for_non_sale(self):
+        CallEvent.objects.filter(pk=self.call.pk).update(disposition="DNC")
+        response = self.client.patch(
+            reverse("call-editor-detail", kwargs={"pk": self.call.pk}),
+            data=json.dumps({"sold": True, "preset": "D42"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_project_scope_blocks_unassigned_call(self):
+        response = self.client.get(
+            reverse("call-editor-detail", kwargs={"pk": self.other_call.pk})
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_editor_permission_must_be_enabled(self):
+        self.pm.call_editor_access = False
+        self.pm.save(update_fields=["call_editor_access"])
+        response = self.client.get(reverse("call-editor-list"))
+        self.assertEqual(response.status_code, 403)

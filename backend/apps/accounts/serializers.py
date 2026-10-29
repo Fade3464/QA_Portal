@@ -53,6 +53,7 @@ class CurrentUserSerializer(serializers.ModelSerializer):
             "profile_picture_url",
             "appearance",
             "assigned_projects",
+            "call_editor_access",
         )
 
     def get_company(self, obj):

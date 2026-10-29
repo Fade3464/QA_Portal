@@ -41,6 +41,11 @@ class DialerAdminForm(forms.ModelForm):
         required=False,
         help_text="Leave blank to keep the current value.",
     )
+    preset_lookup_password = forms.CharField(
+        widget=forms.PasswordInput,
+        required=False,
+        help_text="Leave blank to keep the current User Stats credential.",
+    )
     webhook_secret = forms.CharField(
         widget=forms.PasswordInput,
         required=False,
@@ -49,7 +54,11 @@ class DialerAdminForm(forms.ModelForm):
 
     class Meta:
         model = Dialer
-        exclude = ("api_password_ciphertext", "webhook_secret_hash")
+        exclude = (
+            "api_password_ciphertext",
+            "preset_lookup_password_ciphertext",
+            "webhook_secret_hash",
+        )
 
     def clean(self):
         cleaned = super().clean()
@@ -61,7 +70,20 @@ class DialerAdminForm(forms.ModelForm):
             self.add_error(
                 "webhook_secret", "A webhook secret is required for a new dialer."
             )
-        if cleaned.get("api_password"):
+        lookup_url = cleaned.get("preset_lookup_url")
+        lookup_username = cleaned.get("preset_lookup_username")
+        lookup_password = cleaned.get("preset_lookup_password")
+        existing_lookup_password = bool(
+            self.instance.pk and self.instance.preset_lookup_password_ciphertext
+        )
+        if lookup_url or lookup_username or lookup_password or existing_lookup_password:
+            if not lookup_url:
+                self.add_error("preset_lookup_url", "User Stats URL is required.")
+            if not lookup_username:
+                self.add_error("preset_lookup_username", "User Stats username is required.")
+            if not lookup_password and not existing_lookup_password:
+                self.add_error("preset_lookup_password", "User Stats password is required.")
+        if cleaned.get("api_password") or lookup_password:
             try:
                 Dialer._fernet()
             except (ImproperlyConfigured, ValueError) as exc:
@@ -72,6 +94,8 @@ class DialerAdminForm(forms.ModelForm):
         instance = super().save(commit=False)
         if self.cleaned_data.get("api_password"):
             instance.set_api_password(self.cleaned_data["api_password"])
+        if self.cleaned_data.get("preset_lookup_password"):
+            instance.set_preset_lookup_password(self.cleaned_data["preset_lookup_password"])
         if self.cleaned_data.get("webhook_secret"):
             instance.set_webhook_secret(self.cleaned_data["webhook_secret"])
         if commit:

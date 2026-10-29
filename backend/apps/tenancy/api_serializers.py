@@ -186,6 +186,9 @@ class DialerAdminSerializer(serializers.ModelSerializer):
     webhook_secret = serializers.CharField(
         write_only=True, required=False, allow_blank=False
     )
+    preset_lookup_password = serializers.CharField(
+        write_only=True, required=False, allow_blank=False
+    )
     webhook_path = serializers.SerializerMethodField()
     campaigns = DialerCampaignAdminSerializer(many=True, required=False)
 
@@ -201,6 +204,10 @@ class DialerAdminSerializer(serializers.ModelSerializer):
             "api_username",
             "api_password",
             "api_source",
+            "preset_lookup_url",
+            "preset_lookup_username",
+            "preset_lookup_password",
+            "preset_lookup_verify_tls",
             "webhook_secret",
             "webhook_path",
             "campaigns",
@@ -224,6 +231,30 @@ class DialerAdminSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"webhook_secret": "A webhook secret is required."}
                 )
+        lookup_url = attrs.get(
+            "preset_lookup_url",
+            getattr(self.instance, "preset_lookup_url", ""),
+        )
+        lookup_username = attrs.get(
+            "preset_lookup_username",
+            getattr(self.instance, "preset_lookup_username", ""),
+        )
+        lookup_password = attrs.get("preset_lookup_password", "")
+        existing_lookup_password = bool(
+            self.instance and self.instance.preset_lookup_password_ciphertext
+        )
+        configured_parts = bool(lookup_url or lookup_username or lookup_password or existing_lookup_password)
+        if configured_parts:
+            errors = {}
+            if not lookup_url:
+                errors["preset_lookup_url"] = "User Stats URL is required when preset lookup is configured."
+            if not lookup_username:
+                errors["preset_lookup_username"] = "User Stats username is required when preset lookup is configured."
+            if not lookup_password and not existing_lookup_password:
+                errors["preset_lookup_password"] = "User Stats password is required when preset lookup is configured."
+            if errors:
+                raise serializers.ValidationError(errors)
+
         campaigns = attrs.get("campaigns")
         if campaigns is not None:
             seen = set()
@@ -270,9 +301,12 @@ class DialerAdminSerializer(serializers.ModelSerializer):
         campaigns = validated_data.pop("campaigns", [])
         api_password = validated_data.pop("api_password")
         webhook_secret = validated_data.pop("webhook_secret")
+        preset_lookup_password = validated_data.pop("preset_lookup_password", "")
         with transaction.atomic():
             dialer = Dialer(**validated_data)
             dialer.set_api_password(api_password)
+            if preset_lookup_password:
+                dialer.set_preset_lookup_password(preset_lookup_password)
             dialer.set_webhook_secret(webhook_secret)
             dialer.full_clean()
             dialer.save()
@@ -283,10 +317,13 @@ class DialerAdminSerializer(serializers.ModelSerializer):
         campaigns = validated_data.pop("campaigns", None)
         api_password = validated_data.pop("api_password", "")
         webhook_secret = validated_data.pop("webhook_secret", "")
+        preset_lookup_password = validated_data.pop("preset_lookup_password", "")
         for field, value in validated_data.items():
             setattr(instance, field, value)
         if api_password:
             instance.set_api_password(api_password)
+        if preset_lookup_password:
+            instance.set_preset_lookup_password(preset_lookup_password)
         if webhook_secret:
             instance.set_webhook_secret(webhook_secret)
         with transaction.atomic():
@@ -328,6 +365,7 @@ class UserAdminSerializer(serializers.ModelSerializer):
             "password",
             "project_assignment_ids",
             "assigned_projects",
+            "call_editor_access",
             "is_active",
             "must_change_password",
             "last_login",
@@ -367,6 +405,17 @@ class UserAdminSerializer(serializers.ModelSerializer):
             User.Role.TEAM_LEADER,
             User.Role.PROJECT_MANAGER,
         }
+        editor_access = attrs.get(
+            "call_editor_access",
+            getattr(self.instance, "call_editor_access", False),
+        )
+        if editor_access and role != User.Role.PROJECT_MANAGER:
+            raise serializers.ValidationError(
+                {"call_editor_access": "Call editor access is only available to Project Managers."}
+            )
+        if role != User.Role.PROJECT_MANAGER:
+            attrs["call_editor_access"] = False
+
         if role in project_scoped_roles:
             if role in {User.Role.QA, User.Role.PROJECT_MANAGER} and not assignments:
                 raise serializers.ValidationError(

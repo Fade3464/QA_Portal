@@ -9,6 +9,7 @@ class SystemNotification(models.Model):
         UNKNOWN_TEAM = "unknown_team", "Unknown team"
         QA_REPORT_READY = "qa_report_ready", "QA report ready"
         QA_REPORT_RETURNED = "qa_report_returned", "QA report returned"
+        MISSING_PRESET = "missing_preset", "Missing SALE preset"
         CUSTOM = "custom", "Custom notification"
 
     class Severity(models.TextChoices):

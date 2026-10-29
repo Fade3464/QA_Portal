@@ -20,6 +20,7 @@ const ReportsPage = lazy(() => import('./pages/ReportsPage').then((module) => ({
 const ProjectPerformancePage = lazy(() => import('./pages/ProjectPerformancePage').then((module) => ({ default: module.ProjectPerformancePage })));
 const AccountPage = lazy(() => import('./pages/AccountPage').then((module) => ({ default: module.AccountPage })));
 const AIInsightsPage = lazy(() => import('./pages/AIInsightsPage').then((module) => ({ default: module.AIInsightsPage })));
+const CallEditorPage = lazy(() => import('./pages/CallEditorPage').then((module) => ({ default: module.CallEditorPage })));
 
 function ProtectedLayout() {
   const { user, loading } = useAuth();
@@ -46,6 +47,11 @@ function AIInsightsRoute() {
   return canUseAI(user) ? <AIInsightsPage /> : <Navigate to="/" replace />;
 }
 
+function CallEditorRoute() {
+  const { user } = useAuth();
+  return user?.role === 'project_manager' && user.call_editor_access ? <CallEditorPage /> : <Navigate to="/" replace />;
+}
+
 function ManagementRoute() {
   const { user } = useAuth();
   return user?.role === 'administrator' ? <PlaceholderPage /> : <Navigate to="/" replace />;
@@ -67,6 +73,7 @@ export default function App() {
             <Route element={<ProtectedLayout />}>
               <Route index element={<DashboardPage />} />
               <Route path="calls" element={<CallsPage />} />
+              <Route path="editor" element={<CallEditorRoute />} />
               <Route path="queue" element={<ReportsPage />} />
               <Route path="team" element={<TeamPerformanceRoute />} />
               <Route path="insights" element={<ManagementRoute />} />

@@ -21,6 +21,7 @@ export interface CurrentUser {
   profile_picture_url: string | null;
   appearance: AppearancePreferences;
   assigned_projects: AssignedProject[];
+  call_editor_access: boolean;
 }
 
 export interface AppearancePreferences {
@@ -240,6 +241,12 @@ export interface CallEvent {
   dial_method: 'AUTO' | 'MANUAL' | 'UNKNOWN' | 'N/A';
   phone_number: string;
   disposition: string;
+  stale: boolean;
+  client_status: string | null;
+  sold: boolean;
+  client_20_plus: boolean;
+  client_30_plus: boolean;
+  preset: string | null;
   talk_time: number;
   termination_reason: string;
   dialer: string;
@@ -451,6 +458,9 @@ export interface DialerRecord {
   api_url: string;
   api_username: string;
   api_source: string;
+  preset_lookup_url: string;
+  preset_lookup_username: string;
+  preset_lookup_verify_tls: boolean;
   webhook_path: string;
   campaigns: Array<{
     id: string;
@@ -475,6 +485,7 @@ export interface AdminUserRecord {
   company_name: string;
   branch: string;
   branch_name: string;
+  call_editor_access: boolean;
   assigned_projects: Array<{
     id: string;
     dialer_id: string;

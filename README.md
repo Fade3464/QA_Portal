@@ -79,7 +79,7 @@ History begins after deployment: minute aggregates last 48 hours and hourly aggr
 
 These are application SQL execution timings, including network and lock waits—not disk MB/s or end-to-end request latency. Result iteration, explicit connection commits, streaming response work, WebSocket consumers, management commands, and abruptly terminated tasks are not included. `executemany` counts as one execution. PostgreSQL block timing is shown only when `track_io_timing` is enabled; the application does not change that server setting. Query-mix changes can affect period comparisons.
 
-Deploy with `docker compose up -d --build backend worker frontend`. Preserve the existing Redis data volume to retain history.
+Deploy with `docker compose up -d --build backend worker beat frontend`. Preserve the existing Redis data volume to retain history.
 
 ## Timezone policy
 
@@ -108,16 +108,18 @@ The URL changes whenever the tunnel container is recreated. Quick Tunnels are in
 1. Sign into `/admin` with the system administrator to use the Ant Design administration workspace. The low-level Django fallback is available at `/django-admin/`.
 2. Create a company, then a branch under it.
 3. Create portal users and assign each one company, branch, and role.
-4. Create a dialer under the branch. Enter its non-agent API URL/user/password, a long webhook secret, and any separate recording hostnames in the allowlist.
+4. Create a dialer under the branch. Enter its non-agent API URL/user/password and a long webhook secret. For automatic SALE preset resolution, also enter the provider-specific `user_stats.php` URL plus report username/password in the SALE preset lookup section.
 5. Copy the dialer's UUID shown in the admin URL.
 
-Use this VICIdial Dispo Call URL (replace the host, UUID, and secret):
+Use the **same VICIdial webhook URL in both Start Call URL and Dispo Call URL** (replace the host, UUID, and secret):
 
 ```text
-VARhttps://YOUR-PORTAL/api/v1/webhooks/vicidial/DIALER_UUID/dispo/?token=WEBHOOK_SECRET&lead_id=--A--lead_id--B--&call_id=--A--call_id--B--&uniqueid=--A--uniqueid--B--&agent_log_id=--A--agent_log_id--B--&user=--A--user--B--&campaign=--A--campaign--B--&phone_number=--A--phone_number--B--&list_id=--A--list_id--B--&dispo=--A--dispo--B--&talk_time=--A--talk_time--B--&term_reason=--A--term_reason--B--&recording_id=--A--recording_id--B--&recording_filename=--A--recording_filename--B--&call_date=--A--SQLdate--B--
+VARhttps://YOUR-PORTAL/api/v1/webhooks/vicidial/DIALER_UUID/dispo/?token=WEBHOOK_SECRET&lead_id=--A--lead_id--B--&call_id=--A--call_id--B--&uniqueid=--A--uniqueid--B--&closecallid=--A--closecallid--B--&xfercallid=--A--xfercallid--B--&agent_log_id=--A--agent_log_id--B--&user=--A--user--B--&agent_full_name=--A--fullname--B--&campaign=--A--campaign--B--&group=--A--group--B--&did_id=--A--did_id--B--&did_pattern=--A--did_pattern--B--&dialed_number=--A--dialed_number--B--&dialed_label=--A--dialed_label--B--&entry_list_id=--A--entry_list_id--B--&phone_number=--A--phone_number--B--&list_id=--A--list_id--B--&dispo=--A--dispo--B--&talk_time=--A--talk_time--B--&term_reason=--A--term_reason--B--&recording_id=--A--recording_id--B--&recording_filename=--A--recording_filename--B--&call_date=--A--SQLdate--B--
 ```
 
-The endpoint responds immediately after the call is stored. A Celery worker performs recording lookup and download with bounded exponential retries. Duplicate webhooks are idempotent.
+Start Call callbacks are normalized to `INCALL`, stored immediately in the call library, and **do not** start recording lookup, download, or QA processing. A later non-`INCALL` Dispo callback updates that same call row and starts the normal post-disposition pipeline. If no disposition arrives within two hours, Celery Beat marks the call `STALE`, sets `stale=true`, and skips recording/QA work. A late real disposition can still recover the same row, clear `stale`, and start normal processing.
+
+`client_status` is nullable and `sold` defaults to `false`. These fields are intentionally independent from VICIdial disposition: a dialer `SALE` never sets `sold=true` automatically. Newly disposed SALE calls can resolve their latest `XFER_3WAY` preset from VICIdial User Stats using separate encrypted per-dialer report credentials. Editor-enabled Project Managers can manually correct SALE business fields only inside their already-assigned projects. See [`CALL_INGESTION_LIFECYCLE.md`](CALL_INGESTION_LIFECYCLE.md) and [`CALL_EDITOR_AND_PRESET_LOOKUP.md`](CALL_EDITOR_AND_PRESET_LOOKUP.md). Duplicate webhooks remain idempotent.
 
 ## Security baseline
 
@@ -127,7 +129,7 @@ The endpoint responds immediately after the call is stored. A Celery worker perf
 - Five failed sign-ins lock that email/IP pair for one hour.
 - Every non-administrator user is constrained to one company and one branch.
 - API querysets and WebSocket groups enforce branch scope on the server.
-- Webhook secrets are one-way hashed; dialer API passwords are Fernet-encrypted at rest.
+- Webhook secrets are one-way hashed; dialer API passwords and VICIdial User Stats report passwords are Fernet-encrypted at rest.
 - Recording downloads require HTTPS, an explicit host allowlist, supported audio types, and a size cap.
 - Login, logout, failures, and password reset operations are audited.
 
@@ -142,13 +144,13 @@ Migration `calls.0015_remove_legacy_notification_email` removes only the old del
 Deploy during a maintenance window: stop old application/worker processes before applying this migration, so they cannot query removed columns or send old notifications. Build first, then back up and migrate:
 
 ```bash
-docker compose build backend worker frontend
+docker compose build backend worker beat frontend
 docker compose stop -t 300 backend worker
 mail_removal_backup="calllens-before-mail-removal-$(date -u +%Y%m%dT%H%M%SZ).dump"
 docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$mail_removal_backup"
 docker compose exec -T db pg_restore --list < "$mail_removal_backup"
 docker compose run --rm --no-deps -e DB_DIRECT=true --entrypoint python backend manage.py migrate --noinput
-docker compose up -d --no-deps backend worker frontend
+docker compose up -d --no-deps backend worker beat frontend
 docker compose logs --tail=100 backend worker
 ```
 

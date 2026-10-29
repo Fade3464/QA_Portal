@@ -7,6 +7,7 @@ import {
   CustomerServiceOutlined,
   DashboardOutlined,
   DownOutlined,
+  EditOutlined,
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -210,13 +211,17 @@ export function AppShell() {
       { key: '/', icon: <DashboardOutlined />, label: <Link to="/">{isQa ? 'QA overview' : 'Command center'}</Link> },
       { key: '/queue', icon: <AuditOutlined />, label: <Link to="/queue">{isQa ? 'My reports' : user?.role === 'team_leader' ? 'QA inbox' : 'QA reports'}</Link> },
       { key: '/calls', icon: <CustomerServiceOutlined />, label: <Link to="/calls">{isQa ? 'Calls for review' : 'Call library'}</Link> },
+      { key: '/editor', icon: <EditOutlined />, label: <Link to="/editor">Call editor</Link>, callEditor: true },
       { key: '/ai', icon: <RobotOutlined />, label: <Link to="/ai">AI Insights</Link>, allowAI: true },
       { key: '/insights', icon: <BarChartOutlined />, label: <Link to="/insights">Quality insights</Link>, roles: ['administrator'] },
       { key: '/admin', icon: <SettingOutlined />, label: <Link to="/admin">Administration</Link>, roles: ['administrator'] },
       { key: '/account', icon: <UserOutlined />, label: <Link to="/account">Account</Link> },
     ];
-    return all.filter((item) => ('allowAI' in item ? canUseAI(user ?? null) : (!item.roles || item.roles.includes(user?.role ?? ''))))
-      .map(({ key, icon, label }) => ({ key, icon, label }));
+    return all.filter((item) => {
+      if ('allowAI' in item) return canUseAI(user ?? null);
+      if ('callEditor' in item) return user?.role === 'project_manager' && Boolean(user.call_editor_access);
+      return !item.roles || item.roles.includes(user?.role ?? '');
+    }).map(({ key, icon, label }) => ({ key, icon, label }));
   }, [isQa, user]);
 
   const accountMenu: MenuProps['items'] = [

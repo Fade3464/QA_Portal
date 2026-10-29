@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import timedelta
 
 import httpx
 from celery import shared_task
@@ -9,9 +10,15 @@ from celery.exceptions import SoftTimeLimitExceeded
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.utils import timezone
 
 from .models import CallEvent
+from .preset_lookup import lookup_sale_preset
 from .services import download_recording, lookup_recording, recording_duration_seconds
+from apps.notifications.services import (
+    queue_missing_preset_notification,
+    resolve_missing_preset_notification,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +71,150 @@ def _refresh_recording_after_failure(event, reason):
         },
     )
     return recording
+
+
+PRESET_LOOKUP_RETRY_DELAYS = (15, 30, 45, 60)
+
+
+@shared_task(
+    name="calls.resolve_sale_preset",
+    bind=True,
+    max_retries=len(PRESET_LOOKUP_RETRY_DELAYS),
+    acks_late=True,
+    reject_on_worker_lost=True,
+    soft_time_limit=45,
+    time_limit=60,
+)
+def resolve_sale_preset(self, event_id: str):
+    """Resolve the newest XFER_3WAY preset for a newly-disposed SALE call.
+
+    VICIdial's User Stats report can lag behind the disposition callback, so the
+    task retries for roughly 2.5 minutes before notifying editor-enabled PMs.
+    Existing historical SALE rows are never backfilled because this task is only
+    queued by new disposition/editor transitions.
+    """
+    try:
+        event = CallEvent.objects.select_related("dialer", "dialer__branch", "branch").get(pk=event_id)
+    except CallEvent.DoesNotExist:
+        return {"status": "missing"}
+
+    if event.disposition.upper() != "SALE":
+        resolve_missing_preset_notification(event)
+        return {"status": "not_sale"}
+    if event.preset:
+        resolve_missing_preset_notification(event)
+        return {"status": "already_resolved", "preset": event.preset}
+
+    try:
+        result = lookup_sale_preset(event.dialer, event)
+    except ValidationError as exc:
+        logger.warning(
+            "SALE preset lookup configuration is unavailable",
+            extra={"event_id": event_id, "error": str(exc)},
+        )
+        queue_missing_preset_notification(event)
+        return {"status": "configuration_error", "error": str(exc)}
+    except httpx.HTTPError as exc:
+        result = None
+        error = str(exc)[:1000]
+    else:
+        error = "No matching XFER_3WAY preset is available yet"
+
+    if result is not None:
+        updated = CallEvent.objects.filter(
+            pk=event.pk, disposition__iexact="SALE", preset__isnull=True
+        ).update(preset=result.preset)
+        event.refresh_from_db(fields=["preset", "disposition"])
+        if event.disposition.upper() == "SALE" and event.preset:
+            resolve_missing_preset_notification(event)
+            logger.info(
+                "Resolved VICIdial SALE preset",
+                extra={
+                    "event_id": event_id,
+                    "preset": event.preset,
+                    "occurred_at": result.occurred_at.isoformat(),
+                    "dialed": result.dialed,
+                    "updated": bool(updated),
+                },
+            )
+            return {"status": "resolved", "preset": event.preset}
+        return {"status": "superseded"}
+
+    if self.request.retries >= self.max_retries:
+        queue_missing_preset_notification(event)
+        logger.warning(
+            "SALE call has no preset after VICIdial lookup retries",
+            extra={"event_id": event_id, "error": error},
+        )
+        return {"status": "not_found"}
+
+    countdown = PRESET_LOOKUP_RETRY_DELAYS[
+        min(self.request.retries, len(PRESET_LOOKUP_RETRY_DELAYS) - 1)
+    ]
+    logger.info(
+        "SALE preset lookup will retry",
+        extra={
+            "event_id": event_id,
+            "attempt": self.request.retries + 1,
+            "countdown": countdown,
+            "error": error,
+        },
+    )
+    raise self.retry(exc=RuntimeError(error), countdown=countdown)
+
+
+@shared_task(name="calls.mark_stale_calls")
+def mark_stale_calls(batch_size: int = 500):
+    """Mark provisional Start Call records stale after two hours.
+
+    Rows are locked in small batches so a final disposition racing this sweep
+    either wins first (and is skipped here) or cleanly recovers the STALE row
+    immediately afterward. No recording or QA work is started for stale calls.
+    """
+    cutoff = timezone.now() - timedelta(hours=2)
+    with transaction.atomic():
+        events = list(
+            CallEvent.objects.select_for_update(skip_locked=True)
+            .filter(
+                event_type=CallEvent.EventType.DISPOSITION,
+                disposition="INCALL",
+                stale=False,
+                received_at__lte=cutoff,
+            )
+            .order_by("received_at")[: max(1, min(batch_size, 5000))]
+        )
+        if not events:
+            return {"status": "ok", "marked_stale": 0}
+
+        for event in events:
+            event.disposition = "STALE"
+            event.stale = True
+            event.recording_lookup_status = CallEvent.Status.SKIPPED
+            event.recording_download_status = CallEvent.Status.SKIPPED
+            event.recording_lookup_last_error = (
+                "Call remained INCALL for more than two hours without a disposition"
+            )
+            event.recording_download_last_error = (
+                "Recording processing is not applicable to stale calls"
+            )
+
+        CallEvent.objects.bulk_update(
+            events,
+            [
+                "disposition",
+                "stale",
+                "recording_lookup_status",
+                "recording_download_status",
+                "recording_lookup_last_error",
+                "recording_download_last_error",
+            ],
+        )
+
+    logger.warning(
+        "Marked undispositioned VICIdial calls stale",
+        extra={"count": len(events), "cutoff": cutoff.isoformat()},
+    )
+    return {"status": "ok", "marked_stale": len(events)}
 
 
 @shared_task(

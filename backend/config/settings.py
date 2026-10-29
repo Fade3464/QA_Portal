@@ -208,7 +208,24 @@ CELERY_TASK_TIME_LIMIT = 300
 # ``calls.fetch_recording``), so routing must match those names rather than the
 # Python module path.
 CELERY_TASK_ROUTES = {
-    "calls.*": {"queue": "recordings"},
+    "calls.resolve_recording": {"queue": "recordings"},
+    "calls.fetch_recording": {"queue": "recordings"},
+    # Preset lookups are light HTTP/report parsing work and should not queue
+    # behind recording downloads.
+    "calls.resolve_sale_preset": {"queue": "celery"},
+    # Keep stale-call housekeeping on the default queue so a large recording
+    # backlog cannot delay two-hour lifecycle enforcement.
+    "calls.mark_stale_calls": {"queue": "celery"},
+}
+
+# Sweep provisional Start Call URL records once per minute. The task itself
+# marks only INCALL rows that are at least two hours old, so late dispositions
+# can still recover the same canonical call row.
+CELERY_BEAT_SCHEDULE = {
+    "mark-stale-incall-calls": {
+        "task": "calls.mark_stale_calls",
+        "schedule": 60.0,
+    },
 }
 
 AXES_ENABLED = True
