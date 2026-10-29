@@ -1,0 +1,15 @@
+apiVersion: 1
+
+datasources:
+  - name: CallLens Analytics API
+    uid: calllens-api
+    type: yesoreyeram-infinity-datasource
+    access: proxy
+    isDefault: true
+    editable: false
+    jsonData:
+      auth_method: bearerToken
+      allowedHosts:
+        - http://backend:8000
+    secureJsonData:
+      bearerToken: $GRAFANA_ANALYTICS_API_TOKEN

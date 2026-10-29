@@ -63,6 +63,7 @@ INSTALLED_APPS = [
     "apps.notifications",
     "apps.feedback",
     "apps.ai_assistant",
+    "apps.analytics.apps.AnalyticsConfig",
 ]
 
 MIDDLEWARE = [
@@ -216,6 +217,8 @@ CELERY_TASK_ROUTES = {
     # Keep stale-call housekeeping on the default queue so a large recording
     # backlog cannot delay two-hour lifecycle enforcement.
     "calls.mark_stale_calls": {"queue": "celery"},
+    "analytics.sync_grafana_viewer": {"queue": "celery"},
+    "analytics.sync_all_grafana_viewers": {"queue": "celery"},
 }
 
 # Sweep provisional Start Call URL records once per minute. The task itself
@@ -225,6 +228,12 @@ CELERY_BEAT_SCHEDULE = {
     "mark-stale-incall-calls": {
         "task": "calls.mark_stale_calls",
         "schedule": 60.0,
+    },
+    # Keeps the shared company viewer credential converged after Grafana
+    # restarts or an Administration-side password change.
+    "sync-grafana-viewer": {
+        "task": "analytics.sync_all_grafana_viewers",
+        "schedule": 600.0,
     },
 }
 
@@ -282,6 +291,15 @@ if not DIALER_CREDENTIAL_KEY:
         raise ImproperlyConfigured(
             "DIALER_CREDENTIAL_KEY is required when DEBUG is false"
         )
+
+# Grafana is an isolated sidecar. Only its service-admin credentials can manage
+# the shared viewer account; dashboard data uses a separate bearer token and
+# never grants Grafana direct database access.
+GRAFANA_SERVICE_URL = os.getenv("GRAFANA_SERVICE_URL", "http://grafana:3000")
+GRAFANA_SERVICE_ADMIN_USER = os.getenv("GRAFANA_SERVICE_ADMIN_USER", "calllens_grafana_admin")
+GRAFANA_SERVICE_ADMIN_PASSWORD = os.getenv("GRAFANA_SERVICE_ADMIN_PASSWORD", "")
+GRAFANA_ANALYTICS_API_TOKEN = os.getenv("GRAFANA_ANALYTICS_API_TOKEN", "")
+
 RECORDING_RETRY_DELAYS = [
     int(value) for value in env_list("RECORDING_RETRY_DELAYS", "5,15,30,60,120")
 ]

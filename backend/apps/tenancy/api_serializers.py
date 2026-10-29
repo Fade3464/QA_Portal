@@ -1,3 +1,5 @@
+import re
+from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
@@ -19,6 +21,11 @@ from .models import (
 class CompanyAdminSerializer(serializers.ModelSerializer):
     branches_count = serializers.IntegerField(read_only=True)
     users_count = serializers.IntegerField(read_only=True)
+    grafana_viewer_password = serializers.CharField(
+        write_only=True, required=False, allow_blank=False, min_length=12
+    )
+    grafana_credentials_configured = serializers.SerializerMethodField()
+    analytics_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Company
@@ -27,12 +34,106 @@ class CompanyAdminSerializer(serializers.ModelSerializer):
             "name",
             "slug",
             "is_active",
+            "analytics_enabled",
+            "grafana_viewer_username",
+            "grafana_viewer_password",
+            "grafana_credentials_configured",
+            "analytics_url",
             "branches_count",
             "users_count",
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "created_at", "updated_at")
+        read_only_fields = (
+            "id", "grafana_credentials_configured", "analytics_url",
+            "created_at", "updated_at"
+        )
+
+    def get_grafana_credentials_configured(self, obj):
+        return bool(obj.grafana_viewer_password_ciphertext)
+
+    def get_analytics_url(self, obj):
+        return "/analytics/" if obj.analytics_enabled else ""
+
+    def validate(self, attrs):
+        enabled = attrs.get(
+            "analytics_enabled",
+            getattr(self.instance, "analytics_enabled", False),
+        )
+        username = attrs.get(
+            "grafana_viewer_username",
+            getattr(self.instance, "grafana_viewer_username", ""),
+        ).strip()
+        password = attrs.get("grafana_viewer_password", "")
+        existing_password = bool(
+            self.instance and self.instance.grafana_viewer_password_ciphertext
+        )
+        if enabled:
+            errors = {}
+            if not username:
+                errors["grafana_viewer_username"] = "A shared Grafana viewer username is required."
+            elif not re.fullmatch(r"[A-Za-z0-9._-]{3,64}", username):
+                errors["grafana_viewer_username"] = (
+                    "Use 3-64 letters, numbers, dots, underscores, or hyphens."
+                )
+            elif username.casefold() == settings.GRAFANA_SERVICE_ADMIN_USER.casefold():
+                errors["grafana_viewer_username"] = (
+                    "The shared viewer username must differ from the internal Grafana administrator."
+                )
+            if not password and not existing_password:
+                errors["grafana_viewer_password"] = "A shared Grafana viewer password is required."
+            if password and not (
+                re.search(r"[a-z]", password)
+                and re.search(r"[A-Z]", password)
+                and re.search(r"[0-9]", password)
+                and re.search(r"[^A-Za-z0-9]", password)
+            ):
+                errors["grafana_viewer_password"] = (
+                    "Use at least 12 characters with upper/lowercase, a number, and a symbol."
+                )
+            conflict = Company.objects.filter(analytics_enabled=True)
+            if self.instance:
+                conflict = conflict.exclude(pk=self.instance.pk)
+            if conflict.exists():
+                errors["analytics_enabled"] = (
+                    "Sales analytics is already enabled for another company in this portal deployment."
+                )
+            if errors:
+                raise serializers.ValidationError(errors)
+        attrs["grafana_viewer_username"] = username
+        return attrs
+
+    @staticmethod
+    def _queue_grafana_sync(company):
+        from apps.analytics.tasks import sync_grafana_viewer
+        transaction.on_commit(lambda: sync_grafana_viewer.delay(str(company.pk)))
+
+    def create(self, validated_data):
+        password = validated_data.pop("grafana_viewer_password", "")
+        with transaction.atomic():
+            company = Company(**validated_data)
+            if password:
+                company.set_grafana_viewer_password(password)
+            company.full_clean()
+            company.save()
+            if company.analytics_enabled:
+                self._queue_grafana_sync(company)
+        return company
+
+    def update(self, instance, validated_data):
+        password = validated_data.pop("grafana_viewer_password", "")
+        with transaction.atomic():
+            for field, value in validated_data.items():
+                setattr(instance, field, value)
+            if password:
+                instance.set_grafana_viewer_password(password)
+            instance.full_clean()
+            instance.save()
+            # Queue on both enable and disable so a previously-created viewer
+            # account is removed when analytics is turned off.
+            if instance.analytics_enabled or instance.grafana_user_id:
+                self._queue_grafana_sync(instance)
+        return instance
 
 
 class BranchAdminSerializer(serializers.ModelSerializer):

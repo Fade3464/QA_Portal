@@ -429,6 +429,10 @@ export interface CompanyRecord {
   name: string;
   slug: string;
   is_active: boolean;
+  analytics_enabled: boolean;
+  grafana_viewer_username: string;
+  grafana_credentials_configured: boolean;
+  analytics_url: string;
   branches_count: number;
   users_count: number;
   created_at: string;

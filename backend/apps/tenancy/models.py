@@ -14,12 +14,65 @@ class Company(models.Model):
     name = models.CharField(max_length=160, unique=True)
     slug = models.SlugField(max_length=180, unique=True)
     is_active = models.BooleanField(default=True)
+
+    # One company per portal deployment can expose the shared Grafana sales
+    # analytics workspace. Viewer credentials are encrypted at rest using the
+    # same deployment key used for other external-service credentials.
+    analytics_enabled = models.BooleanField(default=False, db_index=True)
+    grafana_viewer_username = models.CharField(max_length=120, blank=True)
+    grafana_viewer_password_ciphertext = models.TextField(blank=True, editable=False)
+    grafana_user_id = models.PositiveIntegerField(null=True, blank=True, editable=False)
+    grafana_synced_username = models.CharField(max_length=120, blank=True, editable=False)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["name"]
         verbose_name_plural = "companies"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["analytics_enabled"],
+                condition=models.Q(analytics_enabled=True),
+                name="single_analytics_company",
+            )
+        ]
+
+    @staticmethod
+    def _credential_fernet() -> Fernet:
+        key = settings.DIALER_CREDENTIAL_KEY
+        if not key:
+            raise ImproperlyConfigured(
+                "DIALER_CREDENTIAL_KEY is required to store Grafana credentials"
+            )
+        return Fernet(key.encode())
+
+    def set_grafana_viewer_password(self, raw_password: str) -> None:
+        self.grafana_viewer_password_ciphertext = (
+            self._credential_fernet().encrypt(raw_password.encode()).decode()
+        )
+
+    def get_grafana_viewer_password(self) -> str:
+        if not self.grafana_viewer_password_ciphertext:
+            return ""
+        try:
+            return (
+                self._credential_fernet()
+                .decrypt(self.grafana_viewer_password_ciphertext.encode())
+                .decode()
+            )
+        except (InvalidToken, ValueError) as exc:
+            raise ValidationError(
+                "The stored Grafana viewer credential cannot be decrypted."
+            ) from exc
+
+    @property
+    def has_grafana_viewer_config(self) -> bool:
+        return bool(
+            self.analytics_enabled
+            and self.grafana_viewer_username
+            and self.grafana_viewer_password_ciphertext
+        )
 
     def __str__(self) -> str:
         return self.name

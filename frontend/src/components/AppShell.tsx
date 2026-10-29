@@ -211,6 +211,7 @@ export function AppShell() {
       { key: '/', icon: <DashboardOutlined />, label: <Link to="/">{isQa ? 'QA overview' : 'Command center'}</Link> },
       { key: '/queue', icon: <AuditOutlined />, label: <Link to="/queue">{isQa ? 'My reports' : user?.role === 'team_leader' ? 'QA inbox' : 'QA reports'}</Link> },
       { key: '/calls', icon: <CustomerServiceOutlined />, label: <Link to="/calls">{isQa ? 'Calls for review' : 'Call library'}</Link> },
+      { key: '/analytics/', icon: <BarChartOutlined />, label: <a href="/analytics/">Sales analytics</a> },
       { key: '/editor', icon: <EditOutlined />, label: <Link to="/editor">Call editor</Link>, callEditor: true },
       { key: '/ai', icon: <RobotOutlined />, label: <Link to="/ai">AI Insights</Link>, allowAI: true },
       { key: '/insights', icon: <BarChartOutlined />, label: <Link to="/insights">Quality insights</Link>, roles: ['administrator'] },

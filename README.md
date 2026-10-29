@@ -177,3 +177,8 @@ shared analytics/authorization services, migration `0003`, staging tests and
 ### V3 conversational analytics changes
 
 See [AI_V3_CONVERSATIONAL_REFACTOR.md](AI_V3_CONVERSATIONAL_REFACTOR.md) for the latest V3 ranking, context and tool-use changes, bounded security model, and staging acceptance commands. V3 is a prototype and must be independently validated before management decisions.
+
+
+## Sales analytics
+
+The optional company-wide Grafana sidecar is documented in [`GRAFANA_SALES_ANALYTICS.md`](GRAFANA_SALES_ANALYTICS.md). It is served at `/analytics/` and consumes only the aggregate CallLens analytics API.
