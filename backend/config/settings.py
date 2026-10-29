@@ -221,11 +221,11 @@ CELERY_TASK_ROUTES = {
     "analytics.sync_all_grafana_viewers": {"queue": "celery"},
 }
 
-# Sweep provisional Start Call URL records once per minute. The task itself
-# marks only INCALL rows that are at least two hours old, so late dispositions
-# can still recover the same canonical call row.
+# Sweep provisional Start Call URL records once per minute. The task marks
+# NEW rows (plus legacy INCALL rows) that are at least two hours old, so late
+# dispositions can still recover the same canonical call row.
 CELERY_BEAT_SCHEDULE = {
-    "mark-stale-incall-calls": {
+    "mark-stale-start-calls": {
         "task": "calls.mark_stale_calls",
         "schedule": 60.0,
     },

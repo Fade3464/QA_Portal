@@ -5,6 +5,12 @@ from django.core.exceptions import ValidationError
 
 
 class CallEvent(models.Model):
+    # VICIdial Start Call URL currently reports NEW. INCALL is retained only
+    # as a legacy provisional value so rows created by older deployments can
+    # still be finalized or swept stale safely.
+    CANONICAL_START_DISPOSITION = "NEW"
+    PROVISIONAL_START_DISPOSITIONS = ("NEW", "INCALL")
+
     class EventType(models.TextChoices):
         DISPOSITION = "dispo", "Disposition"
         NO_AGENT = "no_agent", "No agent"
@@ -192,8 +198,8 @@ class CallEvent(models.Model):
         db_index=True,
     )
 
-    # True only when an INCALL record exceeded the two-hour disposition
-    # window. This is independent from business outcome fields such as sold.
+    # True only when a provisional Start Call record exceeded the two-hour
+    # disposition window. This is independent from business outcome fields such as sold.
     stale = models.BooleanField(
         default=False,
         db_index=True,

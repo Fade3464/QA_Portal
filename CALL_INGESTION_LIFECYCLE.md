@@ -12,7 +12,7 @@ Do not store a real production webhook secret in documentation or source control
 
 ## Start Call URL behavior
 
-A Start Call callback is treated as provisional when `dispo` is `INCALL`, blank, or the unsubstituted placeholder `--A--dispo--B--`. CallLens normalizes the stored disposition to `INCALL`.
+A Start Call callback is treated as provisional when `dispo` is `NEW`, blank, the unsubstituted placeholder `--A--dispo--B--`, or legacy `INCALL`. CallLens normalizes new provisional callbacks to the canonical stored disposition `NEW`. Existing legacy `INCALL` rows remain supported for safe upgrades.
 
 The call is inserted into the normal call library immediately, but the backend deliberately does **not** start:
 
@@ -25,7 +25,7 @@ The existing recording status fields remain pending until a real disposition arr
 
 ## Final disposition behavior
 
-A later non-`INCALL` callback on the same webhook updates the existing provisional row instead of inserting a second call.
+A later real disposition callback on the same webhook updates the existing provisional `NEW` (or legacy `INCALL`) row instead of inserting a second call.
 
 Matching is performed in this order:
 
@@ -38,7 +38,7 @@ On finalization CallLens refreshes dialer-owned metadata, clears `stale`, resets
 
 ## Stale calls
 
-Celery Beat runs `calls.mark_stale_calls` every 60 seconds. Any `INCALL` row whose `received_at` is at least two hours old is changed to:
+Celery Beat runs `calls.mark_stale_calls` every 60 seconds. Any provisional `NEW` row (and any legacy `INCALL` row) whose `received_at` is at least two hours old is changed to:
 
 ```text
 disposition = STALE

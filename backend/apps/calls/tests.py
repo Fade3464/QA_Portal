@@ -747,7 +747,7 @@ class WebhookTests(TestCase):
 
     @patch("apps.calls.webhooks.announce_call")
     @patch("apps.calls.webhooks.resolve_recording.delay")
-    def test_start_call_incall_is_logged_without_post_disposition_processing(
+    def test_start_call_new_is_logged_without_post_disposition_processing(
         self, queue_task, announce
     ):
         payload = {
@@ -760,7 +760,7 @@ class WebhookTests(TestCase):
             "agent_full_name": "Alpha - Agent One",
             "campaign": "002",
             "phone_number": "2695390577",
-            "dispo": "INCALL",
+            "dispo": "NEW",
             "talk_time": "0",
             "call_date": "2026-10-29 10:40:34",
         }
@@ -773,17 +773,35 @@ class WebhookTests(TestCase):
         self.assertTrue(response.json()["pending_disposition"])
         self.assertFalse(response.json()["finalized"])
         event = CallEvent.objects.get(call_id="V-START-1")
-        self.assertEqual(event.disposition, "INCALL")
+        self.assertEqual(event.disposition, "NEW")
         self.assertFalse(event.stale)
         self.assertIsNone(event.client_status)
         self.assertFalse(event.sold)
         queue_task.assert_not_called()
         announce.assert_called_once_with(event)
 
+    @patch("apps.calls.webhooks.resolve_recording.delay")
+    def test_legacy_incall_start_is_accepted_and_normalized_to_new(self, queue_task):
+        response = self.client.get(
+            self.url,
+            {
+                "token": self.secret,
+                "lead_id": "LEGACY-START-1",
+                "call_id": "V-LEGACY-START-1",
+                "user": "8102",
+                "dispo": "INCALL",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["pending_disposition"])
+        self.assertEqual(CallEvent.objects.get().disposition, "NEW")
+        queue_task.assert_not_called()
+
     @patch("apps.calls.webhooks.announce_call")
     @patch("apps.calls.webhooks.resolve_sale_preset.delay")
     @patch("apps.calls.webhooks.resolve_recording.delay")
-    def test_final_disposition_updates_existing_incall_and_starts_pipeline_once(
+    def test_final_disposition_updates_existing_new_and_starts_pipeline_once(
         self, queue_task, preset_task, announce
     ):
         base = {
@@ -798,7 +816,7 @@ class WebhookTests(TestCase):
             "call_date": "2026-10-29 10:40:34",
         }
         with self.captureOnCommitCallbacks(execute=True):
-            start = self.client.get(self.url, {**base, "dispo": "INCALL"})
+            start = self.client.get(self.url, {**base, "dispo": "NEW"})
         event_id = start.json()["event_id"]
         queue_task.reset_mock()
         announce.reset_mock()
@@ -865,7 +883,7 @@ class WebhookTests(TestCase):
             "call_date": "2026-10-29 10:40:34",
         }
         with self.captureOnCommitCallbacks(execute=True):
-            start = self.client.get(self.url, {**base, "dispo": "INCALL"})
+            start = self.client.get(self.url, {**base, "dispo": "NEW"})
         event_id = start.json()["event_id"]
         # Simulate a PM manually classifying the stale call as SALE before
         # VICIdial eventually sends its authoritative final callback. The stale
@@ -916,7 +934,7 @@ class WebhookTests(TestCase):
             "call_date": "2026-10-29 10:40:34",
         }
         with self.captureOnCommitCallbacks(execute=True):
-            start = self.client.get(self.url, {**base, "dispo": "INCALL"})
+            start = self.client.get(self.url, {**base, "dispo": "NEW"})
         event_id = start.json()["event_id"]
         CallEvent.objects.filter(pk=event_id).update(
             disposition="SALE",
@@ -950,7 +968,7 @@ class WebhookTests(TestCase):
 
     @patch("apps.calls.webhooks.announce_call")
     @patch("apps.calls.webhooks.resolve_recording.delay")
-    def test_unresolved_start_dispo_placeholder_is_treated_as_incall(
+    def test_unresolved_start_dispo_placeholder_is_treated_as_new(
         self, queue_task, _announce
     ):
         response = self.client.get(
@@ -965,25 +983,33 @@ class WebhookTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["pending_disposition"])
-        self.assertEqual(CallEvent.objects.get().disposition, "INCALL")
+        self.assertEqual(CallEvent.objects.get().disposition, "NEW")
         queue_task.assert_not_called()
 
-    def test_stale_sweep_marks_only_old_incall_rows(self):
+    def test_stale_sweep_marks_old_new_and_legacy_incall_rows(self):
         old = CallEvent.objects.create(
             dialer=self.dialer,
             branch=self.branch,
-            event_key="old-incall".ljust(64, "0"),
+            event_key="old-new".ljust(64, "0"),
             event_type=CallEvent.EventType.DISPOSITION,
-            call_id="V-OLD-INCALL",
+            call_id="V-OLD-NEW",
+            disposition="NEW",
+        )
+        legacy_incall = CallEvent.objects.create(
+            dialer=self.dialer,
+            branch=self.branch,
+            event_key="legacy-incall".ljust(64, "0"),
+            event_type=CallEvent.EventType.DISPOSITION,
+            call_id="V-LEGACY-INCALL",
             disposition="INCALL",
         )
         fresh = CallEvent.objects.create(
             dialer=self.dialer,
             branch=self.branch,
-            event_key="fresh-incall".ljust(64, "0"),
+            event_key="fresh-new".ljust(64, "0"),
             event_type=CallEvent.EventType.DISPOSITION,
-            call_id="V-FRESH-INCALL",
-            disposition="INCALL",
+            call_id="V-FRESH-NEW",
+            disposition="NEW",
         )
         finalized = CallEvent.objects.create(
             dialer=self.dialer,
@@ -993,21 +1019,25 @@ class WebhookTests(TestCase):
             call_id="V-FINALIZED",
             disposition="SALE",
         )
-        CallEvent.objects.filter(pk=old.pk).update(
-            received_at=timezone.now() - timedelta(hours=2, minutes=1)
+        old_time = timezone.now() - timedelta(hours=2, minutes=1)
+        CallEvent.objects.filter(pk__in=[old.pk, legacy_incall.pk]).update(
+            received_at=old_time
         )
 
         result = mark_stale_calls()
 
-        self.assertEqual(result["marked_stale"], 1)
+        self.assertEqual(result["marked_stale"], 2)
         old.refresh_from_db()
+        legacy_incall.refresh_from_db()
         fresh.refresh_from_db()
         finalized.refresh_from_db()
         self.assertEqual(old.disposition, "STALE")
         self.assertTrue(old.stale)
+        self.assertEqual(legacy_incall.disposition, "STALE")
+        self.assertTrue(legacy_incall.stale)
         self.assertEqual(old.recording_lookup_status, CallEvent.Status.SKIPPED)
         self.assertEqual(old.recording_download_status, CallEvent.Status.SKIPPED)
-        self.assertEqual(fresh.disposition, "INCALL")
+        self.assertEqual(fresh.disposition, "NEW")
         self.assertFalse(fresh.stale)
         self.assertEqual(finalized.disposition, "SALE")
         self.assertFalse(finalized.stale)

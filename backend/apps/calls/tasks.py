@@ -177,7 +177,7 @@ def mark_stale_calls(batch_size: int = 500):
             CallEvent.objects.select_for_update(skip_locked=True)
             .filter(
                 event_type=CallEvent.EventType.DISPOSITION,
-                disposition="INCALL",
+                disposition__in=CallEvent.PROVISIONAL_START_DISPOSITIONS,
                 stale=False,
                 received_at__lte=cutoff,
             )
@@ -192,7 +192,7 @@ def mark_stale_calls(batch_size: int = 500):
             event.recording_lookup_status = CallEvent.Status.SKIPPED
             event.recording_download_status = CallEvent.Status.SKIPPED
             event.recording_lookup_last_error = (
-                "Call remained INCALL for more than two hours without a disposition"
+                "Call remained in the provisional start state for more than two hours without a final disposition"
             )
             event.recording_download_last_error = (
                 "Recording processing is not applicable to stale calls"

@@ -129,9 +129,10 @@ def receive_vicidial(
     """Receive both VICIdial Start Call and final disposition callbacks.
 
     The same ``dispo`` webhook URL can be configured in both VICIdial fields.
-    Start Call callbacks are stored as ``INCALL`` and deliberately do not start
-    recording/QA processing. A later non-INCALL disposition updates the same
-    canonical row and starts the existing post-disposition pipeline.
+    Start Call callbacks are stored canonically as ``NEW`` and deliberately do
+    not start recording/QA processing. ``INCALL`` remains accepted as a legacy
+    provisional value. A later real disposition updates the same canonical row
+    and starts the existing post-disposition pipeline.
     """
     dialer = (
         Dialer.objects.select_related("branch")
@@ -162,10 +163,14 @@ def receive_vicidial(
     unresolved_placeholder = normalized_disposition.casefold() == "--a--dispo--b--"
     is_start_call = event_type == CallEvent.EventType.DISPOSITION and (
         not normalized_disposition
-        or normalized_disposition.upper() == "INCALL"
+        or normalized_disposition.upper() in CallEvent.PROVISIONAL_START_DISPOSITIONS
         or unresolved_placeholder
     )
-    disposition = "INCALL" if is_start_call else normalized_disposition.upper()
+    disposition = (
+        CallEvent.CANONICAL_START_DISPOSITION
+        if is_start_call
+        else normalized_disposition.upper()
+    )
 
     team_name, agent_name = parse_agent_full_name(payload.get("agent_full_name", ""))
     team = resolve_team_prefix(dialer.branch, team_name) if team_name else None
@@ -236,7 +241,8 @@ def receive_vicidial(
                 event_type=CallEvent.EventType.DISPOSITION,
             )
             .filter(
-                Q(disposition__in=("INCALL", "STALE")) | Q(stale=True)
+                Q(disposition__in=(*CallEvent.PROVISIONAL_START_DISPOSITIONS, "STALE"))
+                | Q(stale=True)
             )
         )
         unique_id = values["unique_id"]
@@ -287,7 +293,7 @@ def receive_vicidial(
 
         if event is None and is_start_call and event_type == CallEvent.EventType.DISPOSITION:
             # A delayed/retried Start Call callback must never create a second
-            # INCALL row after the real disposition has already finalized the
+            # provisional row after the real disposition has already finalized the
             # call. Only use strong VICIdial identifiers for this guard.
             existing = CallEvent.objects.select_for_update().filter(
                 dialer=dialer,
@@ -386,7 +392,7 @@ def receive_vicidial(
         if created and is_start_call:
             transaction.on_commit(lambda: announce_call(event))
 
-        # Only a newly-created final call or an INCALL/STALE row that was just
+        # Only a newly-created final call or a provisional/STALE row that was just
         # finalized may enter the existing post-disposition pipeline.
         if finalized_now:
             transaction.on_commit(lambda: resolve_recording.delay(str(event.pk)))
