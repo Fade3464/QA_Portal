@@ -30,7 +30,7 @@ class DashboardSummaryView(APIView):
     def get(self, request):
         calls = scoped_calls(request.user)
         since = timezone.now() - timedelta(hours=24)
-        recent = calls.filter(received_at__gte=since)
+        recent = calls.filter(effective_received_at__gte=since).order_by("-effective_received_at")
         review_scope = Review.objects.filter(call__in=calls)
         metrics = recent.aggregate(
             total_calls=Count("id"),

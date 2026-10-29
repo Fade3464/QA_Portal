@@ -112,3 +112,17 @@ docker compose run --rm --no-deps -e DB_DIRECT=true --entrypoint python backend 
 ```
 
 The calls rollback removes the client-duration/preset fields first and then the stale/client-status/sold lifecycle fields. Do not remove migration files before reversing them.
+
+## Lifecycle timestamp and idempotency integrity
+
+CallLens deliberately separates the first callback receipt from final-disposition receipt.
+
+- `received_at` is immutable and records when the lifecycle row was first created (normally the Start Call callback).
+- `finalized_at` records the first authoritative non-provisional disposition callback.
+- API/UI `received_at` presentation uses `finalized_at` when present, otherwise the first receipt. The original value remains available as `first_received_at`.
+- stale detection continues to use the immutable first receipt, so a callback retry cannot extend the two-hour stale window.
+- the webhook idempotency key is based on stable VICIdial identifiers (`call_id`, then `agent_log_id`, then `uniqueid`) and does not include mutable disposition, SQLdate, recording ID, or talk time.
+- duplicate/corrected final callbacks therefore update the same lifecycle row and do not enqueue duplicate recording/QA work.
+- legacy rows created with the older event-key scheme remain compatible because the webhook also reconciles by strong VICIdial identifiers.
+
+For VICIdial configuration, configure the Start Call URL with a literal `dispo=NEW`. Keep the final Dispo Call URL dynamic with `dispo=--A--dispo--B--`. Do not use the static Start Call URL in the final-disposition field.

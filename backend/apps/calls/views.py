@@ -69,7 +69,10 @@ def scoped_calls(user):
     ).values("project_name")[:1]
     queryset = CallEvent.objects.select_related(
         "dialer", "branch", "team", "review__reviewer"
-    ).annotate(project_name=Subquery(project))
+    ).annotate(
+        project_name=Subquery(project),
+        effective_received_at=Coalesce("finalized_at", "received_at"),
+    )
     if user.is_superuser:
         return queryset
     if user.role == User.Role.SUPERVISOR:
@@ -1240,10 +1243,13 @@ class CallListView(ListAPIView):
         date_to = self._datetime("date_to")
         if date_from and date_to and date_from > date_to:
             raise ValidationError({"date_to": "End time must be after start time."})
+        effective_date_field = (
+            "effective_received_at" if date_field == "received_at" else "call_date"
+        )
         if date_from:
-            queryset = queryset.filter(**{f"{date_field}__gte": date_from})
+            queryset = queryset.filter(**{f"{effective_date_field}__gte": date_from})
         if date_to:
-            queryset = queryset.filter(**{f"{date_field}__lte": date_to})
+            queryset = queryset.filter(**{f"{effective_date_field}__lte": date_to})
 
         talk_time_min = self._non_negative_int("talk_time_min")
         talk_time_max = self._non_negative_int("talk_time_max")
@@ -1276,6 +1282,8 @@ class CallListView(ListAPIView):
         }
         if ordering.lstrip("-") not in allowed_ordering:
             raise ValidationError({"ordering": "Unsupported sort order."})
+        if ordering.lstrip("-") == "received_at":
+            ordering = ("-" if ordering.startswith("-") else "") + "effective_received_at"
         return queryset.order_by(ordering, "-id")
 
 
@@ -1482,7 +1490,7 @@ class CallEditorListView(ListAPIView):
             queryset = queryset.filter(call_date__date__gte=date_from)
         if date_to:
             queryset = queryset.filter(call_date__date__lte=date_to)
-        return queryset.order_by("-call_date", "-received_at", "-id")
+        return queryset.order_by("-call_date", "-effective_received_at", "-id")
 
 
 class CallEditorDetailView(APIView):

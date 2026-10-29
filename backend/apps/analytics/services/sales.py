@@ -48,9 +48,19 @@ def _base_queryset(company: Company, start: datetime, end: datetime, *, team="",
         CallEvent.objects.filter(branch__company=company)
         .filter(
             Q(call_date__gte=start, call_date__lte=end)
-            | Q(call_date__isnull=True, received_at__gte=start, received_at__lte=end)
+            | Q(
+                call_date__isnull=True,
+                finalized_at__gte=start,
+                finalized_at__lte=end,
+            )
+            | Q(
+                call_date__isnull=True,
+                finalized_at__isnull=True,
+                received_at__gte=start,
+                received_at__lte=end,
+            )
         )
-        .annotate(analytics_at=Coalesce("call_date", "received_at"))
+        .annotate(analytics_at=Coalesce("call_date", "finalized_at", "received_at"))
         .annotate(project_name=Subquery(project_subquery))
     )
     team = _clean_filter(team)

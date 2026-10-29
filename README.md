@@ -182,3 +182,8 @@ See [AI_V3_CONVERSATIONAL_REFACTOR.md](AI_V3_CONVERSATIONAL_REFACTOR.md) for the
 ## Sales analytics
 
 The optional company-wide Grafana sidecar is documented in [`GRAFANA_SALES_ANALYTICS.md`](GRAFANA_SALES_ANALYTICS.md). It is served at `/analytics/` and consumes only the aggregate CallLens analytics API.
+
+
+### Call lifecycle integrity
+
+VICIdial Start Call callbacks use `NEW`. CallEvent preserves immutable first receipt (`received_at`) and first final-disposition receipt (`finalized_at`) separately. The Call Library displays/sorts by the effective receipt time (`finalized_at` when available). Webhook idempotency uses stable VICIdial identifiers, so disposition/SQLdate changes and duplicate final callbacks cannot create a second lifecycle row when a strong call identifier is present.

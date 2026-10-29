@@ -149,7 +149,9 @@ def lookup_sale_preset(dialer: Dialer, event) -> PresetLookupResult | None:
 
     zone = ZoneInfo(dialer.branch.timezone)
     raw_payload = event.raw_payload or {}
-    finalized_at = parse_datetime(str(raw_payload.get("ingested_finalized_at", "")))
+    finalized_at = event.finalized_at or parse_datetime(
+        str(raw_payload.get("ingested_finalized_at", ""))
+    )
     if finalized_at is None:
         finalized_at = timezone.now()
     if timezone.is_naive(finalized_at):

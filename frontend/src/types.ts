@@ -222,6 +222,8 @@ export interface QAReportSummary {
 export interface CallEvent {
   id: string;
   received_at: string;
+  first_received_at: string;
+  finalized_at: string | null;
   call_date: string | null;
   call_id: string;
   closecallid: string;

@@ -30,20 +30,52 @@ class RecordingResult:
     location: str
 
 
+def _identity_value(value) -> str:
+    cleaned = str(value or "").strip()
+    if not cleaned:
+        return ""
+    upper = cleaned.upper()
+    if upper in {"0", "NULL", "NONE", "N/A"}:
+        return ""
+    # VICIdial leaves unresolved URL placeholders in this form. They are not
+    # identifiers and must never become a shared idempotency key.
+    if upper.startswith("--A--") and upper.endswith("--B--"):
+        return ""
+    return cleaned
+
+
 def event_key(event_type: str, payload: dict) -> str:
+    """Return a lifecycle-stable idempotency key for a VICIdial call.
+
+    A disposition and SQLdate are mutable lifecycle data, so they must never be
+    part of the primary idempotency identity. Prefer VICIdial identifiers that
+    remain stable between Start Call and final Dispo. A conservative fallback is
+    retained for installations that omit all strong identifiers.
+    """
+    strong_identifiers = (
+        ("call_id", _identity_value(payload.get("call_id"))),
+        ("agent_log_id", _identity_value(payload.get("agent_log_id"))),
+        ("uniqueid", _identity_value(payload.get("uniqueid"))),
+    )
+    for label, value in strong_identifiers:
+        if value:
+            stable = f"v2|{event_type}|{label}|{value}"
+            return hashlib.sha256(stable.encode()).hexdigest()
+
+    # Last-resort fallback. call_date is intentionally kept here only because
+    # without any strong VICIdial ID there is no safe way to distinguish two
+    # repeated calls to the same lead/agent. Provisional-to-final reconciliation
+    # still has a bounded fallback in the webhook handler.
     stable = "|".join(
         str(value or "")
         for value in (
+            "v2-fallback",
             event_type,
-            payload.get("call_id"),
-            payload.get("uniqueid"),
-            payload.get("agent_log_id"),
             payload.get("lead_id"),
-            payload.get("disposition") or payload.get("dispo") or payload.get("status"),
-            payload.get("recording_id"),
-            payload.get("call_date"),
             payload.get("phone_number"),
             payload.get("user"),
+            payload.get("campaign"),
+            payload.get("call_date"),
         )
     )
     return hashlib.sha256(stable.encode()).hexdigest()

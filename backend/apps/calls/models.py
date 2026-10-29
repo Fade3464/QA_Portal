@@ -68,6 +68,16 @@ class CallEvent(models.Model):
         auto_now_add=True,
     )
 
+    # First receipt and final disposition receipt are intentionally separate.
+    # received_at is immutable and represents the first callback seen for the
+    # lifecycle (normally Start Call). finalized_at is set once, when the first
+    # authoritative non-provisional disposition callback arrives.
+    finalized_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+    )
+
     # ---------------------------------------------------------
     # VICIdial identifiers
     # ---------------------------------------------------------
@@ -409,6 +419,11 @@ class CallEvent(models.Model):
                 name="calls_stale_scan_idx",
             ),
         ]
+
+    @property
+    def display_received_at(self):
+        """Receipt time of the current lifecycle state for UI/API presentation."""
+        return self.finalized_at or self.received_at
 
     def __str__(self) -> str:
         return self.call_id or self.lead_id or str(self.id)

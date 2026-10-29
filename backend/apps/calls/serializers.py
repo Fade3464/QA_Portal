@@ -246,6 +246,11 @@ class ReviewWorkflowEventSerializer(serializers.ModelSerializer):
 
 
 class CallEventSerializer(serializers.ModelSerializer):
+    # The Call Library's "Received" timestamp means the receipt time of the
+    # current lifecycle state: final disposition time when available, otherwise
+    # the initial Start Call receipt. Keep first_received_at separately for audit.
+    received_at = serializers.DateTimeField(source="display_received_at", read_only=True)
+    first_received_at = serializers.DateTimeField(source="received_at", read_only=True)
     dialer = serializers.CharField(source="dialer.name")
     team = serializers.UUIDField(source="team_id", allow_null=True)
     team_name = serializers.SerializerMethodField()
@@ -262,6 +267,8 @@ class CallEventSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "received_at",
+            "first_received_at",
+            "finalized_at",
             "call_date",
             "call_id",
             "closecallid",

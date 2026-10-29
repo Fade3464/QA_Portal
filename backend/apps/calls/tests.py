@@ -38,6 +38,7 @@ from .preset_lookup import parse_latest_preset
 from .services import (
     RecordingResult,
     download_recording,
+    event_key,
     lookup_recording,
     parse_call_date,
     parse_recordings,
@@ -55,6 +56,23 @@ from .webhooks import infer_call_direction, infer_dial_method
 
 
 class CallClassificationTests(SimpleTestCase):
+    def test_event_key_is_stable_across_start_and_final_lifecycle_changes(self):
+        start = {
+            "call_id": "V-STABLE-1",
+            "uniqueid": "171234.1",
+            "agent_log_id": "9001",
+            "lead_id": "123",
+            "disposition": "NEW",
+            "call_date": "2026-10-29 16:00:00",
+        }
+        final = {
+            **start,
+            "disposition": "DNC",
+            "call_date": "2026-10-29 16:19:00",
+            "recording_id": "9911",
+        }
+        self.assertEqual(event_key("dispo", start), event_key("dispo", final))
+
     def test_dial_method_inference(self):
         cases = (
             (("M123456", CallEvent.Direction.OUTBOUND), CallEvent.DialMethod.MANUAL),
@@ -775,6 +793,7 @@ class WebhookTests(TestCase):
         event = CallEvent.objects.get(call_id="V-START-1")
         self.assertEqual(event.disposition, "NEW")
         self.assertFalse(event.stale)
+        self.assertIsNone(event.finalized_at)
         self.assertIsNone(event.client_status)
         self.assertFalse(event.sold)
         queue_task.assert_not_called()
@@ -843,7 +862,9 @@ class WebhookTests(TestCase):
                     "term_reason": "AGENT",
                     "recording_id": "9375687",
                     "recording_filename": "20261029-104034_2695390577",
-                    "call_date": "2026-10-29 11:26:00",
+                    # Retries/corrections can carry a different SQLdate. This
+                    # must still resolve to the same lifecycle row.
+                    "call_date": "2026-10-29 11:27:00",
                 },
             )
 
@@ -857,6 +878,10 @@ class WebhookTests(TestCase):
         self.assertEqual(event.talk_time, 2723)
         self.assertEqual(event.source_recording_id, "9375687")
         self.assertEqual(event.call_date.hour, 10)
+        self.assertIsNotNone(event.finalized_at)
+        serialized = CallEventSerializer(event).data
+        self.assertEqual(serialized["received_at"], serialized["finalized_at"])
+        self.assertNotEqual(serialized["first_received_at"], serialized["received_at"])
         self.assertIn("ingested_started_at", event.raw_payload)
         self.assertIn("ingested_finalized_at", event.raw_payload)
         self.assertFalse(event.stale)
@@ -864,6 +889,84 @@ class WebhookTests(TestCase):
         queue_task.assert_called_once_with(event_id)
         preset_task.assert_called_once_with(event_id)
         announce.assert_called_once_with(event)
+
+    @patch("apps.calls.webhooks.announce_call")
+    @patch("apps.calls.webhooks.resolve_recording.delay")
+    def test_duplicate_direct_final_with_changed_sqldate_does_not_create_second_row(
+        self, queue_task, announce
+    ):
+        base = {
+            "token": self.secret,
+            "lead_id": "DIRECT-DNC-1",
+            "call_id": "V-DIRECT-DNC-1",
+            "uniqueid": "DIRECT-UNIQUE-1",
+            "agent_log_id": "DIRECT-LOG-1",
+            "user": "8102",
+            "campaign": "002",
+            "phone_number": "8645938717",
+            "dispo": "DNC",
+            "talk_time": "19",
+        }
+        with self.captureOnCommitCallbacks(execute=True):
+            first = self.client.get(
+                self.url, {**base, "call_date": "2026-10-29 16:02:00"}
+            )
+            second = self.client.get(
+                self.url, {**base, "call_date": "2026-10-29 16:03:00"}
+            )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(CallEvent.objects.count(), 1)
+        self.assertEqual(first.json()["event_id"], second.json()["event_id"])
+        self.assertTrue(first.json()["finalized"])
+        self.assertFalse(second.json()["finalized"])
+        queue_task.assert_called_once()
+        announce.assert_called_once()
+
+    @patch("apps.calls.webhooks.announce_call")
+    @patch("apps.calls.webhooks.resolve_recording.delay")
+    def test_delayed_start_after_final_never_downgrades_final_disposition(
+        self, queue_task, announce
+    ):
+        base = {
+            "token": self.secret,
+            "lead_id": "DELAYED-START-1",
+            "call_id": "V-DELAYED-START-1",
+            "uniqueid": "DELAYED-UNIQUE-1",
+            "agent_log_id": "DELAYED-LOG-1",
+            "user": "8102",
+            "campaign": "002",
+            "phone_number": "4253990799",
+        }
+        with self.captureOnCommitCallbacks(execute=True):
+            final = self.client.get(
+                self.url,
+                {
+                    **base,
+                    "dispo": "DNC",
+                    "talk_time": "19",
+                    "call_date": "2026-10-29 16:03:00",
+                },
+            )
+            delayed_start = self.client.get(
+                self.url,
+                {
+                    **base,
+                    "dispo": "NEW",
+                    "talk_time": "0",
+                    "call_date": "2026-10-29 16:02:00",
+                },
+            )
+
+        self.assertEqual(CallEvent.objects.count(), 1)
+        event = CallEvent.objects.get()
+        self.assertEqual(event.disposition, "DNC")
+        self.assertEqual(event.call_date.minute, 2)
+        self.assertIsNotNone(event.finalized_at)
+        self.assertFalse(delayed_start.json()["finalized"])
+        queue_task.assert_called_once_with(final.json()["event_id"])
+        announce.assert_called_once()
 
     @patch("apps.calls.webhooks.announce_call")
     @patch("apps.calls.webhooks.resolve_sale_preset.delay")

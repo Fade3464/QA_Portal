@@ -126,13 +126,14 @@ def receive_vicidial(
     dialer_id,
     event_type,
 ):
-    """Receive both VICIdial Start Call and final disposition callbacks.
+    """Receive VICIdial Start Call and final disposition callbacks as one lifecycle.
 
-    The same ``dispo`` webhook URL can be configured in both VICIdial fields.
-    Start Call callbacks are stored canonically as ``NEW`` and deliberately do
-    not start recording/QA processing. ``INCALL`` remains accepted as a legacy
-    provisional value. A later real disposition updates the same canonical row
-    and starts the existing post-disposition pipeline.
+    Start Call is stored canonically as ``NEW`` and is visible immediately, but it
+    does not start recording/QA work. A later real disposition updates the same
+    CallEvent. ``INCALL`` remains accepted only as a legacy provisional value.
+
+    Idempotency is based on stable VICIdial call identifiers, not disposition or
+    SQLdate, because both legitimately change during the lifecycle.
     """
     dialer = (
         Dialer.objects.select_related("branch")
@@ -184,23 +185,18 @@ def receive_vicidial(
     )
     dial_method = infer_dial_method(payload.get("call_id"), call_direction)
 
+    ingestion_now = timezone.now()
     payload["dial_method"] = dial_method
     payload["call_direction"] = call_direction
     payload["disposition"] = disposition
     payload["ingestion_stage"] = "start" if is_start_call else "disposition"
-    ingestion_now = timezone.now()
     if is_start_call:
-        # Keep a server-side lifecycle lower bound that cannot be distorted by
-        # provider-specific SQLdate semantics on the later Dispo callback.
         payload["ingested_started_at"] = ingestion_now.isoformat()
     else:
-        # Preserve the actual final callback time even when this disposition
-        # updates a row originally created by Start Call URL. Preset lookup uses
-        # this timestamp to avoid matching a later transfer on the same lead.
         payload["ingested_finalized_at"] = ingestion_now.isoformat()
 
     key = event_key(event_type, payload)
-    parsed_call_date = parse_call_date(payload.get("call_date"))
+    parsed_call_date = parse_call_date(payload.get("call_date"), reference=ingestion_now)
 
     values = {
         "branch": dialer.branch,
@@ -229,56 +225,181 @@ def receive_vicidial(
         "source_recording_id": payload.get("recording_id", "")[:160],
         "source_recording_filename": payload.get("recording_filename", "")[:255],
         "call_date": parsed_call_date,
+        "finalized_at": None if is_start_call else ingestion_now,
         "raw_payload": payload,
     }
 
-    def pending_match_queryset():
-        """Find the provisional/stale version of this call, strongest IDs first."""
-        base = (
-            CallEvent.objects.select_for_update()
-            .filter(
-                dialer=dialer,
-                event_type=CallEvent.EventType.DISPOSITION,
-            )
-            .filter(
-                Q(disposition__in=(*CallEvent.PROVISIONAL_START_DISPOSITIONS, "STALE"))
-                | Q(stale=True)
-            )
+    string_fields = (
+        "call_id",
+        "close_call_id",
+        "xfer_call_id",
+        "unique_id",
+        "lead_id",
+        "agent_log_id",
+        "agent_user",
+        "agent_name",
+        "team_name",
+        "campaign",
+        "closer_group",
+        "did_id",
+        "did_pattern",
+        "phone_number",
+        "list_id",
+        "termination_reason",
+        "source_recording_id",
+        "source_recording_filename",
+    )
+
+    def lifecycle_base():
+        return CallEvent.objects.select_for_update().filter(
+            dialer=dialer,
+            event_type=event_type,
         )
-        unique_id = values["unique_id"]
-        call_id = values["call_id"]
-        agent_log_id = values["agent_log_id"]
+
+    def strong_identity_match(base=None):
+        """Match any already-known lifecycle by stable VICIdial identifiers."""
+        base = base if base is not None else lifecycle_base()
+        for field in ("call_id", "agent_log_id", "unique_id"):
+            incoming = values[field]
+            if incoming:
+                match = base.filter(**{field: incoming}).order_by("-received_at").first()
+                if match:
+                    return match
+        return None
+
+    def pending_match():
+        """Conservative fallback used only to attach a final Dispo to a pending row."""
+        base = lifecycle_base().filter(
+            Q(disposition__in=(*CallEvent.PROVISIONAL_START_DISPOSITIONS, "STALE"))
+            | Q(stale=True)
+        )
+        match = strong_identity_match(base)
+        if match:
+            return match
+
         lead_id = values["lead_id"]
         agent_user = values["agent_user"]
-
-        if unique_id:
-            match = base.filter(unique_id=unique_id).order_by("-received_at").first()
-            if match:
-                return match
-        if call_id:
-            match = base.filter(call_id=call_id).order_by("-received_at").first()
-            if match:
-                return match
-        if agent_log_id:
-            match = base.filter(agent_log_id=agent_log_id).order_by("-received_at").first()
-            if match:
-                return match
+        phone_number = values["phone_number"]
         if lead_id and agent_user:
-            # Fallback only when VICIdial omitted stronger IDs. Bound the search
-            # so an old stale attempt for the same lead/agent cannot be revived.
-            from django.utils import timezone
             from datetime import timedelta
 
-            return (
-                base.filter(
-                    lead_id=lead_id,
-                    agent_user=agent_user,
-                    received_at__gte=timezone.now() - timedelta(hours=12),
-                )
-                .order_by("-received_at")
-                .first()
+            query = base.filter(
+                lead_id=lead_id,
+                agent_user=agent_user,
+                received_at__gte=timezone.now() - timedelta(hours=12),
             )
+            if phone_number:
+                query = query.filter(phone_number=phone_number)
+            return query.order_by("-received_at").first()
         return None
+
+    def merge_start(existing):
+        """Apply a Start Call retry without ever downgrading a finalized row."""
+        existing_payload = dict(existing.raw_payload or {})
+        if existing.disposition.upper() in (
+            *CallEvent.PROVISIONAL_START_DISPOSITIONS,
+            "STALE",
+        ) or existing.stale:
+            existing_payload.update(payload)
+        else:
+            # Delayed Start Call after final Dispo: preserve authoritative final
+            # values while still recording the server-side start receipt marker.
+            start_payload = dict(payload)
+            start_payload.update(existing_payload)
+            start_payload["ingested_started_at"] = payload["ingested_started_at"]
+            existing_payload = start_payload
+
+        changed = ["raw_payload"]
+        existing.raw_payload = existing_payload
+
+        # Start Call retries may fill missing identifiers, but never replace
+        # identifiers already attached to a finalized lifecycle.
+        for field in string_fields:
+            incoming = values[field]
+            if incoming and not getattr(existing, field):
+                setattr(existing, field, incoming)
+                changed.append(field)
+
+        if existing.team_id is None and values["team"] is not None:
+            existing.team = values["team"]
+            changed.append("team")
+        if not existing.team_name and team_name:
+            existing.team_name = team_name
+            changed.append("team_name")
+
+        # A delayed Start Call can improve a direct-final row's call start time.
+        if parsed_call_date and (
+            existing.call_date is None or parsed_call_date < existing.call_date
+        ):
+            existing.call_date = parsed_call_date
+            changed.append("call_date")
+
+        if (
+            existing.disposition.upper() in CallEvent.PROVISIONAL_START_DISPOSITIONS
+            and existing.disposition != CallEvent.CANONICAL_START_DISPOSITION
+        ):
+            existing.disposition = CallEvent.CANONICAL_START_DISPOSITION
+            changed.append("disposition")
+
+        existing.save(update_fields=list(dict.fromkeys(changed)))
+
+    def merge_final(existing):
+        """Apply an authoritative final callback idempotently to one lifecycle."""
+        previous_disposition = (existing.disposition or "").upper()
+        was_pending = (
+            previous_disposition in CallEvent.PROVISIONAL_START_DISPOSITIONS
+            or previous_disposition == "STALE"
+            or existing.stale
+        )
+        recovered = existing.stale or previous_disposition == "STALE"
+
+        merged_payload = dict(existing.raw_payload or {})
+        merged_payload.update(payload)
+
+        for field in string_fields:
+            incoming = values[field]
+            if incoming:
+                setattr(existing, field, incoming)
+
+        existing.branch = dialer.branch
+        existing.event_type = event_type
+        existing.team = values["team"] or existing.team
+        existing.call_direction = call_direction
+        existing.dial_method = dial_method
+        existing.disposition = disposition[:40]
+
+        if existing.disposition.upper() != "SALE":
+            existing.client_20_plus = False
+            existing.client_30_plus = False
+            existing.sold = False
+            existing.preset = None
+
+        if payload.get("talk_time") not in (None, ""):
+            existing.talk_time = values["talk_time"]
+
+        # Start Call owns the canonical call start timestamp. A direct-final row
+        # has no Start Call, so the final SQLdate is accepted only when empty.
+        if existing.call_date is None:
+            existing.call_date = parsed_call_date
+
+        existing.raw_payload = merged_payload
+        existing.stale = False
+        if existing.finalized_at is None:
+            existing.finalized_at = ingestion_now
+
+        if was_pending:
+            existing.recording_lookup_status = CallEvent.Status.PENDING
+            existing.recording_download_status = CallEvent.Status.PENDING
+            existing.recording_lookup_attempts = 0
+            existing.recording_download_attempts = 0
+            existing.recording_lookup_last_error = ""
+            existing.recording_download_last_error = ""
+
+        # Do not rewrite event_key on an already-existing row. Old rows may carry
+        # the v1 key; strong-ID reconciliation keeps them compatible while all new
+        # rows use the stable v2 key.
+        existing.save()
+        return was_pending, recovered
 
     created = False
     finalized_now = False
@@ -291,90 +412,13 @@ def receive_vicidial(
             .first()
         )
 
-        if event is None and is_start_call and event_type == CallEvent.EventType.DISPOSITION:
-            # A delayed/retried Start Call callback must never create a second
-            # provisional row after the real disposition has already finalized the
-            # call. Only use strong VICIdial identifiers for this guard.
-            existing = CallEvent.objects.select_for_update().filter(
-                dialer=dialer,
-                event_type=CallEvent.EventType.DISPOSITION,
-            )
-            if values["unique_id"]:
-                event = existing.filter(unique_id=values["unique_id"]).order_by("-received_at").first()
-            if event is None and values["call_id"]:
-                event = existing.filter(call_id=values["call_id"]).order_by("-received_at").first()
-            if event is None and values["agent_log_id"]:
-                event = existing.filter(agent_log_id=values["agent_log_id"]).order_by("-received_at").first()
+        # Compatibility with rows created under the old mutable event-key scheme,
+        # and resilience when VICIdial changes which strong ID is populated.
+        if event is None:
+            event = strong_identity_match()
 
         if event is None and not is_start_call and event_type == CallEvent.EventType.DISPOSITION:
-            event = pending_match_queryset()
-            if event is not None:
-                recovered_from_stale = event.stale or event.disposition == "STALE"
-                # Preserve any future manually-maintained business fields such
-                # as sold/client_status while refreshing dialer-owned metadata.
-                merged_payload = dict(event.raw_payload or {})
-                merged_payload.update(payload)
-                values["raw_payload"] = merged_payload
-
-                string_fields = (
-                    "call_id",
-                    "close_call_id",
-                    "xfer_call_id",
-                    "unique_id",
-                    "lead_id",
-                    "agent_log_id",
-                    "agent_user",
-                    "agent_name",
-                    "team_name",
-                    "campaign",
-                    "closer_group",
-                    "did_id",
-                    "did_pattern",
-                    "phone_number",
-                    "list_id",
-                    "termination_reason",
-                    "source_recording_id",
-                    "source_recording_filename",
-                )
-                for field in string_fields:
-                    incoming = values[field]
-                    if incoming:
-                        setattr(event, field, incoming)
-
-                event.branch = dialer.branch
-                event.event_type = event_type
-                event.event_key = key
-                event.team = values["team"] or event.team
-                event.call_direction = call_direction
-                event.dial_method = dial_method
-                event.disposition = disposition[:40]
-                # A real late disposition is authoritative for dialer status.
-                # If it is not SALE, any manually-entered SALE-only business
-                # fields must be cleared to keep the row internally consistent.
-                if event.disposition.upper() != "SALE":
-                    event.client_20_plus = False
-                    event.client_30_plus = False
-                    event.sold = False
-                    event.preset = None
-                if payload.get("talk_time") not in (None, ""):
-                    event.talk_time = values["talk_time"]
-                # Start Call URL is the best source for the canonical call
-                # start timestamp. Do not overwrite it with a provider-specific
-                # final SQLdate value when the Dispo callback arrives.
-                if event.call_date is None:
-                    event.call_date = parsed_call_date
-                event.raw_payload = values["raw_payload"]
-                event.stale = False
-                # A stale row had recording processing explicitly skipped. A
-                # real disposition makes it eligible for the normal pipeline.
-                event.recording_lookup_status = CallEvent.Status.PENDING
-                event.recording_download_status = CallEvent.Status.PENDING
-                event.recording_lookup_attempts = 0
-                event.recording_download_attempts = 0
-                event.recording_lookup_last_error = ""
-                event.recording_download_last_error = ""
-                event.save()
-                finalized_now = True
+            event = pending_match()
 
         if event is None:
             event, created = CallEvent.objects.get_or_create(
@@ -382,18 +426,23 @@ def receive_vicidial(
                 event_key=key,
                 defaults=values,
             )
-            finalized_now = created and not is_start_call
 
-        if created and team_name and team is None:
-            queue_unknown_team_notification(event, team_name)
+        if created:
+            if team_name and team is None:
+                queue_unknown_team_notification(event, team_name)
+            if is_start_call:
+                transaction.on_commit(lambda: announce_call(event))
+            else:
+                finalized_now = True
+        else:
+            if is_start_call:
+                merge_start(event)
+            else:
+                finalized_now, recovered_from_stale = merge_final(event)
 
-        # Start Call URL records are visible in the call library immediately,
-        # but intentionally stop before recording lookup and QA processing.
-        if created and is_start_call:
-            transaction.on_commit(lambda: announce_call(event))
-
-        # Only a newly-created final call or a provisional/STALE row that was just
-        # finalized may enter the existing post-disposition pipeline.
+        # Only a newly-created final call or an actual provisional/STALE -> final
+        # transition may enter the post-disposition pipeline. Duplicate final
+        # callbacks update metadata idempotently but never queue duplicate work.
         if finalized_now:
             transaction.on_commit(lambda: resolve_recording.delay(str(event.pk)))
             if event.disposition.upper() == "SALE":

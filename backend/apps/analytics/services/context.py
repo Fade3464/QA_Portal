@@ -60,12 +60,12 @@ def get_call_library_overview(*, user, date_from=None, date_to=None, dialer_id=N
     start, end = (None, None) if all_time else _dates(date_from, date_to)
     qs = scoped_calls(user)
     if not all_time:
-        qs = qs.filter(received_at__date__gte=start, received_at__date__lte=end)
+        qs = qs.filter(effective_received_at__date__gte=start, effective_received_at__date__lte=end)
     if dialer_id:
         qs = qs.filter(dialer_id=_uuid(dialer_id, 'dialer_id'))
     return {'calls_received': qs.count(),
             'period': {'date_from': start.isoformat() if start else None, 'date_to': end.isoformat() if end else None, 'all_time': all_time},
-            'definition': 'Call-library entries received_at in selected period. Includes unreviewed calls; not the number of QA evaluations.',
+            'definition': 'Call-library entries by effective receipt time (final disposition receipt when available, otherwise first receipt) in the selected period. Includes unreviewed calls; not the number of QA evaluations.',
             'scope': 'Current user call-library permissions apply.'}
 
 
