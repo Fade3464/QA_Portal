@@ -493,7 +493,7 @@
           "root_selector": "$.summary",
           "columns": [
             {
-              "selector": 4,
+              "selector": "missing_preset",
               "text": "missing_preset",
               "type": "number"
             }
@@ -568,7 +568,7 @@
           "root_selector": "$.summary",
           "columns": [
             {
-              "selector": 4,
+              "selector": "stale_calls",
               "text": "stale_calls",
               "type": "number"
             }

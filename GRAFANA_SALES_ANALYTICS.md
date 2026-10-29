@@ -46,3 +46,11 @@ docker compose up -d --no-deps --wait frontend
 ```
 
 The first Grafana start downloads the pinned Infinity datasource plugin. After it becomes healthy, the viewer sync task converges the Administration-configured credentials.
+
+## Internal HTTP / HTTPS handling
+
+Grafana reaches CallLens over the private Docker network at `http://backend:8000`. Production Django keeps `SECURE_SSL_REDIRECT` enabled for normal traffic, but the bearer-protected Grafana analytics path is listed in `SECURE_REDIRECT_EXEMPT` so the internal HTTP request is not redirected to `https://backend:8000`. Public access to `/api/v1/analytics/grafana/` remains blocked by the frontend/Nginx layer.
+
+The provisioned Infinity datasource also sends `X-Forwarded-Proto: https` as defense in depth. Do not disable `SECURE_SSL_REDIRECT` globally.
+
+Infinity 4.x query column selectors must be strings. The provisioned `Missing preset` and `Stale calls` panels use `missing_preset` and `stale_calls` respectively.

@@ -68,7 +68,7 @@ def _base_queryset(company: Company, start: datetime, end: datetime, *, team="",
 def _sale_metrics(qs):
     return qs.filter(disposition__iexact="SALE").aggregate(
         opportunities=Count("id"),
-        sold=Count("id", filter=Q(sold=True)),
+        sold_count=Count("id", filter=Q(sold=True)),
         transfers=Count("id", filter=Q(sold=False)),
         twenty_plus=Count("id", filter=Q(client_20_plus=True)),
         thirty_plus=Count("id", filter=Q(client_30_plus=True)),
@@ -84,7 +84,8 @@ def _decorate(rows):
     for row in rows:
         item=dict(row)
         opportunities=int(item.get("opportunities") or 0)
-        sold=int(item.get("sold") or 0)
+        sold=int(item.pop("sold_count", 0) or 0)
+        item["sold"] = sold
         item["conversion_pct"]=_pct(sold, opportunities)
         item["twenty_plus_pct"]=_pct(int(item.get("twenty_plus") or 0), opportunities)
         item["thirty_plus_pct"]=_pct(int(item.get("thirty_plus") or 0), opportunities)
@@ -92,13 +93,13 @@ def _decorate(rows):
     return result
 
 
-def _grouped(qs, fields, order_by="-sold"):
+def _grouped(qs, fields, order_by="-sold_count"):
     rows=(
         qs.filter(disposition__iexact="SALE")
         .values(*fields)
         .annotate(
             opportunities=Count("id"),
-            sold=Count("id", filter=Q(sold=True)),
+            sold_count=Count("id", filter=Q(sold=True)),
             transfers=Count("id", filter=Q(sold=False)),
             twenty_plus=Count("id", filter=Q(client_20_plus=True)),
             thirty_plus=Count("id", filter=Q(client_30_plus=True)),
@@ -133,7 +134,8 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
     sale_qs=qs.filter(disposition__iexact="SALE")
     metrics=_sale_metrics(qs)
     opportunities=int(metrics["opportunities"] or 0)
-    sold=int(metrics["sold"] or 0)
+    sold=int(metrics.pop("sold_count", 0) or 0)
+    metrics["sold"] = sold
     metrics.update({
         "conversion_pct": _pct(sold, opportunities),
         "twenty_plus_pct": _pct(int(metrics["twenty_plus"] or 0), opportunities),
@@ -168,7 +170,7 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
         .values("day")
         .annotate(
             opportunities=Count("id"),
-            sold=Count("id", filter=Q(sold=True)),
+            sold_count=Count("id", filter=Q(sold=True)),
             transfers=Count("id", filter=Q(sold=False)),
             twenty_plus=Count("id", filter=Q(client_20_plus=True)),
             thirty_plus=Count("id", filter=Q(client_30_plus=True)),
@@ -179,14 +181,16 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
     for row in trends:
         item=dict(row)
         item["date"]=item.pop("day").isoformat() if item.get("day") else ""
-        item["conversion_pct"]=_pct(int(item.get("sold") or 0),int(item.get("opportunities") or 0))
+        sold=int(item.pop("sold_count", 0) or 0)
+        item["sold"] = sold
+        item["conversion_pct"]=_pct(sold,int(item.get("opportunities") or 0))
         trend_rows.append(item)
     filter_cache=f"sales-analytics:filters:v2:{company.pk}:{start_key}:{end_key}"
     filter_values=cache.get(filter_cache)
     if filter_values is None:
         base=_base_queryset(company,start,end)
         filter_values={
-            "teams": [{"text": value, "value": value} for value in sorted(set(base.exclude(team__name="").values_list("team__name",flat=True)))],
+            "teams": [{"text": value, "value": value} for value in sorted(set(base.exclude(team__name__isnull=True).exclude(team__name="").values_list("team__name",flat=True)))],
             "projects": [{"text": value, "value": value} for value in sorted(set(base.exclude(project_name__isnull=True).exclude(project_name="").values_list("project_name",flat=True)))],
             "presets": [{"text": value, "value": value} for value in sorted(set(base.filter(disposition__iexact="SALE").exclude(preset__isnull=True).exclude(preset="").values_list("preset",flat=True)))],
         }

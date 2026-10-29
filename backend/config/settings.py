@@ -308,6 +308,7 @@ RECORDING_DOWNLOAD_VERIFY_TLS = env_bool("RECORDING_DOWNLOAD_VERIFY_TLS", True)
 RECORDINGS_ROOT = Path(os.getenv("RECORDINGS_ROOT", MEDIA_ROOT / "recordings"))
 SECURE_REDIRECT_EXEMPT = [
     r"^api/health/$",
+    r"^api/v1/analytics/grafana/",
 ]
 LOGGING = {
     "version": 1,

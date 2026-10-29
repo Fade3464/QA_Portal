@@ -11,5 +11,7 @@ datasources:
       auth_method: bearerToken
       allowedHosts:
         - http://backend:8000
+      httpHeaderName1: X-Forwarded-Proto
     secureJsonData:
       bearerToken: $GRAFANA_ANALYTICS_API_TOKEN
+      httpHeaderValue1: https
