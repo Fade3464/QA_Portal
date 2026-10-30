@@ -1,9 +1,9 @@
 apiVersion: 1
 
 providers:
-  - name: CallLens Sales Analytics
+  - name: Performance Analytics
     orgId: 1
-    folder: DataFusion
+    folder: Data Fusion
     type: file
     disableDeletion: true
     allowUiUpdates: false
