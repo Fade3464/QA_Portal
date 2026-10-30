@@ -159,7 +159,7 @@ def _sold_detail_rows(qs):
                 "agent": event.agent_name or event.agent_user or "Unknown",
                 "team": team_name,
                 "number": event.phone_number or "",
-                "client": getattr(event, "project_name", "") or "Unmapped",
+                "client": event.preset or "Unresolved",
                 "client_status": event.client_status or "",
                 "disposition_time": event.analytics_at.isoformat() if getattr(event, "analytics_at", None) else "",
             }
@@ -187,7 +187,7 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
     filter_signature = hashlib.sha256(
         json.dumps(filters, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     ).hexdigest()[:20]
-    cache_key=f"sales-analytics:v5:{company.pk}:{start_key}:{end_key}:{filter_signature}"
+    cache_key=f"sales-analytics:v6:{company.pk}:{start_key}:{end_key}:{filter_signature}"
     cached=cache.get(cache_key)
     if cached is not None:
         return cached

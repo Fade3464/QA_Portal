@@ -17,12 +17,12 @@ The provisioned `CallLens Sales Performance` dashboard is designed as a team-fac
 
 The layout is intentionally outcome-first:
 
-- **Sold** is the first and most visually prominent KPI. The old standalone **SALE opportunities** card is removed.
-- Secondary KPI cards explain conversion, transfers, call-duration milestones, preset health and stale calls. Hover descriptions define each metric for new users.
-- **Sales movement over time** automatically uses hourly buckets for today/short ranges and daily buckets for longer ranges; a native Grafana bar gauge adds quick outcome context without requiring users to read a table first.
-- **Top sellers** and the detailed **Agent leaderboard** make peer performance immediately visible, followed by Team, Project and Client/Preset breakdowns. Aggregate tables keep the entity name first, then **Sold**, **30+**, **Transfers**, and **Conversion %** at the far right. The redundant `SALE calls` and agent ID columns are removed; the Client/Preset table keeps `Missing preset` as an extra operational signal.
-- KPI stat cards show the panel title only; their duplicate in-card subheadings are removed for a cleaner at-a-glance view.
-- The dashboard closes with a full-width **Sold in selected time range** total plus a detailed **Sold call details** table listing Agent, Team, Number, Client, Client status, and Disposition time for the selected filters/time window.
+- The top **Performance snapshot** is deliberately limited to six useful KPIs: **Sold**, **30+ Calls**, **Transfers**, **Conversion**, **30+ → Sold**, and **Below 20 min**. Redundant diagnostic KPI cards were removed from the primary view so the dashboard reads like a performance board rather than a telemetry wall.
+- Stat panels show only the value beneath the Grafana panel title; duplicate in-card labels are removed. Color is used as emphasis rather than decoration: Sold is green, 30+ is purple, Transfers is orange, and Conversion is performance-threshold colored in tables.
+- **Performance over time** and **Outcome mix** focus on the same core volume story: Sold, 30+, and Transfers. Short ranges use hourly buckets and longer ranges use daily buckets.
+- **Top sellers** remains the fast visual ranking. The detailed Agent, Team, Project, and Client tables use one strict column sequence: the entity name first, then **Sold → 30+ → Transfers → Conversion %**. No SALE-call count, 20+, agent ID, team-leader, missing-preset, or other diagnostic fields interrupt that sequence.
+- Table widths are tuned for fast scanning: entity names get more room, numeric performance fields are compact and centered, and Grafana-native colored-text cell types reinforce the important metrics without filling the page with colored backgrounds.
+- The old full-width **Sold in selected time range** stat card was removed because it duplicated the Sold KPI. The bottom of the dashboard is now a practical **Sold call details** drill-down with Agent, Team, Number, Client, Client status, and Disposition time. The Client value comes from the resolved SALE preset/client field.
 
 Project multi-select is implemented end-to-end: Grafana emits one `project=...` query parameter per selected project and the analytics service treats the selected names as an OR filter. The custom `__all` value removes the project restriction without expanding every project into a very long URL. The backend caches each aggregate response for 60 seconds and filter metadata for five minutes, so multiple Grafana panels reuse the same Redis-backed payload rather than repeatedly scanning the calls table.
 

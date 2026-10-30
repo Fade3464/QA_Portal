@@ -86,7 +86,7 @@ class SalesAnalyticsTests(TestCase):
         self.assertEqual(detail["agent"], "Agent One")
         self.assertEqual(detail["team"], "Alpha")
         self.assertEqual(detail["number"], "15551234567")
-        self.assertEqual(detail["client"], "Medicare")
+        self.assertEqual(detail["client"], "D77")
         self.assertEqual(detail["client_status"], "Confirmed")
         self.assertIn("T", detail["disposition_time"])
 

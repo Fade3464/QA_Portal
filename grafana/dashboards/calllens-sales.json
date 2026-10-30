@@ -12,7 +12,7 @@
     {
       "id": 100,
       "type": "row",
-      "title": "At a glance",
+      "title": "Performance snapshot",
       "collapsed": false,
       "panels": [],
       "gridPos": {
@@ -96,17 +96,17 @@
         "orientation": "auto",
         "textMode": "value",
         "wideLayout": true,
-        "colorMode": "background",
+        "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "center",
         "showPercentChange": false
       }
     },
     {
-      "id": 102,
+      "id": 105,
       "type": "stat",
-      "title": "Conversion",
-      "description": "Sold divided by SALE-disposition calls in the current selection.",
+      "title": "30+ Calls",
+      "description": "SALE calls manually marked as reaching 30+ minutes.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
@@ -137,8 +137,8 @@
           "root_selector": "$.summary",
           "columns": [
             {
-              "selector": "conversion_pct",
-              "text": "Conversion",
+              "selector": "thirty_plus",
+              "text": "30+ Calls",
               "type": "number"
             }
           ]
@@ -146,17 +146,17 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percent",
-          "decimals": 2,
+          "unit": "none",
+          "decimals": 0,
           "color": {
             "mode": "fixed",
-            "fixedColor": "blue"
+            "fixedColor": "purple"
           },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "blue",
+                "color": "purple",
                 "value": null
               }
             ]
@@ -263,10 +263,10 @@
       }
     },
     {
-      "id": 104,
+      "id": 102,
       "type": "stat",
-      "title": "20+ minute",
-      "description": "SALE calls manually marked as reaching 20+ minutes.",
+      "title": "Conversion",
+      "description": "Sold divided by SALE-disposition calls in the current selection.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
@@ -297,248 +297,8 @@
           "root_selector": "$.summary",
           "columns": [
             {
-              "selector": "twenty_plus",
-              "text": "20+ minute",
-              "type": "number"
-            }
-          ]
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "decimals": 0,
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "purple"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "purple",
-                "value": null
-              }
-            ]
-          },
-          "noValue": "0"
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "values": false,
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": ""
-        },
-        "orientation": "auto",
-        "textMode": "value",
-        "wideLayout": true,
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "showPercentChange": false
-      }
-    },
-    {
-      "id": 105,
-      "type": "stat",
-      "title": "30+ minute",
-      "description": "SALE calls manually marked as reaching 30+ minutes.",
-      "datasource": {
-        "type": "yesoreyeram-infinity-datasource",
-        "uid": "calllens-api"
-      },
-      "gridPos": {
-        "x": 16,
-        "y": 1,
-        "w": 4,
-        "h": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "yesoreyeram-infinity-datasource",
-            "uid": "calllens-api"
-          },
-          "refId": "A",
-          "type": "json",
-          "source": "url",
-          "format": "table",
-          "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
-          "url_options": {
-            "method": "GET",
-            "data": "",
-            "params": []
-          },
-          "root_selector": "$.summary",
-          "columns": [
-            {
-              "selector": "thirty_plus",
-              "text": "30+ minute",
-              "type": "number"
-            }
-          ]
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "decimals": 0,
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "purple"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "purple",
-                "value": null
-              }
-            ]
-          },
-          "noValue": "0"
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "values": false,
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": ""
-        },
-        "orientation": "auto",
-        "textMode": "value",
-        "wideLayout": true,
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "showPercentChange": false
-      }
-    },
-    {
-      "id": 106,
-      "type": "stat",
-      "title": "Missing preset",
-      "description": "SALE calls whose client/preset lookup did not resolve.",
-      "datasource": {
-        "type": "yesoreyeram-infinity-datasource",
-        "uid": "calllens-api"
-      },
-      "gridPos": {
-        "x": 20,
-        "y": 1,
-        "w": 4,
-        "h": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "yesoreyeram-infinity-datasource",
-            "uid": "calllens-api"
-          },
-          "refId": "A",
-          "type": "json",
-          "source": "url",
-          "format": "table",
-          "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
-          "url_options": {
-            "method": "GET",
-            "data": "",
-            "params": []
-          },
-          "root_selector": "$.summary",
-          "columns": [
-            {
-              "selector": "missing_preset",
-              "text": "Missing preset",
-              "type": "number"
-            }
-          ]
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "decimals": 0,
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "yellow"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "yellow",
-                "value": null
-              }
-            ]
-          },
-          "noValue": "0"
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "values": false,
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": ""
-        },
-        "orientation": "auto",
-        "textMode": "value",
-        "wideLayout": true,
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "showPercentChange": false
-      }
-    },
-    {
-      "id": 107,
-      "type": "stat",
-      "title": "20+ \u2192 Sold",
-      "description": "Share of 20+ minute calls that became sold policies.",
-      "datasource": {
-        "type": "yesoreyeram-infinity-datasource",
-        "uid": "calllens-api"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 5,
-        "w": 4,
-        "h": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "yesoreyeram-infinity-datasource",
-            "uid": "calllens-api"
-          },
-          "refId": "A",
-          "type": "json",
-          "source": "url",
-          "format": "table",
-          "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
-          "url_options": {
-            "method": "GET",
-            "data": "",
-            "params": []
-          },
-          "root_selector": "$.summary",
-          "columns": [
-            {
-              "selector": "twenty_plus_conversion_pct",
-              "text": "20+ \u2192 Sold",
+              "selector": "conversion_pct",
+              "text": "Conversion",
               "type": "number"
             }
           ]
@@ -550,13 +310,13 @@
           "decimals": 2,
           "color": {
             "mode": "fixed",
-            "fixedColor": "green"
+            "fixedColor": "blue"
           },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "blue",
                 "value": null
               }
             ]
@@ -592,8 +352,8 @@
         "uid": "calllens-api"
       },
       "gridPos": {
-        "x": 4,
-        "y": 5,
+        "x": 16,
+        "y": 1,
         "w": 4,
         "h": 4
       },
@@ -663,166 +423,6 @@
       }
     },
     {
-      "id": 109,
-      "type": "stat",
-      "title": "20+ share",
-      "description": "Share of SALE calls that reached 20+ minutes.",
-      "datasource": {
-        "type": "yesoreyeram-infinity-datasource",
-        "uid": "calllens-api"
-      },
-      "gridPos": {
-        "x": 8,
-        "y": 5,
-        "w": 4,
-        "h": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "yesoreyeram-infinity-datasource",
-            "uid": "calllens-api"
-          },
-          "refId": "A",
-          "type": "json",
-          "source": "url",
-          "format": "table",
-          "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
-          "url_options": {
-            "method": "GET",
-            "data": "",
-            "params": []
-          },
-          "root_selector": "$.summary",
-          "columns": [
-            {
-              "selector": "twenty_plus_pct",
-              "text": "20+ share",
-              "type": "number"
-            }
-          ]
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "decimals": 2,
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "blue"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "noValue": "0"
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "values": false,
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": ""
-        },
-        "orientation": "auto",
-        "textMode": "value",
-        "wideLayout": true,
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "showPercentChange": false
-      }
-    },
-    {
-      "id": 110,
-      "type": "stat",
-      "title": "30+ share",
-      "description": "Share of SALE calls that reached 30+ minutes.",
-      "datasource": {
-        "type": "yesoreyeram-infinity-datasource",
-        "uid": "calllens-api"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 5,
-        "w": 4,
-        "h": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "yesoreyeram-infinity-datasource",
-            "uid": "calllens-api"
-          },
-          "refId": "A",
-          "type": "json",
-          "source": "url",
-          "format": "table",
-          "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
-          "url_options": {
-            "method": "GET",
-            "data": "",
-            "params": []
-          },
-          "root_selector": "$.summary",
-          "columns": [
-            {
-              "selector": "thirty_plus_pct",
-              "text": "30+ share",
-              "type": "number"
-            }
-          ]
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "decimals": 2,
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "blue"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "noValue": "0"
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "values": false,
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": ""
-        },
-        "orientation": "auto",
-        "textMode": "value",
-        "wideLayout": true,
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "showPercentChange": false
-      }
-    },
-    {
       "id": 111,
       "type": "stat",
       "title": "Below 20 min",
@@ -832,8 +432,8 @@
         "uid": "calllens-api"
       },
       "gridPos": {
-        "x": 16,
-        "y": 5,
+        "x": 20,
+        "y": 1,
         "w": 4,
         "h": 4
       },
@@ -903,86 +503,6 @@
       }
     },
     {
-      "id": 112,
-      "type": "stat",
-      "title": "Stale calls",
-      "description": "Provisional calls that exceeded the two-hour Start/Dispo lifecycle window.",
-      "datasource": {
-        "type": "yesoreyeram-infinity-datasource",
-        "uid": "calllens-api"
-      },
-      "gridPos": {
-        "x": 20,
-        "y": 5,
-        "w": 4,
-        "h": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "yesoreyeram-infinity-datasource",
-            "uid": "calllens-api"
-          },
-          "refId": "A",
-          "type": "json",
-          "source": "url",
-          "format": "table",
-          "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
-          "url_options": {
-            "method": "GET",
-            "data": "",
-            "params": []
-          },
-          "root_selector": "$.summary",
-          "columns": [
-            {
-              "selector": "stale_calls",
-              "text": "Stale calls",
-              "type": "number"
-            }
-          ]
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "decimals": 0,
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "red"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              }
-            ]
-          },
-          "noValue": "0"
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "values": false,
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": ""
-        },
-        "orientation": "auto",
-        "textMode": "value",
-        "wideLayout": true,
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "showPercentChange": false
-      }
-    },
-    {
       "id": 120,
       "type": "row",
       "title": "Sales momentum",
@@ -990,7 +510,7 @@
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 9,
+        "y": 5,
         "w": 24,
         "h": 1
       }
@@ -998,15 +518,15 @@
     {
       "id": 121,
       "type": "timeseries",
-      "title": "Sales movement over time",
-      "description": "See how sold, transfers and longer calls are moving through the selected range. Hover any point for exact values.",
+      "title": "Performance over time",
+      "description": "Sold, 30+ calls and transfers across the selected time range. Short ranges use hourly buckets; longer ranges use daily buckets.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
       },
       "gridPos": {
         "x": 0,
-        "y": 10,
+        "y": 6,
         "w": 16,
         "h": 8
       },
@@ -1040,18 +560,13 @@
               "type": "number"
             },
             {
+              "selector": "thirty_plus",
+              "text": "30+",
+              "type": "number"
+            },
+            {
               "selector": "transfers",
               "text": "Transfers",
-              "type": "number"
-            },
-            {
-              "selector": "twenty_plus",
-              "text": "20+ minute",
-              "type": "number"
-            },
-            {
-              "selector": "thirty_plus",
-              "text": "30+ minute",
               "type": "number"
             }
           ]
@@ -1112,6 +627,36 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "30+"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Transfers"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
           }
         ]
       },
@@ -1125,7 +670,6 @@
           "displayMode": "table",
           "placement": "bottom",
           "calcs": [
-            "lastNotNull",
             "sum"
           ],
           "showLegend": true
@@ -1135,15 +679,15 @@
     {
       "id": 122,
       "type": "bargauge",
-      "title": "Selected-range outcome mix",
-      "description": "A compact comparison of the main volumes for the current filters. This is not a funnel; categories can overlap.",
+      "title": "Outcome mix",
+      "description": "Side-by-side selected-range totals for the three core volume outcomes.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
       },
       "gridPos": {
         "x": 16,
-        "y": 10,
+        "y": 6,
         "w": 8,
         "h": 8
       },
@@ -1172,18 +716,13 @@
               "type": "number"
             },
             {
+              "selector": "thirty_plus",
+              "text": "30+",
+              "type": "number"
+            },
+            {
               "selector": "transfers",
               "text": "Transfers",
-              "type": "number"
-            },
-            {
-              "selector": "twenty_plus",
-              "text": "20+ minute",
-              "type": "number"
-            },
-            {
-              "selector": "thirty_plus",
-              "text": "30+ minute",
               "type": "number"
             }
           ]
@@ -1227,6 +766,21 @@
           {
             "matcher": {
               "id": "byName",
+              "options": "30+"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
               "options": "Transfers"
             },
             "properties": [
@@ -1235,36 +789,6 @@
                 "value": {
                   "mode": "fixed",
                   "fixedColor": "orange"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "20+ minute"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "purple"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "30+ minute"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "purple"
                 }
               }
             ]
@@ -1297,7 +821,7 @@
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 18,
+        "y": 14,
         "w": 24,
         "h": 1
       }
@@ -1306,16 +830,16 @@
       "id": 131,
       "type": "barchart",
       "title": "Top sellers",
-      "description": "Sold policies by agent, already ranked by sold count. Use this as the quick motivational view; the full leaderboard is beside it.",
+      "description": "Top agents ranked by Sold for the selected filters and time range.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
       },
       "gridPos": {
         "x": 0,
-        "y": 19,
-        "w": 9,
-        "h": 11
+        "y": 15,
+        "w": 8,
+        "h": 10
       },
       "targets": [
         {
@@ -1402,16 +926,16 @@
       "id": 132,
       "type": "table",
       "title": "Agent leaderboard",
-      "description": "Detailed agent comparison for the same filters. Sold is intentionally first and the table defaults to highest sold count.",
+      "description": "Agent performance, ordered by Sold. Metrics are intentionally limited to the core performance sequence.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
       },
       "gridPos": {
-        "x": 9,
-        "y": 19,
-        "w": 15,
-        "h": 11
+        "x": 8,
+        "y": 15,
+        "w": 16,
+        "h": 10
       },
       "targets": [
         {
@@ -1466,16 +990,12 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Conversion %"
+              "options": "Agent"
             },
             "properties": [
               {
-                "id": "unit",
-                "value": "percent"
-              },
-              {
-                "id": "decimals",
-                "value": 2
+                "id": "custom.width",
+                "value": 230
               }
             ]
           },
@@ -1490,10 +1010,134 @@
                 "value": 90
               },
               {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
                 "id": "color",
                 "value": {
                   "mode": "fixed",
                   "fixedColor": "green"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "30+"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Transfers"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 105
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Conversion %"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 125
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 20
+                    },
+                    {
+                      "color": "green",
+                      "value": 35
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
                 }
               }
             ]
@@ -1527,7 +1171,7 @@
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 30,
+        "y": 25,
         "w": 24,
         "h": 1
       }
@@ -1543,9 +1187,9 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 31,
+        "y": 26,
         "w": 12,
-        "h": 10
+        "h": 9
       },
       "targets": [
         {
@@ -1569,11 +1213,6 @@
             {
               "selector": "team",
               "text": "Team",
-              "type": "string"
-            },
-            {
-              "selector": "team_leader",
-              "text": "Team leader",
               "type": "string"
             },
             {
@@ -1605,16 +1244,12 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Conversion %"
+              "options": "Team"
             },
             "properties": [
               {
-                "id": "unit",
-                "value": "percent"
-              },
-              {
-                "id": "decimals",
-                "value": 2
+                "id": "custom.width",
+                "value": 220
               }
             ]
           },
@@ -1629,10 +1264,134 @@
                 "value": 90
               },
               {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
                 "id": "color",
                 "value": {
                   "mode": "fixed",
                   "fixedColor": "green"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "30+"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Transfers"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 105
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Conversion %"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 125
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 20
+                    },
+                    {
+                      "color": "green",
+                      "value": 35
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
                 }
               }
             ]
@@ -1669,9 +1428,9 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 31,
+        "y": 26,
         "w": 12,
-        "h": 10
+        "h": 9
       },
       "targets": [
         {
@@ -1726,16 +1485,12 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Conversion %"
+              "options": "Project"
             },
             "properties": [
               {
-                "id": "unit",
-                "value": "percent"
-              },
-              {
-                "id": "decimals",
-                "value": 2
+                "id": "custom.width",
+                "value": 220
               }
             ]
           },
@@ -1750,10 +1505,134 @@
                 "value": 90
               },
               {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
                 "id": "color",
                 "value": {
                   "mode": "fixed",
                   "fixedColor": "green"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "30+"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Transfers"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 105
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Conversion %"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 125
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 20
+                    },
+                    {
+                      "color": "green",
+                      "value": 35
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
                 }
               }
             ]
@@ -1782,12 +1661,12 @@
     {
       "id": 150,
       "type": "row",
-      "title": "Client / preset breakdown",
+      "title": "Client performance",
       "collapsed": false,
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 41,
+        "y": 35,
         "w": 24,
         "h": 1
       }
@@ -1795,7 +1674,7 @@
     {
       "id": 151,
       "type": "table",
-      "title": "Client / preset performance",
+      "title": "Client performance",
       "description": "See which client/preset groups are converting and where unresolved preset data exists.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
@@ -1803,7 +1682,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 42,
+        "y": 36,
         "w": 24,
         "h": 9
       },
@@ -1828,7 +1707,7 @@
           "columns": [
             {
               "selector": "preset",
-              "text": "Client / preset",
+              "text": "Client",
               "type": "string"
             },
             {
@@ -1847,11 +1726,6 @@
               "type": "number"
             },
             {
-              "selector": "missing_preset",
-              "text": "Missing preset",
-              "type": "number"
-            },
-            {
               "selector": "conversion_pct",
               "text": "Conversion %",
               "type": "number"
@@ -1865,16 +1739,12 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Conversion %"
+              "options": "Client"
             },
             "properties": [
               {
-                "id": "unit",
-                "value": "percent"
-              },
-              {
-                "id": "decimals",
-                "value": 2
+                "id": "custom.width",
+                "value": 260
               }
             ]
           },
@@ -1889,10 +1759,134 @@
                 "value": 90
               },
               {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
                 "id": "color",
                 "value": {
                   "mode": "fixed",
                   "fixedColor": "green"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "30+"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Transfers"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 105
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Conversion %"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 125
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 20
+                    },
+                    {
+                      "color": "green",
+                      "value": 35
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
                 }
               }
             ]
@@ -1921,110 +1915,30 @@
     {
       "id": 160,
       "type": "row",
-      "title": "Sold in selected time range",
+      "title": "Sold call details",
       "collapsed": false,
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 51,
+        "y": 45,
         "w": 24,
         "h": 1
       }
     },
     {
-      "id": 161,
-      "type": "stat",
-      "title": "Sold in selected time range",
-      "description": "Final sold count for exactly the date/time, Projects, Team and Client/Preset filters selected above.",
-      "datasource": {
-        "type": "yesoreyeram-infinity-datasource",
-        "uid": "calllens-api"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 52,
-        "w": 24,
-        "h": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "yesoreyeram-infinity-datasource",
-            "uid": "calllens-api"
-          },
-          "refId": "A",
-          "type": "json",
-          "source": "url",
-          "format": "table",
-          "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
-          "url_options": {
-            "method": "GET",
-            "data": "",
-            "params": []
-          },
-          "root_selector": "$.summary",
-          "columns": [
-            {
-              "selector": "sold",
-              "text": "Sold in selected time range",
-              "type": "number"
-            }
-          ]
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "decimals": 0,
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "green"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "noValue": "0"
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "values": false,
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": ""
-        },
-        "orientation": "auto",
-        "textMode": "value",
-        "wideLayout": true,
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "showPercentChange": false
-      }
-    },
-    {
       "id": 162,
       "type": "table",
-      "title": "Sold call details",
-      "description": "Detailed sold calls within the selected time range so managers can see who sold, for which team/project, and when.",
+      "title": "Sold calls",
+      "description": "Individual sold calls for the selected time range and filters.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
       },
       "gridPos": {
         "x": 0,
-        "y": 56,
+        "y": 46,
         "w": 24,
-        "h": 10
+        "h": 11
       },
       "targets": [
         {
@@ -2102,12 +2016,60 @@
           {
             "matcher": {
               "id": "byName",
+              "options": "Agent"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 200
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Team"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
               "options": "Number"
             },
             "properties": [
               {
                 "id": "custom.width",
-                "value": 140
+                "value": 150
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Client"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 150
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Client status"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 200
               }
             ]
           },
