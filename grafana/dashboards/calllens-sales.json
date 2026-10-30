@@ -35,7 +35,7 @@
         "x": 0,
         "y": 1,
         "w": 4,
-        "h": 4
+        "h": 3
       },
       "targets": [
         {
@@ -115,7 +115,7 @@
         "x": 4,
         "y": 1,
         "w": 4,
-        "h": 4
+        "h": 3
       },
       "targets": [
         {
@@ -195,7 +195,7 @@
         "x": 8,
         "y": 1,
         "w": 4,
-        "h": 4
+        "h": 3
       },
       "targets": [
         {
@@ -275,7 +275,7 @@
         "x": 12,
         "y": 1,
         "w": 4,
-        "h": 4
+        "h": 3
       },
       "targets": [
         {
@@ -355,7 +355,7 @@
         "x": 16,
         "y": 1,
         "w": 4,
-        "h": 4
+        "h": 3
       },
       "targets": [
         {
@@ -435,7 +435,7 @@
         "x": 20,
         "y": 1,
         "w": 4,
-        "h": 4
+        "h": 3
       },
       "targets": [
         {
@@ -505,12 +505,12 @@
     {
       "id": 120,
       "type": "row",
-      "title": "Momentum",
+      "title": "Sales momentum",
       "collapsed": false,
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 5,
+        "y": 4,
         "w": 24,
         "h": 1
       }
@@ -518,7 +518,7 @@
     {
       "id": 121,
       "type": "timeseries",
-      "title": "Performance",
+      "title": "Performance over time",
       "description": "Sold, 30+ calls and transfers across the selected time range. Short ranges use hourly buckets; longer ranges use daily buckets.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
@@ -526,9 +526,9 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 6,
+        "y": 5,
         "w": 16,
-        "h": 8
+        "h": 7
       },
       "targets": [
         {
@@ -687,9 +687,9 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 6,
+        "y": 5,
         "w": 8,
-        "h": 8
+        "h": 7
       },
       "targets": [
         {
@@ -821,7 +821,7 @@
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 14,
+        "y": 12,
         "w": 24,
         "h": 1
       }
@@ -837,9 +837,9 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 15,
-        "w": 8,
-        "h": 10
+        "y": 13,
+        "w": 7,
+        "h": 8
       },
       "targets": [
         {
@@ -932,10 +932,10 @@
         "uid": "calllens-api"
       },
       "gridPos": {
-        "x": 8,
-        "y": 15,
-        "w": 16,
-        "h": 10
+        "x": 7,
+        "y": 13,
+        "w": 17,
+        "h": 8
       },
       "targets": [
         {
@@ -959,6 +959,11 @@
             {
               "selector": "agent",
               "text": "Agent",
+              "type": "string"
+            },
+            {
+              "selector": "team_leader",
+              "text": "Team leader",
               "type": "string"
             },
             {
@@ -990,12 +995,24 @@
           {
             "matcher": {
               "id": "byName",
+              "options": "Team leader"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 235
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
               "options": "Agent"
             },
             "properties": [
               {
                 "id": "custom.width",
-                "value": 230
+                "value": 235
               }
             ]
           },
@@ -1007,7 +1024,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 90
+                "value": 100
               },
               {
                 "id": "custom.align",
@@ -1036,7 +1053,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 90
+                "value": 100
               },
               {
                 "id": "custom.align",
@@ -1065,7 +1082,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 105
+                "value": 120
               },
               {
                 "id": "custom.align",
@@ -1099,7 +1116,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 125
+                "value": 145
               },
               {
                 "id": "custom.align",
@@ -1154,6 +1171,10 @@
         "cellHeight": "sm",
         "sortBy": [
           {
+            "displayName": "Team leader",
+            "desc": false
+          },
+          {
             "displayName": "Sold",
             "desc": true
           }
@@ -1175,10 +1196,11 @@
             "includeByName": {},
             "indexByName": {
               "Agent": 0,
-              "Sold": 1,
-              "30+": 2,
-              "Transfers": 3,
-              "Conversion %": 4
+              "Team leader": 1,
+              "Sold": 2,
+              "30+": 3,
+              "Transfers": 4,
+              "Conversion %": 5
             },
             "renameByName": {}
           }
@@ -1193,7 +1215,7 @@
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 25,
+        "y": 21,
         "w": 24,
         "h": 1
       }
@@ -1209,9 +1231,9 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 26,
+        "y": 22,
         "w": 12,
-        "h": 9
+        "h": 6
       },
       "targets": [
         {
@@ -1235,6 +1257,11 @@
             {
               "selector": "team",
               "text": "Team",
+              "type": "string"
+            },
+            {
+              "selector": "team_leader",
+              "text": "Team leader",
               "type": "string"
             },
             {
@@ -1266,12 +1293,24 @@
           {
             "matcher": {
               "id": "byName",
+              "options": "Team leader"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 175
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
               "options": "Team"
             },
             "properties": [
               {
                 "id": "custom.width",
-                "value": 220
+                "value": 160
               }
             ]
           },
@@ -1283,7 +1322,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 90
+                "value": 85
               },
               {
                 "id": "custom.align",
@@ -1312,7 +1351,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 90
+                "value": 85
               },
               {
                 "id": "custom.align",
@@ -1341,7 +1380,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 105
+                "value": 100
               },
               {
                 "id": "custom.align",
@@ -1375,7 +1414,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 125
+                "value": 120
               },
               {
                 "id": "custom.align",
@@ -1451,10 +1490,11 @@
             "includeByName": {},
             "indexByName": {
               "Team": 0,
-              "Sold": 1,
-              "30+": 2,
-              "Transfers": 3,
-              "Conversion %": 4
+              "Team leader": 1,
+              "Sold": 2,
+              "30+": 3,
+              "Transfers": 4,
+              "Conversion %": 5
             },
             "renameByName": {}
           }
@@ -1472,9 +1512,9 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 26,
+        "y": 22,
         "w": 12,
-        "h": 9
+        "h": 6
       },
       "targets": [
         {
@@ -1534,7 +1574,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 220
+                "value": 300
               }
             ]
           },
@@ -1732,7 +1772,7 @@
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 35,
+        "y": 28,
         "w": 24,
         "h": 1
       }
@@ -1748,9 +1788,9 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 36,
+        "y": 29,
         "w": 24,
-        "h": 9
+        "h": 6
       },
       "targets": [
         {
@@ -1810,7 +1850,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 260
+                "value": 500
               }
             ]
           },
@@ -1822,7 +1862,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 90
+                "value": 170
               },
               {
                 "id": "custom.align",
@@ -1851,7 +1891,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 90
+                "value": 170
               },
               {
                 "id": "custom.align",
@@ -1880,7 +1920,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 105
+                "value": 210
               },
               {
                 "id": "custom.align",
@@ -1914,7 +1954,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 125
+                "value": 230
               },
               {
                 "id": "custom.align",
@@ -2008,7 +2048,7 @@
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 45,
+        "y": 35,
         "w": 24,
         "h": 1
       }
@@ -2024,9 +2064,9 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 46,
+        "y": 36,
         "w": 24,
-        "h": 11
+        "h": 4
       },
       "targets": [
         {
@@ -2109,7 +2149,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 200
+                "value": 235
               }
             ]
           },
@@ -2121,7 +2161,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 180
+                "value": 220
               }
             ]
           },
@@ -2133,7 +2173,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 150
+                "value": 190
               },
               {
                 "id": "custom.filterable",
@@ -2149,7 +2189,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 150
+                "value": 190
               }
             ]
           },
@@ -2161,7 +2201,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 200
+                "value": 260
               }
             ]
           },
@@ -2173,7 +2213,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 220
+                "value": 285
               }
             ]
           }
@@ -2402,7 +2442,7 @@
     ]
   },
   "timezone": "America/New_York",
-  "title": "CallLens Sales Performance",
+  "title": "Analytics",
   "uid": "calllens-sales-performance",
   "version": 3,
   "description": "Team-facing sales performance dashboard. Starts on today, puts Sold first, and keeps every view synchronized with the native Grafana filters."

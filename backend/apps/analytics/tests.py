@@ -65,6 +65,8 @@ class SalesAnalyticsTests(TestCase):
         self.assertEqual(summary["twenty_plus"], 2)
         self.assertEqual(summary["thirty_plus"], 1)
         self.assertEqual(data["teams"][0]["team"], "Alpha")
+        self.assertEqual(data["teams"][0]["team_leader"], "Team Lead")
+        self.assertEqual(data["agents"][0]["team_leader"], "Team Lead")
         self.assertEqual(data["projects"][0]["project"], "Medicare")
 
     def test_sold_detail_rows_include_expected_fields(self):

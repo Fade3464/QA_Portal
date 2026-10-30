@@ -187,7 +187,7 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
     filter_signature = hashlib.sha256(
         json.dumps(filters, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     ).hexdigest()[:20]
-    cache_key=f"sales-analytics:v6:{company.pk}:{start_key}:{end_key}:{filter_signature}"
+    cache_key=f"sales-analytics:v7:{company.pk}:{start_key}:{end_key}:{filter_signature}"
     cached=cache.get(cache_key)
     if cached is not None:
         return cached
@@ -223,9 +223,20 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
     projects=_grouped(sale_qs,["project_name"])
     for row in projects:
         row["project"] = row.pop("project_name") or "Unmapped"
-    agents=_grouped(sale_qs,["agent_user","agent_name"])
+    agents=_grouped(
+        sale_qs,
+        [
+            "agent_user",
+            "agent_name",
+            "team__team_leader__first_name",
+            "team__team_leader__last_name",
+        ],
+    )
     for row in agents:
         row["agent"] = row.get("agent_name") or row.get("agent_user") or "Unknown"
+        first = row.pop("team__team_leader__first_name") or ""
+        last = row.pop("team__team_leader__last_name") or ""
+        row["team_leader"] = f"{first} {last}".strip() or "Unassigned"
     trend_bucket = TruncHour if end - start <= timedelta(days=2) else TruncDate
     trends=(
         sale_qs.annotate(bucket=trend_bucket("analytics_at"))
