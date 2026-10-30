@@ -212,9 +212,16 @@ def _agent_table_rows(agents, sale_qs, *, include_preset_columns: bool):
     )
     rows = []
     for row in agents:
+        # Keep the fixed performance columns first. Dynamic preset columns are
+        # deliberately appended after Conversion % so the API contract matches
+        # the intended Grafana table layout.
         item = {
             "Agent": row["agent"],
             "Team leader": row["team_leader"],
+            "Sold": int(row.get("sold") or 0),
+            "30+": int(row.get("thirty_plus") or 0),
+            "Transfers": int(row.get("transfers") or 0),
+            "Conversion %": float(row.get("conversion_pct") or 0),
         }
         per_preset = transfer_counts.get(
             (
@@ -226,14 +233,6 @@ def _agent_table_rows(agents, sale_qs, *, include_preset_columns: bool):
         )
         for preset_name in presets:
             item[preset_name] = per_preset.get(preset_name, 0)
-        item.update(
-            {
-                "Sold": int(row.get("sold") or 0),
-                "30+": int(row.get("thirty_plus") or 0),
-                "Transfers": int(row.get("transfers") or 0),
-                "Conversion %": float(row.get("conversion_pct") or 0),
-            }
-        )
         rows.append(item)
     return rows
 
@@ -245,21 +244,19 @@ def _team_table_rows(teams, sale_qs, *, include_preset_columns: bool):
     )
     rows = []
     for row in teams:
+        # As with the agent table, keep every data-driven preset field to the
+        # right of the fixed performance columns.
         item = {
             "Team": row["team"],
             "Team leader": row["team_leader"],
+            "Sold": int(row.get("sold") or 0),
+            "30+": int(row.get("thirty_plus") or 0),
+            "Transfers": int(row.get("transfers") or 0),
+            "Conversion %": float(row.get("conversion_pct") or 0),
         }
         per_preset = transfer_counts.get(row["team"], {})
         for preset_name in presets:
             item[preset_name] = per_preset.get(preset_name, 0)
-        item.update(
-            {
-                "Sold": int(row.get("sold") or 0),
-                "30+": int(row.get("thirty_plus") or 0),
-                "Transfers": int(row.get("transfers") or 0),
-                "Conversion %": float(row.get("conversion_pct") or 0),
-            }
-        )
         rows.append(item)
     return rows
 
@@ -305,7 +302,7 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
     filter_signature = hashlib.sha256(
         json.dumps(filters, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     ).hexdigest()[:20]
-    cache_key=f"sales-analytics:v8:{company.pk}:{start_key}:{end_key}:{filter_signature}"
+    cache_key=f"sales-analytics:v9:{company.pk}:{start_key}:{end_key}:{filter_signature}"
     cached=cache.get(cache_key)
     if cached is not None:
         return cached

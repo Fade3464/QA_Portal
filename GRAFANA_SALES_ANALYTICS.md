@@ -67,3 +67,6 @@ Grafana reaches CallLens over the private Docker network at `http://backend:8000
 The provisioned Infinity datasource also sends `X-Forwarded-Proto: https` as defense in depth. Do not disable `SECURE_SSL_REDIRECT` globally.
 
 Infinity 4.x query column selectors must be strings. The provisioned `Missing preset` and `Stale calls` panels use `missing_preset` and `stale_calls` respectively.
+
+
+Dynamic preset columns in Agent Leaderboard and Team Performance are always appended after **Conversion %**. Grafana explicitly pins the fixed fields before allowing auto-discovered preset columns.

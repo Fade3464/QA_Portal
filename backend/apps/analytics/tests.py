@@ -72,6 +72,32 @@ class SalesAnalyticsTests(TestCase):
         self.assertEqual(data["agent_table"][0]["D42"], 0)
         self.assertEqual(data["team_table"][0]["D33"], 1)
         self.assertEqual(data["team_table"][0]["D42"], 0)
+        self.assertEqual(
+            list(data["agent_table"][0]),
+            [
+                "Agent",
+                "Team leader",
+                "Sold",
+                "30+",
+                "Transfers",
+                "Conversion %",
+                "D33",
+                "D42",
+            ],
+        )
+        self.assertEqual(
+            list(data["team_table"][0]),
+            [
+                "Team",
+                "Team leader",
+                "Sold",
+                "30+",
+                "Transfers",
+                "Conversion %",
+                "D33",
+                "D42",
+            ],
+        )
 
     def test_preset_transfer_columns_only_exist_when_client_filter_is_all(self):
         now = timezone.now()
