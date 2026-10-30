@@ -2442,7 +2442,7 @@
     ]
   },
   "timezone": "America/New_York",
-  "title": "Analytics",
+  "title": "Convergence",
   "uid": "calllens-sales-performance",
   "version": 3,
   "description": "Team-facing sales performance dashboard. Starts on today, puts Sold first, and keeps every view synchronized with the native Grafana filters."
