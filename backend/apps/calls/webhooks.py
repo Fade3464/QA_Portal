@@ -355,7 +355,14 @@ def receive_vicidial(
         existing.save(update_fields=list(dict.fromkeys(changed)))
 
     def merge_final(existing):
-        """Apply an authoritative final callback idempotently to one lifecycle."""
+        """Apply an authoritative final callback idempotently to one lifecycle.
+
+        Return whether this callback finalized a provisional lifecycle, recovered
+        a stale lifecycle, or transitioned an already-finalized legacy/non-SALE
+        row into canonical SALE. The last signal is important for alternate
+        VICIdial sale codes that may already exist in production from an older
+        deployment: normalizing them to SALE must also start preset inference.
+        """
         previous_disposition = (existing.disposition or "").upper()
         was_pending = (
             previous_disposition in CallEvent.PROVISIONAL_START_DISPOSITIONS
@@ -378,6 +385,10 @@ def receive_vicidial(
         existing.call_direction = call_direction
         existing.dial_method = dial_method
         existing.disposition = disposition[:40]
+        entered_sale = (
+            existing.disposition.upper() == "SALE"
+            and previous_disposition != "SALE"
+        )
 
         if existing.disposition.upper() != "SALE":
             existing.client_20_plus = False
@@ -410,11 +421,12 @@ def receive_vicidial(
         # the v1 key; strong-ID reconciliation keeps them compatible while all new
         # rows use the stable v2 key.
         existing.save()
-        return was_pending, recovered
+        return was_pending, recovered, entered_sale
 
     created = False
     finalized_now = False
     recovered_from_stale = False
+    entered_sale = False
 
     with transaction.atomic():
         event = (
@@ -449,7 +461,7 @@ def receive_vicidial(
             if is_start_call:
                 merge_start(event)
             else:
-                finalized_now, recovered_from_stale = merge_final(event)
+                finalized_now, recovered_from_stale, entered_sale = merge_final(event)
 
         # Only a newly-created final call or an actual provisional/STALE -> final
         # transition may enter the post-disposition pipeline. Duplicate final
@@ -459,6 +471,13 @@ def receive_vicidial(
             if event.disposition.upper() == "SALE":
                 transaction.on_commit(lambda: resolve_sale_preset.delay(str(event.pk)))
             transaction.on_commit(lambda: announce_call(event))
+        elif entered_sale and not event.preset:
+            # A duplicate/corrective final callback can normalize an already-
+            # finalized legacy alias (SMSAL/SQSAL/D30SA/D33SA/D42SA) to SALE.
+            # Recording work was already queued when that row first finalized,
+            # but preset inference was not. Queue only the missing SALE-specific
+            # work and keep duplicate canonical SALE callbacks idempotent.
+            transaction.on_commit(lambda: resolve_sale_preset.delay(str(event.pk)))
 
     return JsonResponse(
         {

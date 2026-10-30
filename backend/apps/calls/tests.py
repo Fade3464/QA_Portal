@@ -924,6 +924,53 @@ class WebhookTests(TestCase):
             preset_task.assert_called_once_with(str(event.pk))
             announce.assert_called_once_with(event)
 
+    @patch("apps.calls.webhooks.resolve_sale_preset.delay")
+    @patch("apps.calls.webhooks.resolve_recording.delay")
+    def test_existing_finalized_sale_alias_normalized_to_sale_queues_missing_preset_lookup(
+        self, queue_task, preset_task
+    ):
+        legacy = CallEvent.objects.create(
+            dialer=self.dialer,
+            branch=self.branch,
+            event_key="legacy-smsal".ljust(64, "0"),
+            event_type=CallEvent.EventType.DISPOSITION,
+            call_id="V-LEGACY-SMSAL-1",
+            unique_id="LEGACY-SMSAL-UNIQUE-1",
+            lead_id="LEGACY-SMSAL-LEAD-1",
+            agent_user="8102",
+            agent_name="Agent One",
+            campaign="002",
+            phone_number="2695390999",
+            disposition="SMSAL",
+            finalized_at=timezone.now() - timedelta(minutes=2),
+            call_date=timezone.now() - timedelta(minutes=30),
+            raw_payload={"dispo": "SMSAL"},
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.get(
+                self.url,
+                {
+                    "token": self.secret,
+                    "lead_id": legacy.lead_id,
+                    "call_id": legacy.call_id,
+                    "uniqueid": legacy.unique_id,
+                    "user": legacy.agent_user,
+                    "campaign": legacy.campaign,
+                    "phone_number": legacy.phone_number,
+                    "dispo": "SMSAL",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["created"])
+        self.assertFalse(response.json()["finalized"])
+        legacy.refresh_from_db()
+        self.assertEqual(legacy.disposition, "SALE")
+        self.assertEqual(legacy.raw_payload["dispo"], "SMSAL")
+        preset_task.assert_called_once_with(str(legacy.pk))
+        queue_task.assert_not_called()
+
     @patch("apps.calls.webhooks.announce_call")
     @patch("apps.calls.webhooks.resolve_recording.delay")
     def test_duplicate_direct_final_with_changed_sqldate_does_not_create_second_row(

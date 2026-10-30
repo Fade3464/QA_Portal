@@ -62,6 +62,8 @@ A late real disposition can recover a stale call. Recovery also matches rows who
 
 `client_status` and `sold` are business-managed fields and are intentionally independent from VICIdial disposition. In particular, `disposition=SALE` **does not** automatically set `sold=true`. Late dialer dispositions preserve existing business values. SALE-only editor validation, automatic preset lookup, and Project Manager editor access are documented in [`CALL_EDITOR_AND_PRESET_LOOKUP.md`](CALL_EDITOR_AND_PRESET_LOOKUP.md).
 
+VICIdial sale aliases `SQSAL`, `SMSAL`, `D30SA`, `D33SA`, and `D42SA` are normalized to canonical `SALE` before lifecycle classification. A newly-finalized alias follows the normal SALE preset-inference pipeline. If a previously-finalized legacy alias row is later corrected/seen again and transitions into canonical `SALE`, CallLens queues the missing preset lookup even though the lifecycle itself was already finalized; duplicate canonical `SALE` callbacks remain idempotent.
+
 VICIdial sale aliases `SQSAL`, `SMSAL`, `D30SA`, `D33SA`, and `D42SA` are normalized to canonical `SALE` as soon as the Dispo callback is parsed. They therefore use the same finalization, recording lookup, preset lookup, notifications, editor rules, and analytics flow as a normal `SALE` callback. The original raw `dispo` value remains in `raw_payload` for auditability.
 
 ## Migration and services
