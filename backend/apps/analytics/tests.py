@@ -138,6 +138,29 @@ class SalesAnalyticsTests(TestCase):
         self.assertEqual(detail["client_status"], "Confirmed")
         self.assertIn("T", detail["disposition_time"])
 
+    def test_transfer_detail_rows_include_expected_fields(self):
+        now = timezone.now()
+        self._call(
+            "detail-transfer",
+            sold=False,
+            preset="D88",
+            when=now-timedelta(minutes=1),
+            phone_number="15557654321",
+            client_status="Pending",
+        )
+        data = build_sales_dashboard(
+            from_ms=str(int((now-timedelta(hours=1)).timestamp()*1000)),
+            to_ms=str(int(now.timestamp()*1000)),
+        )
+        detail = next(
+            row for row in data["transfer_details"] if row["number"] == "15557654321"
+        )
+        self.assertEqual(detail["agent"], "Agent One")
+        self.assertEqual(detail["team"], "Alpha")
+        self.assertEqual(detail["client"], "D88")
+        self.assertEqual(detail["client_status"], "Pending")
+        self.assertIn("T", detail["disposition_time"])
+
     def test_multiple_projects_can_be_selected_together(self):
         DialerCampaign.objects.create(
             dialer=self.dialer, campaign="003", project_name="Dental"

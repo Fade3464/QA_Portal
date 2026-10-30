@@ -2246,6 +2246,212 @@
           }
         }
       ]
+    },
+    {
+      "id": 163,
+      "type": "table",
+      "title": "Transfer calls",
+      "description": "Transfer call details for the selected dashboard time range and filters. Every column can be filtered directly from its header.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "calllens-api"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "calllens-api"
+          },
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url_options": {
+            "method": "GET",
+            "data": "",
+            "params": []
+          },
+          "root_selector": "$.transfer_details",
+          "columns": [
+            {
+              "selector": "agent",
+              "text": "Agent",
+              "type": "string"
+            },
+            {
+              "selector": "team",
+              "text": "Team",
+              "type": "string"
+            },
+            {
+              "selector": "number",
+              "text": "Number",
+              "type": "string"
+            },
+            {
+              "selector": "client",
+              "text": "Client",
+              "type": "string"
+            },
+            {
+              "selector": "client_status",
+              "text": "Client status",
+              "type": "string"
+            },
+            {
+              "selector": "disposition_time",
+              "text": "Disposition time",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "includeByName": {},
+            "indexByName": {
+              "Agent": 0,
+              "Team": 1,
+              "Number": 2,
+              "Client": 3,
+              "Client status": 4,
+              "Disposition time": 5
+            },
+            "renameByName": {}
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Disposition time",
+            "desc": true
+          }
+        ],
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        }
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Agent"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 235
+              },
+              {
+                "id": "custom.filterable",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Team"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 220
+              },
+              {
+                "id": "custom.filterable",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Number"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 190
+              },
+              {
+                "id": "custom.filterable",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Client"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 190
+              },
+              {
+                "id": "custom.filterable",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Client status"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 260
+              },
+              {
+                "id": "custom.filterable",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Disposition time"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 285
+              },
+              {
+                "id": "custom.filterable",
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "pluginVersion": "13.3.0"
     }
   ],
   "refresh": "1m",

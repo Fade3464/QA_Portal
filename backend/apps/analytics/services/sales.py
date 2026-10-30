@@ -261,10 +261,11 @@ def _team_table_rows(teams, sale_qs, *, include_preset_columns: bool):
     return rows
 
 
-def _sold_detail_rows(qs):
+def _call_detail_rows(qs, *, sold: bool):
+    """Return dashboard-safe SALE call details for sold or transfer rows."""
     rows = []
     for event in (
-        qs.filter(disposition__iexact="SALE", sold=True)
+        qs.filter(disposition__iexact="SALE", sold=sold)
         .select_related("team")
         .order_by("-analytics_at", "-received_at")[:500]
     ):
@@ -280,6 +281,14 @@ def _sold_detail_rows(qs):
             }
         )
     return rows
+
+
+def _sold_detail_rows(qs):
+    return _call_detail_rows(qs, sold=True)
+
+
+def _transfer_detail_rows(qs):
+    return _call_detail_rows(qs, sold=False)
 
 
 def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", preset=""):
@@ -302,7 +311,7 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
     filter_signature = hashlib.sha256(
         json.dumps(filters, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     ).hexdigest()[:20]
-    cache_key=f"sales-analytics:v9:{company.pk}:{start_key}:{end_key}:{filter_signature}"
+    cache_key=f"sales-analytics:v10:{company.pk}:{start_key}:{end_key}:{filter_signature}"
     cached=cache.get(cache_key)
     if cached is not None:
         return cached
@@ -391,6 +400,7 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
         }
         cache.set(filter_cache,filter_values,300)
     sold_details = _sold_detail_rows(qs)
+    transfer_details = _transfer_detail_rows(qs)
     payload={
         "enabled": True,
         "company": company.name,
@@ -406,6 +416,7 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
         "trend": trend_rows,
         "trend_granularity": "hour" if trend_bucket is TruncHour else "day",
         "sold_details": sold_details,
+        "transfer_details": transfer_details,
         "filters": filter_values,
     }
     cache.set(cache_key,payload,60)
