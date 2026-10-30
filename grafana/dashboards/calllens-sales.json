@@ -971,6 +971,10 @@
               {
                 "id": "custom.width",
                 "value": 235
+              },
+              {
+                "id": "custom.filterable",
+                "value": true
               }
             ]
           },

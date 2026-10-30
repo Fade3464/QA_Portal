@@ -893,10 +893,10 @@ class WebhookTests(TestCase):
     @patch("apps.calls.webhooks.announce_call")
     @patch("apps.calls.webhooks.resolve_sale_preset.delay")
     @patch("apps.calls.webhooks.resolve_recording.delay")
-    def test_sqsal_and_smsal_are_normalized_to_sale_and_use_sale_pipeline(
+    def test_alternate_sale_dispositions_are_normalized_to_sale_and_use_sale_pipeline(
         self, queue_task, preset_task, announce
     ):
-        for index, incoming in enumerate(("SQSAL", "SMSAL"), start=1):
+        for index, incoming in enumerate(("SQSAL", "SMSAL", "D30SA", "D33SA", "D42SA"), start=1):
             queue_task.reset_mock()
             preset_task.reset_mock()
             announce.reset_mock()
