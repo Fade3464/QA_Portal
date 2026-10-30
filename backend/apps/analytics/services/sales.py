@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.core.cache import cache
 from django.db.models import Count, OuterRef, Q, Subquery
-from django.db.models.functions import Coalesce, TruncDate
+from django.db.models.functions import Coalesce, TruncDate, TruncHour
 from django.utils import timezone
 
 from apps.calls.models import CallEvent
@@ -39,6 +41,27 @@ def _clean_filter(value: str | None) -> str:
     return value
 
 
+def _clean_multi_filter(value) -> tuple[str, ...]:
+    """Normalize Grafana multi-value filters without changing legacy callers.
+
+    The dashboard sends one ``project=...`` query parameter per selected
+    project. Pipe-delimited values are also accepted for backwards-compatible
+    callers. Selecting Grafana's custom All value deliberately removes the
+    project restriction.
+    """
+    if value is None:
+        return ()
+    raw_values = value if isinstance(value, (list, tuple, set)) else [value]
+    values: list[str] = []
+    for raw in raw_values:
+        values.extend(part.strip() for part in str(raw or "").split("|"))
+    values = [item for item in values if item]
+    if not values or any(item.casefold() in {"all", "__all", "$__all"} for item in values):
+        return ()
+    # Preserve dashboard order while removing accidental duplicates.
+    return tuple(dict.fromkeys(values))
+
+
 def _base_queryset(company: Company, start: datetime, end: datetime, *, team="", project="", preset=""):
     project_subquery = DialerCampaign.objects.filter(
         dialer_id=OuterRef("dialer_id"),
@@ -64,12 +87,15 @@ def _base_queryset(company: Company, start: datetime, end: datetime, *, team="",
         .annotate(project_name=Subquery(project_subquery))
     )
     team = _clean_filter(team)
-    project = _clean_filter(project)
+    projects = _clean_multi_filter(project)
     preset = _clean_filter(preset)
     if team:
         qs = qs.filter(Q(team__name=team) | Q(team_name=team))
-    if project:
-        qs = qs.filter(project_name=project)
+    if projects:
+        project_filter = Q()
+        for project_name in projects:
+            project_filter |= Q(project_name__iexact=project_name)
+        qs = qs.filter(project_filter)
     if preset:
         qs = qs.filter(preset=preset)
     return qs
@@ -135,8 +161,12 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
     # aggregate response while still remaining operationally current.
     start_key=int(start.timestamp()//60)
     end_key=int(end.timestamp()//60)
-    filters=(_clean_filter(team),_clean_filter(project),_clean_filter(preset))
-    cache_key=f"sales-analytics:v3:{company.pk}:{start_key}:{end_key}:{'|'.join(filters)}"
+    filters=(_clean_filter(team),_clean_multi_filter(project),_clean_filter(preset))
+    # Keep Redis/memcached keys bounded even when many projects are selected.
+    filter_signature = hashlib.sha256(
+        json.dumps(filters, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    ).hexdigest()[:20]
+    cache_key=f"sales-analytics:v4:{company.pk}:{start_key}:{end_key}:{filter_signature}"
     cached=cache.get(cache_key)
     if cached is not None:
         return cached
@@ -175,9 +205,10 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
     agents=_grouped(sale_qs,["agent_user","agent_name"])
     for row in agents:
         row["agent"] = row.get("agent_name") or row.get("agent_user") or "Unknown"
+    trend_bucket = TruncHour if end - start <= timedelta(days=2) else TruncDate
     trends=(
-        sale_qs.annotate(day=TruncDate("analytics_at"))
-        .values("day")
+        sale_qs.annotate(bucket=trend_bucket("analytics_at"))
+        .values("bucket")
         .annotate(
             opportunities=Count("id"),
             sold_count=Count("id", filter=Q(sold=True)),
@@ -185,12 +216,12 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
             twenty_plus=Count("id", filter=Q(client_20_plus=True)),
             thirty_plus=Count("id", filter=Q(client_30_plus=True)),
         )
-        .order_by("day")
+        .order_by("bucket")
     )
     trend_rows=[]
     for row in trends:
         item=dict(row)
-        item["date"]=item.pop("day").isoformat() if item.get("day") else ""
+        item["date"]=item.pop("bucket").isoformat() if item.get("bucket") else ""
         sold=int(item.pop("sold_count", 0) or 0)
         item["sold"] = sold
         item["conversion_pct"]=_pct(sold,int(item.get("opportunities") or 0))
@@ -214,7 +245,9 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
         "presets": presets,
         "projects": projects,
         "agents": agents,
+        "top_agents": agents[:10],
         "trend": trend_rows,
+        "trend_granularity": "hour" if trend_bucket is TruncHour else "day",
         "filters": filter_values,
     }
     cache.set(cache_key,payload,60)

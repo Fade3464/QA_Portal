@@ -66,6 +66,34 @@ class SalesAnalyticsTests(TestCase):
         self.assertEqual(data["teams"][0]["team"], "Alpha")
         self.assertEqual(data["projects"][0]["project"], "Medicare")
 
+    def test_multiple_projects_can_be_selected_together(self):
+        DialerCampaign.objects.create(
+            dialer=self.dialer, campaign="003", project_name="Dental"
+        )
+        dental_call = self._call(
+            "dental-sold",
+            sold=True,
+            preset="D99",
+            when=timezone.now() - timedelta(minutes=2),
+        )
+        dental_call.campaign = "003"
+        dental_call.save(update_fields=["campaign"])
+
+        now = timezone.now()
+        data = build_sales_dashboard(
+            from_ms=str(int((now - timedelta(hours=1)).timestamp() * 1000)),
+            to_ms=str(int(now.timestamp() * 1000)),
+            project=["Medicare", "Dental"],
+        )
+
+        self.assertEqual(data["summary"][0]["opportunities"], 4)
+        self.assertEqual(data["summary"][0]["sold"], 2)
+        self.assertEqual(
+            {row["project"] for row in data["projects"]}, {"Medicare", "Dental"}
+        )
+        self.assertEqual(data["trend_granularity"], "hour")
+        self.assertLessEqual(len(data["top_agents"]), 10)
+
     @override_settings(GRAFANA_ANALYTICS_API_TOKEN="analytics-token")
     def test_grafana_endpoint_requires_internal_bearer_token(self):
         client = APIClient()

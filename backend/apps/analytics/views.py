@@ -15,7 +15,7 @@ class GrafanaSalesDashboardView(APIView):
                 from_ms=request.query_params.get("from"),
                 to_ms=request.query_params.get("to"),
                 team=request.query_params.get("team", ""),
-                project=request.query_params.get("project", ""),
+                project=request.query_params.getlist("project"),
                 preset=request.query_params.get("preset", ""),
             )
         )

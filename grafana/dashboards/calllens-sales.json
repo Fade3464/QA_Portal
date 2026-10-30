@@ -10,16 +10,30 @@
   "liveNow": false,
   "panels": [
     {
-      "id": 1,
+      "id": 100,
+      "type": "row",
+      "title": "At a glance",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 101,
       "type": "stat",
-      "title": "SALE opportunities",
+      "title": "Sold",
+      "description": "Confirmed sold policies for the selected time range and filters.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
       },
       "gridPos": {
         "x": 0,
-        "y": 0,
+        "y": 1,
         "w": 4,
         "h": 4
       },
@@ -34,157 +48,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&project=${project}&preset=${preset}",
-          "url_options": {
-            "method": "GET",
-            "data": "",
-            "params": []
-          },
-          "root_selector": "$.summary",
-          "columns": [
-            {
-              "selector": "opportunities",
-              "text": "SALE opportunities",
-              "type": "number"
-            }
-          ]
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "decimals": 0,
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "values": false,
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": ""
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto"
-      }
-    },
-    {
-      "id": 2,
-      "type": "stat",
-      "title": "Transfers (unsold SALE)",
-      "datasource": {
-        "type": "yesoreyeram-infinity-datasource",
-        "uid": "calllens-api"
-      },
-      "gridPos": {
-        "x": 4,
-        "y": 0,
-        "w": 4,
-        "h": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "yesoreyeram-infinity-datasource",
-            "uid": "calllens-api"
-          },
-          "refId": "A",
-          "type": "json",
-          "source": "url",
-          "format": "table",
-          "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&project=${project}&preset=${preset}",
-          "url_options": {
-            "method": "GET",
-            "data": "",
-            "params": []
-          },
-          "root_selector": "$.summary",
-          "columns": [
-            {
-              "selector": "transfers",
-              "text": "Transfers (unsold SALE)",
-              "type": "number"
-            }
-          ]
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "decimals": 0,
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "values": false,
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": ""
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto"
-      }
-    },
-    {
-      "id": 3,
-      "type": "stat",
-      "title": "Total sold",
-      "datasource": {
-        "type": "yesoreyeram-infinity-datasource",
-        "uid": "calllens-api"
-      },
-      "gridPos": {
-        "x": 8,
-        "y": 0,
-        "w": 4,
-        "h": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "yesoreyeram-infinity-datasource",
-            "uid": "calllens-api"
-          },
-          "refId": "A",
-          "type": "json",
-          "source": "url",
-          "format": "table",
-          "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&project=${project}&preset=${preset}",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
           "url_options": {
             "method": "GET",
             "data": "",
@@ -194,7 +58,7 @@
           "columns": [
             {
               "selector": "sold",
-              "text": "Total sold",
+              "text": "Sold",
               "type": "number"
             }
           ]
@@ -205,7 +69,8 @@
           "unit": "none",
           "decimals": 0,
           "color": {
-            "mode": "thresholds"
+            "mode": "fixed",
+            "fixedColor": "green"
           },
           "thresholds": {
             "mode": "absolute",
@@ -215,7 +80,8 @@
                 "value": null
               }
             ]
-          }
+          },
+          "noValue": "0"
         },
         "overrides": []
       },
@@ -228,23 +94,26 @@
           "fields": ""
         },
         "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "value",
+        "textMode": "value_and_name",
+        "wideLayout": true,
+        "colorMode": "background",
         "graphMode": "none",
-        "justifyMode": "auto"
+        "justifyMode": "center",
+        "showPercentChange": false
       }
     },
     {
-      "id": 4,
+      "id": 102,
       "type": "stat",
       "title": "Conversion",
+      "description": "Sold divided by SALE-disposition calls in the current selection.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
       },
       "gridPos": {
-        "x": 12,
-        "y": 0,
+        "x": 4,
+        "y": 1,
         "w": 4,
         "h": 4
       },
@@ -259,7 +128,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&project=${project}&preset=${preset}",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
           "url_options": {
             "method": "GET",
             "data": "",
@@ -280,17 +149,19 @@
           "unit": "percent",
           "decimals": 2,
           "color": {
-            "mode": "thresholds"
+            "mode": "fixed",
+            "fixedColor": "blue"
           },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "blue",
                 "value": null
               }
             ]
-          }
+          },
+          "noValue": "0"
         },
         "overrides": []
       },
@@ -303,23 +174,26 @@
           "fields": ""
         },
         "orientation": "auto",
-        "textMode": "auto",
+        "textMode": "value_and_name",
+        "wideLayout": true,
         "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "auto"
+        "justifyMode": "center",
+        "showPercentChange": false
       }
     },
     {
-      "id": 5,
+      "id": 103,
       "type": "stat",
-      "title": "20+ minute",
+      "title": "Transfers",
+      "description": "SALE-disposition calls that are not marked sold.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
       },
       "gridPos": {
-        "x": 16,
-        "y": 0,
+        "x": 8,
+        "y": 1,
         "w": 4,
         "h": 4
       },
@@ -334,7 +208,87 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&project=${project}&preset=${preset}",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url_options": {
+            "method": "GET",
+            "data": "",
+            "params": []
+          },
+          "root_selector": "$.summary",
+          "columns": [
+            {
+              "selector": "transfers",
+              "text": "Transfers",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "0"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 104,
+      "type": "stat",
+      "title": "20+ minute",
+      "description": "SALE calls manually marked as reaching 20+ minutes.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "calllens-api"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "calllens-api"
+          },
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
           "url_options": {
             "method": "GET",
             "data": "",
@@ -355,17 +309,19 @@
           "unit": "none",
           "decimals": 0,
           "color": {
-            "mode": "thresholds"
+            "mode": "fixed",
+            "fixedColor": "purple"
           },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "purple",
                 "value": null
               }
             ]
-          }
+          },
+          "noValue": "0"
         },
         "overrides": []
       },
@@ -378,23 +334,26 @@
           "fields": ""
         },
         "orientation": "auto",
-        "textMode": "auto",
+        "textMode": "value_and_name",
+        "wideLayout": true,
         "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "auto"
+        "justifyMode": "center",
+        "showPercentChange": false
       }
     },
     {
-      "id": 6,
+      "id": 105,
       "type": "stat",
       "title": "30+ minute",
+      "description": "SALE calls manually marked as reaching 30+ minutes.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
       },
       "gridPos": {
-        "x": 20,
-        "y": 0,
+        "x": 16,
+        "y": 1,
         "w": 4,
         "h": 4
       },
@@ -409,7 +368,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&project=${project}&preset=${preset}",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
           "url_options": {
             "method": "GET",
             "data": "",
@@ -430,17 +389,19 @@
           "unit": "none",
           "decimals": 0,
           "color": {
-            "mode": "thresholds"
+            "mode": "fixed",
+            "fixedColor": "purple"
           },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "purple",
                 "value": null
               }
             ]
-          }
+          },
+          "noValue": "0"
         },
         "overrides": []
       },
@@ -453,23 +414,26 @@
           "fields": ""
         },
         "orientation": "auto",
-        "textMode": "auto",
+        "textMode": "value_and_name",
+        "wideLayout": true,
         "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "auto"
+        "justifyMode": "center",
+        "showPercentChange": false
       }
     },
     {
-      "id": 7,
+      "id": 106,
       "type": "stat",
       "title": "Missing preset",
+      "description": "SALE calls whose client/preset lookup did not resolve.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
       },
       "gridPos": {
-        "x": 0,
-        "y": 4,
+        "x": 20,
+        "y": 1,
         "w": 4,
         "h": 4
       },
@@ -484,7 +448,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&project=${project}&preset=${preset}",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
           "url_options": {
             "method": "GET",
             "data": "",
@@ -494,7 +458,7 @@
           "columns": [
             {
               "selector": "missing_preset",
-              "text": "missing_preset",
+              "text": "Missing preset",
               "type": "number"
             }
           ]
@@ -502,20 +466,22 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "Missing preset",
+          "unit": "none",
           "decimals": 0,
           "color": {
-            "mode": "thresholds"
+            "mode": "fixed",
+            "fixedColor": "yellow"
           },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "yellow",
                 "value": null
               }
             ]
-          }
+          },
+          "noValue": "0"
         },
         "overrides": []
       },
@@ -528,23 +494,26 @@
           "fields": ""
         },
         "orientation": "auto",
-        "textMode": "auto",
+        "textMode": "value_and_name",
+        "wideLayout": true,
         "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "auto"
+        "justifyMode": "center",
+        "showPercentChange": false
       }
     },
     {
-      "id": 8,
+      "id": 107,
       "type": "stat",
-      "title": "Stale calls",
+      "title": "20+ → Sold",
+      "description": "Share of 20+ minute calls that became sold policies.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
       },
       "gridPos": {
-        "x": 4,
-        "y": 4,
+        "x": 0,
+        "y": 5,
         "w": 4,
         "h": 4
       },
@@ -559,736 +528,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&project=${project}&preset=${preset}",
-          "url_options": {
-            "method": "GET",
-            "data": "",
-            "params": []
-          },
-          "root_selector": "$.summary",
-          "columns": [
-            {
-              "selector": "stale_calls",
-              "text": "stale_calls",
-              "type": "number"
-            }
-          ]
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "Stale calls",
-          "decimals": 0,
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "values": false,
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": ""
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto"
-      }
-    },
-    {
-      "id": 9,
-      "type": "timeseries",
-      "title": "Sales pipeline trend",
-      "datasource": {
-        "type": "yesoreyeram-infinity-datasource",
-        "uid": "calllens-api"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 8,
-        "w": 24,
-        "h": 8
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "yesoreyeram-infinity-datasource",
-            "uid": "calllens-api"
-          },
-          "refId": "A",
-          "type": "json",
-          "source": "url",
-          "format": "table",
-          "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&project=${project}&preset=${preset}",
-          "url_options": {
-            "method": "GET",
-            "data": "",
-            "params": []
-          },
-          "root_selector": "$.trend",
-          "columns": [
-            {
-              "selector": "date",
-              "text": "Date",
-              "type": "timestamp"
-            },
-            {
-              "selector": "opportunities",
-              "text": "Opportunities",
-              "type": "number"
-            },
-            {
-              "selector": "transfers",
-              "text": "Transfers",
-              "type": "number"
-            },
-            {
-              "selector": "sold",
-              "text": "Sold",
-              "type": "number"
-            }
-          ]
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "fillOpacity": 12
-          },
-          "color": {
-            "mode": "palette-classic"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        }
-      }
-    },
-    {
-      "id": 10,
-      "type": "table",
-      "title": "Team performance",
-      "datasource": {
-        "type": "yesoreyeram-infinity-datasource",
-        "uid": "calllens-api"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 16,
-        "w": 12,
-        "h": 10
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "yesoreyeram-infinity-datasource",
-            "uid": "calllens-api"
-          },
-          "refId": "A",
-          "type": "json",
-          "source": "url",
-          "format": "table",
-          "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&project=${project}&preset=${preset}",
-          "url_options": {
-            "method": "GET",
-            "data": "",
-            "params": []
-          },
-          "root_selector": "$.teams",
-          "columns": [
-            {
-              "selector": "team",
-              "text": "Team",
-              "type": "string"
-            },
-            {
-              "selector": "team_leader",
-              "text": "Team leader",
-              "type": "string"
-            },
-            {
-              "selector": "opportunities",
-              "text": "SALE calls",
-              "type": "number"
-            },
-            {
-              "selector": "transfers",
-              "text": "Transfers",
-              "type": "number"
-            },
-            {
-              "selector": "sold",
-              "text": "Sold",
-              "type": "number"
-            },
-            {
-              "selector": "conversion_pct",
-              "text": "Conversion %",
-              "type": "number"
-            },
-            {
-              "selector": "twenty_plus",
-              "text": "20+",
-              "type": "number"
-            },
-            {
-              "selector": "thirty_plus",
-              "text": "30+",
-              "type": "number"
-            },
-            {
-              "selector": "missing_preset",
-              "text": "Missing preset",
-              "type": "number"
-            }
-          ]
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Conversion %"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percent"
-              },
-              {
-                "id": "decimals",
-                "value": 2
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "20+ %"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percent"
-              },
-              {
-                "id": "decimals",
-                "value": 2
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "30+ %"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percent"
-              },
-              {
-                "id": "decimals",
-                "value": 2
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "showHeader": true,
-        "cellHeight": "sm",
-        "sortBy": [
-          {
-            "displayName": "Sold",
-            "desc": true
-          }
-        ]
-      }
-    },
-    {
-      "id": 11,
-      "type": "table",
-      "title": "Client / preset performance",
-      "datasource": {
-        "type": "yesoreyeram-infinity-datasource",
-        "uid": "calllens-api"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 16,
-        "w": 12,
-        "h": 10
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "yesoreyeram-infinity-datasource",
-            "uid": "calllens-api"
-          },
-          "refId": "A",
-          "type": "json",
-          "source": "url",
-          "format": "table",
-          "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&project=${project}&preset=${preset}",
-          "url_options": {
-            "method": "GET",
-            "data": "",
-            "params": []
-          },
-          "root_selector": "$.presets",
-          "columns": [
-            {
-              "selector": "preset",
-              "text": "Client / preset",
-              "type": "string"
-            },
-            {
-              "selector": "opportunities",
-              "text": "SALE calls",
-              "type": "number"
-            },
-            {
-              "selector": "transfers",
-              "text": "Transfers",
-              "type": "number"
-            },
-            {
-              "selector": "sold",
-              "text": "Sold",
-              "type": "number"
-            },
-            {
-              "selector": "conversion_pct",
-              "text": "Conversion %",
-              "type": "number"
-            },
-            {
-              "selector": "twenty_plus",
-              "text": "20+",
-              "type": "number"
-            },
-            {
-              "selector": "thirty_plus",
-              "text": "30+",
-              "type": "number"
-            },
-            {
-              "selector": "missing_preset",
-              "text": "Missing preset",
-              "type": "number"
-            }
-          ]
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Conversion %"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percent"
-              },
-              {
-                "id": "decimals",
-                "value": 2
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "20+ %"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percent"
-              },
-              {
-                "id": "decimals",
-                "value": 2
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "30+ %"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percent"
-              },
-              {
-                "id": "decimals",
-                "value": 2
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "showHeader": true,
-        "cellHeight": "sm",
-        "sortBy": [
-          {
-            "displayName": "Sold",
-            "desc": true
-          }
-        ]
-      }
-    },
-    {
-      "id": 12,
-      "type": "table",
-      "title": "Project performance",
-      "datasource": {
-        "type": "yesoreyeram-infinity-datasource",
-        "uid": "calllens-api"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 26,
-        "w": 12,
-        "h": 10
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "yesoreyeram-infinity-datasource",
-            "uid": "calllens-api"
-          },
-          "refId": "A",
-          "type": "json",
-          "source": "url",
-          "format": "table",
-          "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&project=${project}&preset=${preset}",
-          "url_options": {
-            "method": "GET",
-            "data": "",
-            "params": []
-          },
-          "root_selector": "$.projects",
-          "columns": [
-            {
-              "selector": "project",
-              "text": "Project",
-              "type": "string"
-            },
-            {
-              "selector": "opportunities",
-              "text": "SALE calls",
-              "type": "number"
-            },
-            {
-              "selector": "transfers",
-              "text": "Transfers",
-              "type": "number"
-            },
-            {
-              "selector": "sold",
-              "text": "Sold",
-              "type": "number"
-            },
-            {
-              "selector": "conversion_pct",
-              "text": "Conversion %",
-              "type": "number"
-            },
-            {
-              "selector": "twenty_plus",
-              "text": "20+",
-              "type": "number"
-            },
-            {
-              "selector": "thirty_plus",
-              "text": "30+",
-              "type": "number"
-            },
-            {
-              "selector": "missing_preset",
-              "text": "Missing preset",
-              "type": "number"
-            }
-          ]
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Conversion %"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percent"
-              },
-              {
-                "id": "decimals",
-                "value": 2
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "20+ %"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percent"
-              },
-              {
-                "id": "decimals",
-                "value": 2
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "30+ %"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percent"
-              },
-              {
-                "id": "decimals",
-                "value": 2
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "showHeader": true,
-        "cellHeight": "sm",
-        "sortBy": [
-          {
-            "displayName": "Sold",
-            "desc": true
-          }
-        ]
-      }
-    },
-    {
-      "id": 13,
-      "type": "table",
-      "title": "Agent leaderboard",
-      "datasource": {
-        "type": "yesoreyeram-infinity-datasource",
-        "uid": "calllens-api"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 26,
-        "w": 12,
-        "h": 10
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "yesoreyeram-infinity-datasource",
-            "uid": "calllens-api"
-          },
-          "refId": "A",
-          "type": "json",
-          "source": "url",
-          "format": "table",
-          "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&project=${project}&preset=${preset}",
-          "url_options": {
-            "method": "GET",
-            "data": "",
-            "params": []
-          },
-          "root_selector": "$.agents",
-          "columns": [
-            {
-              "selector": "agent",
-              "text": "Agent",
-              "type": "string"
-            },
-            {
-              "selector": "agent_user",
-              "text": "Agent ID",
-              "type": "string"
-            },
-            {
-              "selector": "opportunities",
-              "text": "SALE calls",
-              "type": "number"
-            },
-            {
-              "selector": "transfers",
-              "text": "Transfers",
-              "type": "number"
-            },
-            {
-              "selector": "sold",
-              "text": "Sold",
-              "type": "number"
-            },
-            {
-              "selector": "conversion_pct",
-              "text": "Conversion %",
-              "type": "number"
-            },
-            {
-              "selector": "twenty_plus",
-              "text": "20+",
-              "type": "number"
-            },
-            {
-              "selector": "thirty_plus",
-              "text": "30+",
-              "type": "number"
-            },
-            {
-              "selector": "missing_preset",
-              "text": "Missing preset",
-              "type": "number"
-            }
-          ]
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Conversion %"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percent"
-              },
-              {
-                "id": "decimals",
-                "value": 2
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "20+ %"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percent"
-              },
-              {
-                "id": "decimals",
-                "value": 2
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "30+ %"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percent"
-              },
-              {
-                "id": "decimals",
-                "value": 2
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "showHeader": true,
-        "cellHeight": "sm",
-        "sortBy": [
-          {
-            "displayName": "Sold",
-            "desc": true
-          }
-        ]
-      }
-    },
-    {
-      "id": 14,
-      "type": "stat",
-      "title": "20+ to sold conversion",
-      "datasource": {
-        "type": "yesoreyeram-infinity-datasource",
-        "uid": "calllens-api"
-      },
-      "gridPos": {
-        "x": 8,
-        "y": 4,
-        "w": 4,
-        "h": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "yesoreyeram-infinity-datasource",
-            "uid": "calllens-api"
-          },
-          "refId": "A",
-          "type": "json",
-          "source": "url",
-          "format": "table",
-          "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&project=${project}&preset=${preset}",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
           "url_options": {
             "method": "GET",
             "data": "",
@@ -1298,7 +538,7 @@
           "columns": [
             {
               "selector": "twenty_plus_conversion_pct",
-              "text": "20+ to sold conversion",
+              "text": "20+ → Sold",
               "type": "number"
             }
           ]
@@ -1309,7 +549,8 @@
           "unit": "percent",
           "decimals": 2,
           "color": {
-            "mode": "thresholds"
+            "mode": "fixed",
+            "fixedColor": "green"
           },
           "thresholds": {
             "mode": "absolute",
@@ -1319,7 +560,8 @@
                 "value": null
               }
             ]
-          }
+          },
+          "noValue": "0"
         },
         "overrides": []
       },
@@ -1332,23 +574,26 @@
           "fields": ""
         },
         "orientation": "auto",
-        "textMode": "auto",
+        "textMode": "value_and_name",
+        "wideLayout": true,
         "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "auto"
+        "justifyMode": "center",
+        "showPercentChange": false
       }
     },
     {
-      "id": 15,
+      "id": 108,
       "type": "stat",
-      "title": "30+ to sold conversion",
+      "title": "30+ → Sold",
+      "description": "Share of 30+ minute calls that became sold policies.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
       },
       "gridPos": {
-        "x": 12,
-        "y": 4,
+        "x": 4,
+        "y": 5,
         "w": 4,
         "h": 4
       },
@@ -1363,7 +608,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&project=${project}&preset=${preset}",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
           "url_options": {
             "method": "GET",
             "data": "",
@@ -1373,7 +618,7 @@
           "columns": [
             {
               "selector": "thirty_plus_conversion_pct",
-              "text": "30+ to sold conversion",
+              "text": "30+ → Sold",
               "type": "number"
             }
           ]
@@ -1384,7 +629,8 @@
           "unit": "percent",
           "decimals": 2,
           "color": {
-            "mode": "thresholds"
+            "mode": "fixed",
+            "fixedColor": "green"
           },
           "thresholds": {
             "mode": "absolute",
@@ -1394,7 +640,8 @@
                 "value": null
               }
             ]
-          }
+          },
+          "noValue": "0"
         },
         "overrides": []
       },
@@ -1407,23 +654,26 @@
           "fields": ""
         },
         "orientation": "auto",
-        "textMode": "auto",
+        "textMode": "value_and_name",
+        "wideLayout": true,
         "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "auto"
+        "justifyMode": "center",
+        "showPercentChange": false
       }
     },
     {
-      "id": 16,
+      "id": 109,
       "type": "stat",
       "title": "20+ share",
+      "description": "Share of SALE calls that reached 20+ minutes.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
       },
       "gridPos": {
-        "x": 16,
-        "y": 4,
+        "x": 8,
+        "y": 5,
         "w": 4,
         "h": 4
       },
@@ -1438,7 +688,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&project=${project}&preset=${preset}",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
           "url_options": {
             "method": "GET",
             "data": "",
@@ -1459,17 +709,19 @@
           "unit": "percent",
           "decimals": 2,
           "color": {
-            "mode": "thresholds"
+            "mode": "fixed",
+            "fixedColor": "blue"
           },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "blue",
                 "value": null
               }
             ]
-          }
+          },
+          "noValue": "0"
         },
         "overrides": []
       },
@@ -1482,23 +734,26 @@
           "fields": ""
         },
         "orientation": "auto",
-        "textMode": "auto",
+        "textMode": "value_and_name",
+        "wideLayout": true,
         "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "auto"
+        "justifyMode": "center",
+        "showPercentChange": false
       }
     },
     {
-      "id": 17,
+      "id": 110,
       "type": "stat",
-      "title": "Below 20 min share",
+      "title": "30+ share",
+      "description": "Share of SALE calls that reached 30+ minutes.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
       },
       "gridPos": {
-        "x": 20,
-        "y": 4,
+        "x": 12,
+        "y": 5,
         "w": 4,
         "h": 4
       },
@@ -1513,7 +768,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&project=${project}&preset=${preset}",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
           "url_options": {
             "method": "GET",
             "data": "",
@@ -1522,8 +777,8 @@
           "root_selector": "$.summary",
           "columns": [
             {
-              "selector": "under_20_pct",
-              "text": "Below 20 min share",
+              "selector": "thirty_plus_pct",
+              "text": "30+ share",
               "type": "number"
             }
           ]
@@ -1534,17 +789,19 @@
           "unit": "percent",
           "decimals": 2,
           "color": {
-            "mode": "thresholds"
+            "mode": "fixed",
+            "fixedColor": "blue"
           },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "blue",
                 "value": null
               }
             ]
-          }
+          },
+          "noValue": "0"
         },
         "overrides": []
       },
@@ -1557,10 +814,1246 @@
           "fields": ""
         },
         "orientation": "auto",
-        "textMode": "auto",
+        "textMode": "value_and_name",
+        "wideLayout": true,
         "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "auto"
+        "justifyMode": "center",
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 111,
+      "type": "stat",
+      "title": "Below 20 min",
+      "description": "Share of SALE calls that did not reach the 20+ minute mark.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "calllens-api"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 5,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "calllens-api"
+          },
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url_options": {
+            "method": "GET",
+            "data": "",
+            "params": []
+          },
+          "root_selector": "$.summary",
+          "columns": [
+            {
+              "selector": "under_20_pct",
+              "text": "Below 20 min",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "0"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 112,
+      "type": "stat",
+      "title": "Stale calls",
+      "description": "Provisional calls that exceeded the two-hour Start/Dispo lifecycle window.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "calllens-api"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 5,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "calllens-api"
+          },
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url_options": {
+            "method": "GET",
+            "data": "",
+            "params": []
+          },
+          "root_selector": "$.summary",
+          "columns": [
+            {
+              "selector": "stale_calls",
+              "text": "Stale calls",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "red"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "0"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "wideLayout": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 120,
+      "type": "row",
+      "title": "Sales momentum",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 121,
+      "type": "timeseries",
+      "title": "Sales movement over time",
+      "description": "See how sold, transfers and longer calls are moving through the selected range. Hover any point for exact values.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "calllens-api"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 16,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "calllens-api"
+          },
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url_options": {
+            "method": "GET",
+            "data": "",
+            "params": []
+          },
+          "root_selector": "$.trend",
+          "columns": [
+            {
+              "selector": "date",
+              "text": "Date",
+              "type": "timestamp"
+            },
+            {
+              "selector": "sold",
+              "text": "Sold",
+              "type": "number"
+            },
+            {
+              "selector": "transfers",
+              "text": "Transfers",
+              "type": "number"
+            },
+            {
+              "selector": "twenty_plus",
+              "text": "20+ minute",
+              "type": "number"
+            },
+            {
+              "selector": "thirty_plus",
+              "text": "30+ minute",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "barAlignment": 0,
+            "lineWidth": 2,
+            "fillOpacity": 14,
+            "gradientMode": "opacity",
+            "spanNulls": false,
+            "insertNulls": false,
+            "showPoints": "auto",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Sold"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc",
+          "hideZeros": false
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "sum"
+          ],
+          "showLegend": true
+        }
+      }
+    },
+    {
+      "id": 122,
+      "type": "bargauge",
+      "title": "Selected-range outcome mix",
+      "description": "A compact comparison of the main volumes for the current filters. This is not a funnel; categories can overlap.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "calllens-api"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 10,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "calllens-api"
+          },
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url_options": {
+            "method": "GET",
+            "data": "",
+            "params": []
+          },
+          "root_selector": "$.summary",
+          "columns": [
+            {
+              "selector": "sold",
+              "text": "Sold",
+              "type": "number"
+            },
+            {
+              "selector": "transfers",
+              "text": "Transfers",
+              "type": "number"
+            },
+            {
+              "selector": "twenty_plus",
+              "text": "20+ minute",
+              "type": "number"
+            },
+            {
+              "selector": "thirty_plus",
+              "text": "30+ minute",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Sold"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Transfers"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "20+ minute"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "30+ minute"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "valueMode": "color",
+        "namePlacement": "left",
+        "showUnfilled": true,
+        "sizing": "auto",
+        "minVizWidth": 0,
+        "minVizHeight": 10
+      }
+    },
+    {
+      "id": 130,
+      "type": "row",
+      "title": "People performance",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 131,
+      "type": "barchart",
+      "title": "Top sellers",
+      "description": "Sold policies by agent, already ranked by sold count. Use this as the quick motivational view; the full leaderboard is beside it.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "calllens-api"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 9,
+        "h": 11
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "calllens-api"
+          },
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url_options": {
+            "method": "GET",
+            "data": "",
+            "params": []
+          },
+          "root_selector": "$.top_agents",
+          "columns": [
+            {
+              "selector": "agent",
+              "text": "Agent",
+              "type": "string"
+            },
+            {
+              "selector": "sold",
+              "text": "Sold",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Sold"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "orientation": "horizontal",
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0,
+        "showValue": "always",
+        "stacking": "none",
+        "groupWidth": 0.72,
+        "barWidth": 0.85,
+        "barRadius": 0.15,
+        "fullHighlight": false,
+        "tooltip": {
+          "mode": "single",
+          "sort": "none",
+          "hideZeros": false
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [],
+          "showLegend": false
+        }
+      }
+    },
+    {
+      "id": 132,
+      "type": "table",
+      "title": "Agent leaderboard",
+      "description": "Detailed agent comparison for the same filters. Sold is intentionally first and the table defaults to highest sold count.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "calllens-api"
+      },
+      "gridPos": {
+        "x": 9,
+        "y": 19,
+        "w": 15,
+        "h": 11
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "calllens-api"
+          },
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url_options": {
+            "method": "GET",
+            "data": "",
+            "params": []
+          },
+          "root_selector": "$.agents",
+          "columns": [
+            {
+              "selector": "agent",
+              "text": "Agent",
+              "type": "string"
+            },
+            {
+              "selector": "sold",
+              "text": "Sold",
+              "type": "number"
+            },
+            {
+              "selector": "conversion_pct",
+              "text": "Conversion %",
+              "type": "number"
+            },
+            {
+              "selector": "opportunities",
+              "text": "SALE calls",
+              "type": "number"
+            },
+            {
+              "selector": "transfers",
+              "text": "Transfers",
+              "type": "number"
+            },
+            {
+              "selector": "twenty_plus",
+              "text": "20+",
+              "type": "number"
+            },
+            {
+              "selector": "thirty_plus",
+              "text": "30+",
+              "type": "number"
+            },
+            {
+              "selector": "agent_user",
+              "text": "Agent ID",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Conversion %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Sold"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Sold",
+            "desc": true
+          }
+        ],
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 140,
+      "type": "row",
+      "title": "Team & project performance",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 141,
+      "type": "table",
+      "title": "Team performance",
+      "description": "Compare teams and team leaders without leaving the dashboard.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "calllens-api"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "calllens-api"
+          },
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url_options": {
+            "method": "GET",
+            "data": "",
+            "params": []
+          },
+          "root_selector": "$.teams",
+          "columns": [
+            {
+              "selector": "team",
+              "text": "Team",
+              "type": "string"
+            },
+            {
+              "selector": "team_leader",
+              "text": "Team leader",
+              "type": "string"
+            },
+            {
+              "selector": "sold",
+              "text": "Sold",
+              "type": "number"
+            },
+            {
+              "selector": "conversion_pct",
+              "text": "Conversion %",
+              "type": "number"
+            },
+            {
+              "selector": "opportunities",
+              "text": "SALE calls",
+              "type": "number"
+            },
+            {
+              "selector": "transfers",
+              "text": "Transfers",
+              "type": "number"
+            },
+            {
+              "selector": "twenty_plus",
+              "text": "20+",
+              "type": "number"
+            },
+            {
+              "selector": "thirty_plus",
+              "text": "30+",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Conversion %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Sold"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Sold",
+            "desc": true
+          }
+        ],
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 142,
+      "type": "table",
+      "title": "Project performance",
+      "description": "Compare selected projects. The Project filter above supports selecting several projects at once.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "calllens-api"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 31,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "calllens-api"
+          },
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url_options": {
+            "method": "GET",
+            "data": "",
+            "params": []
+          },
+          "root_selector": "$.projects",
+          "columns": [
+            {
+              "selector": "project",
+              "text": "Project",
+              "type": "string"
+            },
+            {
+              "selector": "sold",
+              "text": "Sold",
+              "type": "number"
+            },
+            {
+              "selector": "conversion_pct",
+              "text": "Conversion %",
+              "type": "number"
+            },
+            {
+              "selector": "opportunities",
+              "text": "SALE calls",
+              "type": "number"
+            },
+            {
+              "selector": "transfers",
+              "text": "Transfers",
+              "type": "number"
+            },
+            {
+              "selector": "twenty_plus",
+              "text": "20+",
+              "type": "number"
+            },
+            {
+              "selector": "thirty_plus",
+              "text": "30+",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Conversion %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Sold"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Sold",
+            "desc": true
+          }
+        ],
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 150,
+      "type": "row",
+      "title": "Client / preset breakdown",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 41,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 151,
+      "type": "table",
+      "title": "Client / preset performance",
+      "description": "See which client/preset groups are converting and where unresolved preset data exists.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "calllens-api"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "calllens-api"
+          },
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url_options": {
+            "method": "GET",
+            "data": "",
+            "params": []
+          },
+          "root_selector": "$.presets",
+          "columns": [
+            {
+              "selector": "preset",
+              "text": "Client / preset",
+              "type": "string"
+            },
+            {
+              "selector": "sold",
+              "text": "Sold",
+              "type": "number"
+            },
+            {
+              "selector": "conversion_pct",
+              "text": "Conversion %",
+              "type": "number"
+            },
+            {
+              "selector": "opportunities",
+              "text": "SALE calls",
+              "type": "number"
+            },
+            {
+              "selector": "transfers",
+              "text": "Transfers",
+              "type": "number"
+            },
+            {
+              "selector": "twenty_plus",
+              "text": "20+",
+              "type": "number"
+            },
+            {
+              "selector": "thirty_plus",
+              "text": "30+",
+              "type": "number"
+            },
+            {
+              "selector": "missing_preset",
+              "text": "Missing preset",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Conversion %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Sold"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Sold",
+            "desc": true
+          }
+        ],
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 160,
+      "type": "row",
+      "title": "Selected-range total",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 51,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 161,
+      "type": "stat",
+      "title": "Sold in selected time range",
+      "description": "Final sold count for exactly the date/time, Projects, Team and Client/Preset filters selected above.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "calllens-api"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 52,
+        "w": 24,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "calllens-api"
+          },
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url_options": {
+            "method": "GET",
+            "data": "",
+            "params": []
+          },
+          "root_selector": "$.summary",
+          "columns": [
+            {
+              "selector": "sold",
+              "text": "Sold in selected time range",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "0"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "wideLayout": true,
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "showPercentChange": false
       }
     }
   ],
@@ -1582,8 +2075,8 @@
         "hide": 0,
         "includeAll": true,
         "allValue": "__all",
-        "label": "Project",
-        "multi": false,
+        "label": "Projects",
+        "multi": true,
         "name": "project",
         "options": [],
         "query": {
@@ -1627,8 +2120,12 @@
         "type": "query",
         "current": {
           "selected": true,
-          "text": "All",
-          "value": "__all"
+          "text": [
+            "All"
+          ],
+          "value": [
+            "__all"
+          ]
         }
       },
       {
@@ -1750,7 +2247,7 @@
     ]
   },
   "time": {
-    "from": "now-24h",
+    "from": "now/d",
     "to": "now"
   },
   "timepicker": {
@@ -1764,6 +2261,6 @@
   "timezone": "America/New_York",
   "title": "CallLens Sales Performance",
   "uid": "calllens-sales-performance",
-  "version": 1,
-  "description": "Company-wide SALE pipeline analytics. Transfers are SALE-disposition calls that are not yet marked sold."
+  "version": 2,
+  "description": "Team-facing sales performance dashboard. Starts on today, puts Sold first, and keeps every view synchronized with the native Grafana filters."
 }

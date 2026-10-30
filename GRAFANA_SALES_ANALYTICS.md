@@ -13,7 +13,17 @@ CallLens exposes a company-wide Grafana sidecar at `/analytics/`. Grafana never 
 
 ## Dashboard
 
-The provisioned `CallLens Sales Performance` dashboard contains KPI cards, daily trend, Team/Team Leader performance, client/preset performance, project performance, and an agent leaderboard. Project, Team and Client/Preset selectors sit above the dashboard alongside Grafana's native date/time picker. It refreshes every minute. The backend caches each aggregate response for 60 seconds and filter metadata for five minutes, so multiple Grafana panels reuse the same Redis-backed payload rather than repeatedly scanning the calls table.
+The provisioned `CallLens Sales Performance` dashboard is designed as a team-facing performance view rather than a raw metrics wall. It opens on **today so far** (`now/d` → `now`) and refreshes every minute. Grafana's native **Projects** selector supports multi-select plus **All**; Team and Client/Preset remain single-select to keep the primary filtering flow simple. Every panel uses the same selected time range and filters.
+
+The layout is intentionally outcome-first:
+
+- **Sold** is the first and most visually prominent KPI. The old standalone **SALE opportunities** card is removed.
+- Secondary KPI cards explain conversion, transfers, call-duration milestones, preset health and stale calls. Hover descriptions define each metric for new users.
+- **Sales movement over time** automatically uses hourly buckets for today/short ranges and daily buckets for longer ranges; a native Grafana bar gauge adds quick outcome context without requiring users to read a table first.
+- **Top sellers** and the detailed **Agent leaderboard** make peer performance immediately visible, followed by Team, Project and Client/Preset breakdowns. Tables default to **Sold descending** and place Sold before supporting volume metrics.
+- The dashboard closes with a full-width **Sold in selected time range** total so the final number is always visible after reviewing the breakdowns.
+
+Project multi-select is implemented end-to-end: Grafana emits one `project=...` query parameter per selected project and the analytics service treats the selected names as an OR filter. The custom `__all` value removes the project restriction without expanding every project into a very long URL. The backend caches each aggregate response for 60 seconds and filter metadata for five minutes, so multiple Grafana panels reuse the same Redis-backed payload rather than repeatedly scanning the calls table.
 
 No phone numbers, recording URLs, lead details or customer PII are returned by the analytics API.
 
