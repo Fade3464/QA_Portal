@@ -2248,6 +2248,19 @@
       ]
     },
     {
+      "id": 164,
+      "type": "row",
+      "title": "Transfer call details",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
       "id": 163,
       "type": "table",
       "title": "Transfer calls",
@@ -2258,7 +2271,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 56,
+        "y": 57,
         "w": 24,
         "h": 10
       },

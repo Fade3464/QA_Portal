@@ -72,3 +72,5 @@ Infinity 4.x query column selectors must be strings. The provisioned `Missing pr
 Dynamic preset columns in Agent Leaderboard and Team Performance are always appended after **Conversion %**. Grafana explicitly pins the fixed fields before allowing auto-discovered preset columns.
 
 The dashboard also includes a final **Transfer calls** table with Agent, Team, Number, Client, Client status, and Disposition time. It follows the active dashboard filters and exposes native column filters on every heading.
+
+- **Transfer call details** is a separate dashboard section below **Sold call details**; it is not nested under the Sold section.
