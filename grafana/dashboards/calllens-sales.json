@@ -106,7 +106,7 @@
       "id": 105,
       "type": "stat",
       "title": "30+ Calls",
-      "description": "SALE calls manually marked as reaching 30+ minutes.",
+      "description": "Transferred calls reaching 30+ minutes.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
@@ -186,7 +186,7 @@
       "id": 103,
       "type": "stat",
       "title": "Transfers",
-      "description": "SALE-disposition calls that are not marked sold.",
+      "description": "Call transfers that are not sold.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
@@ -266,7 +266,7 @@
       "id": 102,
       "type": "stat",
       "title": "Conversion",
-      "description": "Sold divided by SALE-disposition calls in the current selection.",
+      "description": "Sold conversion to the total transferred calls",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
@@ -505,7 +505,7 @@
     {
       "id": 120,
       "type": "row",
-      "title": "Sales momentum",
+      "title": "Momentum",
       "collapsed": false,
       "panels": [],
       "gridPos": {
@@ -518,7 +518,7 @@
     {
       "id": 121,
       "type": "timeseries",
-      "title": "Performance over time",
+      "title": "Performance",
       "description": "Sold, 30+ calls and transfers across the selected time range. Short ranges use hourly buckets; longer ranges use daily buckets.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
@@ -1074,14 +1074,19 @@
               {
                 "id": "color",
                 "value": {
-                  "mode": "fixed",
-                  "fixedColor": "orange"
+                  "mode": "continuous-RdYlGr"
                 }
+              },
+              {
+                "id": "fieldMinMax",
+                "value": true
               },
               {
                 "id": "custom.cellOptions",
                 "value": {
-                  "type": "color-text"
+                  "type": "color-background",
+                  "mode": "gradient",
+                  "applyToRow": false
                 }
               }
             ]
@@ -1161,7 +1166,24 @@
           "countRows": false,
           "fields": ""
         }
-      }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "includeByName": {},
+            "indexByName": {
+              "Agent": 0,
+              "Sold": 1,
+              "30+": 2,
+              "Transfers": 3,
+              "Conversion %": 4
+            },
+            "renameByName": {}
+          }
+        }
+      ]
     },
     {
       "id": 140,
@@ -1328,14 +1350,19 @@
               {
                 "id": "color",
                 "value": {
-                  "mode": "fixed",
-                  "fixedColor": "orange"
+                  "mode": "continuous-RdYlGr"
                 }
+              },
+              {
+                "id": "fieldMinMax",
+                "value": true
               },
               {
                 "id": "custom.cellOptions",
                 "value": {
-                  "type": "color-text"
+                  "type": "color-background",
+                  "mode": "gradient",
+                  "applyToRow": false
                 }
               }
             ]
@@ -1415,7 +1442,24 @@
           "countRows": false,
           "fields": ""
         }
-      }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "includeByName": {},
+            "indexByName": {
+              "Team": 0,
+              "Sold": 1,
+              "30+": 2,
+              "Transfers": 3,
+              "Conversion %": 4
+            },
+            "renameByName": {}
+          }
+        }
+      ]
     },
     {
       "id": 142,
@@ -1569,14 +1613,19 @@
               {
                 "id": "color",
                 "value": {
-                  "mode": "fixed",
-                  "fixedColor": "orange"
+                  "mode": "continuous-RdYlGr"
                 }
+              },
+              {
+                "id": "fieldMinMax",
+                "value": true
               },
               {
                 "id": "custom.cellOptions",
                 "value": {
-                  "type": "color-text"
+                  "type": "color-background",
+                  "mode": "gradient",
+                  "applyToRow": false
                 }
               }
             ]
@@ -1656,7 +1705,24 @@
           "countRows": false,
           "fields": ""
         }
-      }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "includeByName": {},
+            "indexByName": {
+              "Project": 0,
+              "Sold": 1,
+              "30+": 2,
+              "Transfers": 3,
+              "Conversion %": 4
+            },
+            "renameByName": {}
+          }
+        }
+      ]
     },
     {
       "id": 150,
@@ -1823,14 +1889,19 @@
               {
                 "id": "color",
                 "value": {
-                  "mode": "fixed",
-                  "fixedColor": "orange"
+                  "mode": "continuous-RdYlGr"
                 }
+              },
+              {
+                "id": "fieldMinMax",
+                "value": true
               },
               {
                 "id": "custom.cellOptions",
                 "value": {
-                  "type": "color-text"
+                  "type": "color-background",
+                  "mode": "gradient",
+                  "applyToRow": false
                 }
               }
             ]
@@ -1910,7 +1981,24 @@
           "countRows": false,
           "fields": ""
         }
-      }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "includeByName": {},
+            "indexByName": {
+              "Client": 0,
+              "Sold": 1,
+              "30+": 2,
+              "Transfers": 3,
+              "Conversion %": 4
+            },
+            "renameByName": {}
+          }
+        }
+      ]
     },
     {
       "id": 160,
@@ -2046,6 +2134,10 @@
               {
                 "id": "custom.width",
                 "value": 150
+              },
+              {
+                "id": "custom.filterable",
+                "value": true
               }
             ]
           },
@@ -2087,7 +2179,25 @@
           }
         ]
       },
-      "pluginVersion": "13.3.0"
+      "pluginVersion": "13.3.0",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "includeByName": {},
+            "indexByName": {
+              "Agent": 0,
+              "Team": 1,
+              "Number": 2,
+              "Client": 3,
+              "Client status": 4,
+              "Disposition time": 5
+            },
+            "renameByName": {}
+          }
+        }
+      ]
     }
   ],
   "refresh": "1m",
@@ -2294,6 +2404,6 @@
   "timezone": "America/New_York",
   "title": "CallLens Sales Performance",
   "uid": "calllens-sales-performance",
-  "version": 2,
+  "version": 3,
   "description": "Team-facing sales performance dashboard. Starts on today, puts Sold first, and keeps every view synchronized with the native Grafana filters."
 }

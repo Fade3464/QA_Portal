@@ -26,7 +26,7 @@ The layout is intentionally outcome-first:
 
 Project multi-select is implemented end-to-end: Grafana emits one `project=...` query parameter per selected project and the analytics service treats the selected names as an OR filter. The custom `__all` value removes the project restriction without expanding every project into a very long URL. The backend caches each aggregate response for 60 seconds and filter metadata for five minutes, so multiple Grafana panels reuse the same Redis-backed payload rather than repeatedly scanning the calls table.
 
-No phone numbers, recording URLs, lead details or customer PII are returned by the analytics API.
+The aggregate analytics payload excludes recordings and lead metadata. The internal **Sold calls** drill-down intentionally includes the call phone number because authorized dashboard users need to locate a sold entry inside the currently selected time window.
 
 ## Administration
 
