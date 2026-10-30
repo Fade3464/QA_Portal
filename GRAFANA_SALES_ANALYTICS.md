@@ -20,8 +20,9 @@ The layout is intentionally outcome-first:
 - **Sold** is the first and most visually prominent KPI. The old standalone **SALE opportunities** card is removed.
 - Secondary KPI cards explain conversion, transfers, call-duration milestones, preset health and stale calls. Hover descriptions define each metric for new users.
 - **Sales movement over time** automatically uses hourly buckets for today/short ranges and daily buckets for longer ranges; a native Grafana bar gauge adds quick outcome context without requiring users to read a table first.
-- **Top sellers** and the detailed **Agent leaderboard** make peer performance immediately visible, followed by Team, Project and Client/Preset breakdowns. Tables default to **Sold descending** and place Sold before supporting volume metrics.
-- The dashboard closes with a full-width **Sold in selected time range** total so the final number is always visible after reviewing the breakdowns.
+- **Top sellers** and the detailed **Agent leaderboard** make peer performance immediately visible, followed by Team, Project and Client/Preset breakdowns. Aggregate tables keep the entity name first, then **Sold**, **30+**, **Transfers**, and **Conversion %** at the far right. The redundant `SALE calls` and agent ID columns are removed; the Client/Preset table keeps `Missing preset` as an extra operational signal.
+- KPI stat cards show the panel title only; their duplicate in-card subheadings are removed for a cleaner at-a-glance view.
+- The dashboard closes with a full-width **Sold in selected time range** total plus a detailed **Sold call details** table listing Agent, Team, Number, Client, Client status, and Disposition time for the selected filters/time window.
 
 Project multi-select is implemented end-to-end: Grafana emits one `project=...` query parameter per selected project and the analytics service treats the selected names as an OR filter. The custom `__all` value removes the project restriction without expanding every project into a very long URL. The backend caches each aggregate response for 60 seconds and filter metadata for five minutes, so multiple Grafana panels reuse the same Redis-backed payload rather than repeatedly scanning the calls table.
 

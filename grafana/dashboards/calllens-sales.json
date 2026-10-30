@@ -94,7 +94,7 @@
           "fields": ""
         },
         "orientation": "auto",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "wideLayout": true,
         "colorMode": "background",
         "graphMode": "none",
@@ -174,7 +174,7 @@
           "fields": ""
         },
         "orientation": "auto",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "wideLayout": true,
         "colorMode": "value",
         "graphMode": "none",
@@ -254,7 +254,7 @@
           "fields": ""
         },
         "orientation": "auto",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "wideLayout": true,
         "colorMode": "value",
         "graphMode": "none",
@@ -334,7 +334,7 @@
           "fields": ""
         },
         "orientation": "auto",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "wideLayout": true,
         "colorMode": "value",
         "graphMode": "none",
@@ -414,7 +414,7 @@
           "fields": ""
         },
         "orientation": "auto",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "wideLayout": true,
         "colorMode": "value",
         "graphMode": "none",
@@ -494,7 +494,7 @@
           "fields": ""
         },
         "orientation": "auto",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "wideLayout": true,
         "colorMode": "value",
         "graphMode": "none",
@@ -505,7 +505,7 @@
     {
       "id": 107,
       "type": "stat",
-      "title": "20+ → Sold",
+      "title": "20+ \u2192 Sold",
       "description": "Share of 20+ minute calls that became sold policies.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
@@ -538,7 +538,7 @@
           "columns": [
             {
               "selector": "twenty_plus_conversion_pct",
-              "text": "20+ → Sold",
+              "text": "20+ \u2192 Sold",
               "type": "number"
             }
           ]
@@ -574,7 +574,7 @@
           "fields": ""
         },
         "orientation": "auto",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "wideLayout": true,
         "colorMode": "value",
         "graphMode": "none",
@@ -585,7 +585,7 @@
     {
       "id": 108,
       "type": "stat",
-      "title": "30+ → Sold",
+      "title": "30+ \u2192 Sold",
       "description": "Share of 30+ minute calls that became sold policies.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
@@ -618,7 +618,7 @@
           "columns": [
             {
               "selector": "thirty_plus_conversion_pct",
-              "text": "30+ → Sold",
+              "text": "30+ \u2192 Sold",
               "type": "number"
             }
           ]
@@ -654,7 +654,7 @@
           "fields": ""
         },
         "orientation": "auto",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "wideLayout": true,
         "colorMode": "value",
         "graphMode": "none",
@@ -734,7 +734,7 @@
           "fields": ""
         },
         "orientation": "auto",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "wideLayout": true,
         "colorMode": "value",
         "graphMode": "none",
@@ -814,7 +814,7 @@
           "fields": ""
         },
         "orientation": "auto",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "wideLayout": true,
         "colorMode": "value",
         "graphMode": "none",
@@ -894,7 +894,7 @@
           "fields": ""
         },
         "orientation": "auto",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "wideLayout": true,
         "colorMode": "value",
         "graphMode": "none",
@@ -974,7 +974,7 @@
           "fields": ""
         },
         "orientation": "auto",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "wideLayout": true,
         "colorMode": "value",
         "graphMode": "none",
@@ -1443,13 +1443,8 @@
               "type": "number"
             },
             {
-              "selector": "conversion_pct",
-              "text": "Conversion %",
-              "type": "number"
-            },
-            {
-              "selector": "opportunities",
-              "text": "SALE calls",
+              "selector": "thirty_plus",
+              "text": "30+",
               "type": "number"
             },
             {
@@ -1458,19 +1453,9 @@
               "type": "number"
             },
             {
-              "selector": "twenty_plus",
-              "text": "20+",
+              "selector": "conversion_pct",
+              "text": "Conversion %",
               "type": "number"
-            },
-            {
-              "selector": "thirty_plus",
-              "text": "30+",
-              "type": "number"
-            },
-            {
-              "selector": "agent_user",
-              "text": "Agent ID",
-              "type": "string"
             }
           ]
         }
@@ -1597,13 +1582,8 @@
               "type": "number"
             },
             {
-              "selector": "conversion_pct",
-              "text": "Conversion %",
-              "type": "number"
-            },
-            {
-              "selector": "opportunities",
-              "text": "SALE calls",
+              "selector": "thirty_plus",
+              "text": "30+",
               "type": "number"
             },
             {
@@ -1612,13 +1592,8 @@
               "type": "number"
             },
             {
-              "selector": "twenty_plus",
-              "text": "20+",
-              "type": "number"
-            },
-            {
-              "selector": "thirty_plus",
-              "text": "30+",
+              "selector": "conversion_pct",
+              "text": "Conversion %",
               "type": "number"
             }
           ]
@@ -1728,13 +1703,8 @@
               "type": "number"
             },
             {
-              "selector": "conversion_pct",
-              "text": "Conversion %",
-              "type": "number"
-            },
-            {
-              "selector": "opportunities",
-              "text": "SALE calls",
+              "selector": "thirty_plus",
+              "text": "30+",
               "type": "number"
             },
             {
@@ -1743,13 +1713,8 @@
               "type": "number"
             },
             {
-              "selector": "twenty_plus",
-              "text": "20+",
-              "type": "number"
-            },
-            {
-              "selector": "thirty_plus",
-              "text": "30+",
+              "selector": "conversion_pct",
+              "text": "Conversion %",
               "type": "number"
             }
           ]
@@ -1872,13 +1837,8 @@
               "type": "number"
             },
             {
-              "selector": "conversion_pct",
-              "text": "Conversion %",
-              "type": "number"
-            },
-            {
-              "selector": "opportunities",
-              "text": "SALE calls",
+              "selector": "thirty_plus",
+              "text": "30+",
               "type": "number"
             },
             {
@@ -1887,18 +1847,13 @@
               "type": "number"
             },
             {
-              "selector": "twenty_plus",
-              "text": "20+",
-              "type": "number"
-            },
-            {
-              "selector": "thirty_plus",
-              "text": "30+",
-              "type": "number"
-            },
-            {
               "selector": "missing_preset",
               "text": "Missing preset",
+              "type": "number"
+            },
+            {
+              "selector": "conversion_pct",
+              "text": "Conversion %",
               "type": "number"
             }
           ]
@@ -1966,7 +1921,7 @@
     {
       "id": 160,
       "type": "row",
-      "title": "Selected-range total",
+      "title": "Sold in selected time range",
       "collapsed": false,
       "panels": [],
       "gridPos": {
@@ -1989,7 +1944,7 @@
         "x": 0,
         "y": 52,
         "w": 24,
-        "h": 5
+        "h": 4
       },
       "targets": [
         {
@@ -2048,13 +2003,129 @@
           "fields": ""
         },
         "orientation": "auto",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "wideLayout": true,
         "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "center",
         "showPercentChange": false
       }
+    },
+    {
+      "id": 162,
+      "type": "table",
+      "title": "Sold call details",
+      "description": "Detailed sold calls within the selected time range so managers can see who sold, for which team/project, and when.",
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "calllens-api"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "calllens-api"
+          },
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url_options": {
+            "method": "GET",
+            "data": "",
+            "params": []
+          },
+          "root_selector": "$.sold_details",
+          "columns": [
+            {
+              "selector": "agent",
+              "text": "Agent",
+              "type": "string"
+            },
+            {
+              "selector": "team",
+              "text": "Team",
+              "type": "string"
+            },
+            {
+              "selector": "number",
+              "text": "Number",
+              "type": "string"
+            },
+            {
+              "selector": "client",
+              "text": "Client",
+              "type": "string"
+            },
+            {
+              "selector": "client_status",
+              "text": "Client status",
+              "type": "string"
+            },
+            {
+              "selector": "disposition_time",
+              "text": "Disposition time",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Disposition time",
+            "desc": true
+          }
+        ],
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        }
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Number"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 140
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Disposition time"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 220
+              }
+            ]
+          }
+        ]
+      },
+      "pluginVersion": "13.3.0"
     }
   ],
   "refresh": "1m",

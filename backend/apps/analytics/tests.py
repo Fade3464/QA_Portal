@@ -39,7 +39,7 @@ class SalesAnalyticsTests(TestCase):
         self._call("missing", sold=False, preset=None, when=now-timedelta(minutes=6))
         self._call("nonsale", disposition="DNC", when=now-timedelta(minutes=4))
 
-    def _call(self, key, *, disposition="SALE", sold=False, preset=None, twenty=False, thirty=False, when=None):
+    def _call(self, key, *, disposition="SALE", sold=False, preset=None, twenty=False, thirty=False, when=None, phone_number="", client_status=None):
         return CallEvent.objects.create(
             dialer=self.dialer, branch=self.branch, event_key=key,
             event_type=CallEvent.EventType.DISPOSITION,
@@ -47,7 +47,8 @@ class SalesAnalyticsTests(TestCase):
             team=self.team, team_name=self.team.name, campaign="002",
             disposition=disposition, sold=sold, preset=preset,
             client_20_plus=twenty, client_30_plus=thirty,
-            call_date=when or timezone.now(),
+            call_date=when or timezone.now(), phone_number=phone_number,
+            client_status=client_status,
         )
 
     def test_transfer_definition_and_grouped_metrics(self):
@@ -65,6 +66,29 @@ class SalesAnalyticsTests(TestCase):
         self.assertEqual(summary["thirty_plus"], 1)
         self.assertEqual(data["teams"][0]["team"], "Alpha")
         self.assertEqual(data["projects"][0]["project"], "Medicare")
+
+    def test_sold_detail_rows_include_expected_fields(self):
+        now = timezone.now()
+        self._call(
+            "detail-sold",
+            sold=True,
+            preset="D77",
+            thirty=True,
+            when=now-timedelta(minutes=1),
+            phone_number="15551234567",
+            client_status="Confirmed",
+        )
+        data = build_sales_dashboard(
+            from_ms=str(int((now-timedelta(hours=1)).timestamp()*1000)),
+            to_ms=str(int(now.timestamp()*1000)),
+        )
+        detail = data["sold_details"][0]
+        self.assertEqual(detail["agent"], "Agent One")
+        self.assertEqual(detail["team"], "Alpha")
+        self.assertEqual(detail["number"], "15551234567")
+        self.assertEqual(detail["client"], "Medicare")
+        self.assertEqual(detail["client_status"], "Confirmed")
+        self.assertIn("T", detail["disposition_time"])
 
     def test_multiple_projects_can_be_selected_together(self):
         DialerCampaign.objects.create(
