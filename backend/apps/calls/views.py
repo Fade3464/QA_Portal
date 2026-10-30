@@ -1450,6 +1450,14 @@ def _require_call_editor(user):
         raise PermissionDenied("Call editor access is not enabled for this account.")
 
 
+def _looks_like_phone_search(value: str) -> bool:
+    """Identify phone-number-style editor searches without changing other search modes."""
+    compact = re.sub(r"[\s()+.\-]", "", value or "")
+    # The call editor primarily handles NANP numbers. Requiring at least ten
+    # digits avoids accidentally treating shorter numeric lead IDs as phones.
+    return compact.isdigit() and len(compact) >= 10
+
+
 class CallEditorListView(ListAPIView):
     serializer_class = CallEditorSerializer
     permission_classes = [IsAuthenticated]
@@ -1462,6 +1470,12 @@ class CallEditorListView(ListAPIView):
         if len(search) > 200:
             raise ValidationError({"search": "Search cannot exceed 200 characters."})
         if search:
+            if _looks_like_phone_search(search):
+                cutoff = timezone.now() - timedelta(days=7)
+                queryset = queryset.filter(
+                    Q(call_date__gte=cutoff)
+                    | Q(call_date__isnull=True, effective_received_at__gte=cutoff)
+                )
             queryset = queryset.filter(
                 Q(phone_number__icontains=search)
                 | Q(lead_id__icontains=search)

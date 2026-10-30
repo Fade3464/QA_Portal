@@ -68,6 +68,26 @@ class SalesAnalyticsTests(TestCase):
         self.assertEqual(data["teams"][0]["team_leader"], "Team Lead")
         self.assertEqual(data["agents"][0]["team_leader"], "Team Lead")
         self.assertEqual(data["projects"][0]["project"], "Medicare")
+        self.assertEqual(data["agent_table"][0]["D33"], 1)
+        self.assertEqual(data["agent_table"][0]["D42"], 0)
+        self.assertEqual(data["team_table"][0]["D33"], 1)
+        self.assertEqual(data["team_table"][0]["D42"], 0)
+
+    def test_preset_transfer_columns_only_exist_when_client_filter_is_all(self):
+        now = timezone.now()
+        data = build_sales_dashboard(
+            from_ms=str(int((now-timedelta(hours=1)).timestamp()*1000)),
+            to_ms=str(int(now.timestamp()*1000)),
+            preset="D33",
+        )
+        self.assertEqual(
+            list(data["agent_table"][0]),
+            ["Agent", "Team leader", "Sold", "30+", "Transfers", "Conversion %"],
+        )
+        self.assertEqual(
+            list(data["team_table"][0]),
+            ["Team", "Team leader", "Sold", "30+", "Transfers", "Conversion %"],
+        )
 
     def test_sold_detail_rows_include_expected_fields(self):
         now = timezone.now()
@@ -128,3 +148,11 @@ class SalesAnalyticsTests(TestCase):
         response = client.get(path, HTTP_AUTHORIZATION="Bearer analytics-token")
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["enabled"])
+        agent_table = client.get(
+            path,
+            {"section": "agent_table"},
+            HTTP_AUTHORIZATION="Bearer analytics-token",
+        )
+        self.assertEqual(agent_table.status_code, 200)
+        self.assertIsInstance(agent_table.json(), list)
+        self.assertEqual(agent_table.json()[0]["Agent"], "Agent One")

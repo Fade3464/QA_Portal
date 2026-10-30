@@ -839,7 +839,7 @@
         "x": 0,
         "y": 13,
         "w": 7,
-        "h": 8
+        "h": 10
       },
       "targets": [
         {
@@ -926,7 +926,7 @@
       "id": 132,
       "type": "table",
       "title": "Agent leaderboard",
-      "description": "Agent performance, ordered by Sold. Metrics are intentionally limited to the core performance sequence.",
+      "description": "Agent performance. When Client / preset is All, resolved presets are added as dynamic columns showing each agent's transfer count for that preset.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
@@ -935,7 +935,7 @@
         "x": 7,
         "y": 13,
         "w": 17,
-        "h": 8
+        "h": 10
       },
       "targets": [
         {
@@ -948,49 +948,19 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}&section=agent_table",
           "url_options": {
             "method": "GET",
             "data": "",
             "params": []
           },
-          "root_selector": "$.agents",
-          "columns": [
-            {
-              "selector": "agent",
-              "text": "Agent",
-              "type": "string"
-            },
-            {
-              "selector": "team_leader",
-              "text": "Team leader",
-              "type": "string"
-            },
-            {
-              "selector": "sold",
-              "text": "Sold",
-              "type": "number"
-            },
-            {
-              "selector": "thirty_plus",
-              "text": "30+",
-              "type": "number"
-            },
-            {
-              "selector": "transfers",
-              "text": "Transfers",
-              "type": "number"
-            },
-            {
-              "selector": "conversion_pct",
-              "text": "Conversion %",
-              "type": "number"
-            }
-          ]
+          "root_selector": ""
         }
       ],
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "decimals": 0
+        },
         "overrides": [
           {
             "matcher": {
@@ -1163,6 +1133,40 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^(?!Agent$|Team leader$|Sold$|30\\+$|Transfers$|Conversion %$).+"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-RdYlGr"
+                }
+              },
+              {
+                "id": "fieldMinMax",
+                "value": true
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient",
+                  "applyToRow": false
+                }
+              }
+            ]
           }
         ]
       },
@@ -1188,24 +1192,7 @@
           "fields": ""
         }
       },
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {},
-            "includeByName": {},
-            "indexByName": {
-              "Agent": 0,
-              "Team leader": 1,
-              "Sold": 2,
-              "30+": 3,
-              "Transfers": 4,
-              "Conversion %": 5
-            },
-            "renameByName": {}
-          }
-        }
-      ]
+      "transformations": []
     },
     {
       "id": 140,
@@ -1215,7 +1202,7 @@
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 21,
+        "y": 23,
         "w": 24,
         "h": 1
       }
@@ -1224,16 +1211,16 @@
       "id": 141,
       "type": "table",
       "title": "Team performance",
-      "description": "Compare teams and team leaders without leaving the dashboard.",
+      "description": "Team performance. When Client / preset is All, resolved presets are added as dynamic columns showing each team's transfer count for that preset.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
       },
       "gridPos": {
         "x": 0,
-        "y": 22,
+        "y": 24,
         "w": 12,
-        "h": 6
+        "h": 10
       },
       "targets": [
         {
@@ -1246,49 +1233,19 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}&section=team_table",
           "url_options": {
             "method": "GET",
             "data": "",
             "params": []
           },
-          "root_selector": "$.teams",
-          "columns": [
-            {
-              "selector": "team",
-              "text": "Team",
-              "type": "string"
-            },
-            {
-              "selector": "team_leader",
-              "text": "Team leader",
-              "type": "string"
-            },
-            {
-              "selector": "sold",
-              "text": "Sold",
-              "type": "number"
-            },
-            {
-              "selector": "thirty_plus",
-              "text": "30+",
-              "type": "number"
-            },
-            {
-              "selector": "transfers",
-              "text": "Transfers",
-              "type": "number"
-            },
-            {
-              "selector": "conversion_pct",
-              "text": "Conversion %",
-              "type": "number"
-            }
-          ]
+          "root_selector": ""
         }
       ],
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "decimals": 0
+        },
         "overrides": [
           {
             "matcher": {
@@ -1461,6 +1418,40 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^(?!Team$|Team leader$|Sold$|30\\+$|Transfers$|Conversion %$).+"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-RdYlGr"
+                }
+              },
+              {
+                "id": "fieldMinMax",
+                "value": true
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient",
+                  "applyToRow": false
+                }
+              }
+            ]
           }
         ]
       },
@@ -1482,24 +1473,7 @@
           "fields": ""
         }
       },
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {},
-            "includeByName": {},
-            "indexByName": {
-              "Team": 0,
-              "Team leader": 1,
-              "Sold": 2,
-              "30+": 3,
-              "Transfers": 4,
-              "Conversion %": 5
-            },
-            "renameByName": {}
-          }
-        }
-      ]
+      "transformations": []
     },
     {
       "id": 142,
@@ -1512,9 +1486,9 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 22,
+        "y": 24,
         "w": 12,
-        "h": 6
+        "h": 10
       },
       "targets": [
         {
@@ -1772,7 +1746,7 @@
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 28,
+        "y": 34,
         "w": 24,
         "h": 1
       }
@@ -1788,9 +1762,9 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 29,
+        "y": 35,
         "w": 24,
-        "h": 6
+        "h": 10
       },
       "targets": [
         {
@@ -2048,7 +2022,7 @@
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 35,
+        "y": 45,
         "w": 24,
         "h": 1
       }
@@ -2064,9 +2038,9 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 36,
+        "y": 46,
         "w": 24,
-        "h": 4
+        "h": 10
       },
       "targets": [
         {

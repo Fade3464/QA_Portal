@@ -146,6 +146,124 @@ def _grouped(qs, fields, order_by="-sold_count"):
     return _decorate(rows)
 
 
+def _available_presets(sale_qs) -> list[str]:
+    """Return the currently-visible resolved presets in stable display order."""
+    values = sale_qs.exclude(preset__isnull=True).exclude(preset="").values_list(
+        "preset", flat=True
+    )
+    return sorted(set(values), key=lambda value: value.casefold())
+
+
+def _agent_preset_transfer_counts(
+    sale_qs,
+) -> dict[tuple[str, str, str], dict[str, int]]:
+    rows = (
+        sale_qs.filter(sold=False)
+        .exclude(preset__isnull=True)
+        .exclude(preset="")
+        .values(
+            "agent_user",
+            "agent_name",
+            "team__team_leader__first_name",
+            "team__team_leader__last_name",
+            "preset",
+        )
+        .annotate(count=Count("id"))
+    )
+    result: dict[tuple[str, str, str], dict[str, int]] = {}
+    for row in rows:
+        first = row.get("team__team_leader__first_name") or ""
+        last = row.get("team__team_leader__last_name") or ""
+        leader = f"{first} {last}".strip() or "Unassigned"
+        key = (
+            row.get("agent_user") or "",
+            row.get("agent_name") or "",
+            leader,
+        )
+        per_preset = result.setdefault(key, {})
+        per_preset[row["preset"]] = per_preset.get(row["preset"], 0) + int(
+            row["count"] or 0
+        )
+    return result
+
+
+def _team_preset_transfer_counts(sale_qs) -> dict[str, dict[str, int]]:
+    rows = (
+        sale_qs.filter(sold=False)
+        .exclude(preset__isnull=True)
+        .exclude(preset="")
+        .values("team__name", "team_name", "preset")
+        .annotate(count=Count("id"))
+    )
+    result: dict[str, dict[str, int]] = {}
+    for row in rows:
+        team_name = row.get("team__name") or row.get("team_name") or "Unassigned"
+        per_preset = result.setdefault(team_name, {})
+        per_preset[row["preset"]] = per_preset.get(row["preset"], 0) + int(
+            row["count"] or 0
+        )
+    return result
+
+
+def _agent_table_rows(agents, sale_qs, *, include_preset_columns: bool):
+    presets = _available_presets(sale_qs) if include_preset_columns else []
+    transfer_counts = (
+        _agent_preset_transfer_counts(sale_qs) if include_preset_columns else {}
+    )
+    rows = []
+    for row in agents:
+        item = {
+            "Agent": row["agent"],
+            "Team leader": row["team_leader"],
+        }
+        per_preset = transfer_counts.get(
+            (
+                row.get("agent_user") or "",
+                row.get("agent_name") or "",
+                row["team_leader"],
+            ),
+            {},
+        )
+        for preset_name in presets:
+            item[preset_name] = per_preset.get(preset_name, 0)
+        item.update(
+            {
+                "Sold": int(row.get("sold") or 0),
+                "30+": int(row.get("thirty_plus") or 0),
+                "Transfers": int(row.get("transfers") or 0),
+                "Conversion %": float(row.get("conversion_pct") or 0),
+            }
+        )
+        rows.append(item)
+    return rows
+
+
+def _team_table_rows(teams, sale_qs, *, include_preset_columns: bool):
+    presets = _available_presets(sale_qs) if include_preset_columns else []
+    transfer_counts = (
+        _team_preset_transfer_counts(sale_qs) if include_preset_columns else {}
+    )
+    rows = []
+    for row in teams:
+        item = {
+            "Team": row["team"],
+            "Team leader": row["team_leader"],
+        }
+        per_preset = transfer_counts.get(row["team"], {})
+        for preset_name in presets:
+            item[preset_name] = per_preset.get(preset_name, 0)
+        item.update(
+            {
+                "Sold": int(row.get("sold") or 0),
+                "30+": int(row.get("thirty_plus") or 0),
+                "Transfers": int(row.get("transfers") or 0),
+                "Conversion %": float(row.get("conversion_pct") or 0),
+            }
+        )
+        rows.append(item)
+    return rows
+
+
 def _sold_detail_rows(qs):
     rows = []
     for event in (
@@ -187,7 +305,7 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
     filter_signature = hashlib.sha256(
         json.dumps(filters, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     ).hexdigest()[:20]
-    cache_key=f"sales-analytics:v7:{company.pk}:{start_key}:{end_key}:{filter_signature}"
+    cache_key=f"sales-analytics:v8:{company.pk}:{start_key}:{end_key}:{filter_signature}"
     cached=cache.get(cache_key)
     if cached is not None:
         return cached
@@ -237,6 +355,13 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
         first = row.pop("team__team_leader__first_name") or ""
         last = row.pop("team__team_leader__last_name") or ""
         row["team_leader"] = f"{first} {last}".strip() or "Unassigned"
+    include_preset_columns = not bool(_clean_filter(preset))
+    agent_table = _agent_table_rows(
+        agents, sale_qs, include_preset_columns=include_preset_columns
+    )
+    team_table = _team_table_rows(
+        teams, sale_qs, include_preset_columns=include_preset_columns
+    )
     trend_bucket = TruncHour if end - start <= timedelta(days=2) else TruncDate
     trends=(
         sale_qs.annotate(bucket=trend_bucket("analytics_at"))
@@ -278,6 +403,8 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
         "presets": presets,
         "projects": projects,
         "agents": agents,
+        "agent_table": agent_table,
+        "team_table": team_table,
         "top_agents": agents[:10],
         "trend": trend_rows,
         "trend_granularity": "hour" if trend_bucket is TruncHour else "day",

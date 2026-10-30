@@ -161,6 +161,11 @@ def receive_vicidial(
 
     raw_disposition = payload.get("dispo") or payload.get("status") or ""
     normalized_disposition = raw_disposition.strip()
+    # VICIdial campaigns may emit SQSAL/SMSAL for sale outcomes. Treat both as
+    # canonical SALE before lifecycle classification so they follow the exact
+    # same recording, preset-resolution, editor, and analytics workflow.
+    if normalized_disposition.upper() in {"SQSAL", "SMSAL"}:
+        normalized_disposition = "SALE"
     unresolved_placeholder = normalized_disposition.casefold() == "--a--dispo--b--"
     is_start_call = event_type == CallEvent.EventType.DISPOSITION and (
         not normalized_disposition

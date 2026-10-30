@@ -891,6 +891,40 @@ class WebhookTests(TestCase):
         announce.assert_called_once_with(event)
 
     @patch("apps.calls.webhooks.announce_call")
+    @patch("apps.calls.webhooks.resolve_sale_preset.delay")
+    @patch("apps.calls.webhooks.resolve_recording.delay")
+    def test_sqsal_and_smsal_are_normalized_to_sale_and_use_sale_pipeline(
+        self, queue_task, preset_task, announce
+    ):
+        for index, incoming in enumerate(("SQSAL", "SMSAL"), start=1):
+            queue_task.reset_mock()
+            preset_task.reset_mock()
+            announce.reset_mock()
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.get(
+                    self.url,
+                    {
+                        "token": self.secret,
+                        "lead_id": f"ALT-SALE-{index}",
+                        "call_id": f"V-ALT-SALE-{index}",
+                        "uniqueid": f"ALT-UNIQUE-{index}",
+                        "user": "8102",
+                        "campaign": "002",
+                        "phone_number": f"26953905{index:02d}",
+                        "dispo": incoming,
+                    },
+                )
+
+            self.assertEqual(response.status_code, 200)
+            event = CallEvent.objects.get(call_id=f"V-ALT-SALE-{index}")
+            self.assertEqual(event.disposition, "SALE")
+            self.assertEqual(event.raw_payload["dispo"], incoming)
+            self.assertEqual(event.raw_payload["disposition"], "SALE")
+            queue_task.assert_called_once_with(str(event.pk))
+            preset_task.assert_called_once_with(str(event.pk))
+            announce.assert_called_once_with(event)
+
+    @patch("apps.calls.webhooks.announce_call")
     @patch("apps.calls.webhooks.resolve_recording.delay")
     def test_duplicate_direct_final_with_changed_sqldate_does_not_create_second_row(
         self, queue_task, announce
@@ -3566,6 +3600,31 @@ class CallEditorTests(TestCase):
             reverse("call-editor-detail", kwargs={"pk": self.other_call.pk})
         )
         self.assertEqual(response.status_code, 404)
+
+    def test_phone_number_search_is_limited_to_previous_seven_days(self):
+        old_call = CallEvent.objects.create(
+            dialer=self.dialer,
+            branch=self.call.branch,
+            event_key="old-editor-phone".ljust(64, "0"),
+            event_type=CallEvent.EventType.DISPOSITION,
+            call_id="V-EDITOR-OLD",
+            lead_id="54321",
+            agent_user="8103",
+            campaign="002",
+            phone_number="5557779999",
+            disposition="SALE",
+            call_date=timezone.now() - timedelta(days=8),
+        )
+        recent = self.client.get(
+            reverse("call-editor-list"), {"search": self.call.phone_number}
+        )
+        old = self.client.get(
+            reverse("call-editor-list"), {"search": old_call.phone_number}
+        )
+        self.assertEqual(recent.status_code, 200)
+        self.assertEqual(recent.json()["count"], 1)
+        self.assertEqual(old.status_code, 200)
+        self.assertEqual(old.json()["count"], 0)
 
     def test_editor_permission_must_be_enabled(self):
         self.pm.call_editor_access = False
