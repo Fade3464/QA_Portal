@@ -975,6 +975,12 @@
               {
                 "id": "custom.filterable",
                 "value": true
+              },
+              {
+                "id": "custom.footer.reducers",
+                "value": [
+                  "distinctCount"
+                ]
               }
             ]
           },
@@ -987,6 +993,12 @@
               {
                 "id": "custom.width",
                 "value": 235
+              },
+              {
+                "id": "custom.footer.reducers",
+                "value": [
+                  "distinctCount"
+                ]
               }
             ]
           },
@@ -1049,6 +1061,12 @@
                 "value": {
                   "type": "color-text"
                 }
+              },
+              {
+                "id": "custom.footer.reducers",
+                "value": [
+                  "sum"
+                ]
               }
             ]
           },
@@ -1083,6 +1101,12 @@
                   "mode": "gradient",
                   "applyToRow": false
                 }
+              },
+              {
+                "id": "custom.footer.reducers",
+                "value": [
+                  "sum"
+                ]
               }
             ]
           },
@@ -1139,6 +1163,12 @@
                 "value": {
                   "type": "color-text"
                 }
+              },
+              {
+                "id": "custom.footer.reducers",
+                "value": [
+                  "mean"
+                ]
               }
             ]
           },
@@ -1173,6 +1203,12 @@
                   "mode": "gradient",
                   "applyToRow": false
                 }
+              },
+              {
+                "id": "custom.footer.reducers",
+                "value": [
+                  "sum"
+                ]
               }
             ]
           }
@@ -1192,10 +1228,8 @@
           }
         ],
         "footer": {
-          "show": false,
-          "reducer": [
-            "sum"
-          ],
+          "show": true,
+          "reducer": [],
           "countRows": false,
           "fields": ""
         }

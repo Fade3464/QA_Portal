@@ -2,7 +2,7 @@ import json
 import logging
 import mimetypes
 import re
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
 from uuid import UUID
@@ -47,6 +47,7 @@ from .scorecard import (
     scorecard_payload,
 )
 from .serializers import (
+    CallEditorListSerializer,
     CallEditorSerializer,
     CallEventSerializer,
     ReviewDetailSerializer,
@@ -1458,8 +1459,38 @@ def _looks_like_phone_search(value: str) -> bool:
     return compact.isdigit() and len(compact) >= 10
 
 
+def _editor_scoped_calls(user):
+    """Fast project-scoped queryset dedicated to the search-only call editor."""
+    assignments = list(
+        QAProjectAssignment.objects.filter(qa=user).values_list(
+            "dialer_campaign__dialer_id",
+            "dialer_campaign__campaign",
+        )
+    )
+    if not assignments:
+        return CallEvent.objects.none()
+
+    project_scope = Q()
+    for dialer_id, campaign in assignments:
+        project_scope |= Q(dialer_id=dialer_id, campaign__iexact=campaign)
+
+    project = DialerCampaign.objects.filter(
+        dialer_id=OuterRef("dialer_id"),
+        campaign__iexact=OuterRef("campaign"),
+    ).values("project_name")[:1]
+
+    return (
+        CallEvent.objects.filter(branch_id=user.branch_id)
+        .filter(project_scope)
+        .annotate(
+            project_name=Subquery(project),
+            effective_received_at=Coalesce("finalized_at", "received_at"),
+        )
+    )
+
+
 class CallEditorListView(ListAPIView):
-    serializer_class = CallEditorSerializer
+    serializer_class = CallEditorListSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = CallPagination
 
@@ -1488,32 +1519,50 @@ class CallEditorListView(ListAPIView):
         if not (search or disposition or date_from or date_to):
             return CallEvent.objects.none()
 
-        queryset = scoped_calls(self.request.user)
+        queryset = _editor_scoped_calls(self.request.user)
         if search:
+            compact = re.sub(r"[\s()+.\-]", "", search)
             if _looks_like_phone_search(search):
                 cutoff = timezone.now() - timedelta(days=7)
+                digits = compact
+                last_ten = digits[-10:]
+                phone_variants = {digits, last_ten, f"1{last_ten}", f"+{digits}", f"+1{last_ten}"}
                 queryset = queryset.filter(
                     Q(call_date__gte=cutoff)
                     | Q(call_date__isnull=True, effective_received_at__gte=cutoff)
+                ).filter(phone_number__in=phone_variants)
+            elif compact.isdigit():
+                # Numeric identifiers are normally pasted in full. Exact indexed
+                # comparisons avoid a multi-column wildcard scan across call history.
+                queryset = queryset.filter(
+                    Q(lead_id=compact)
+                    | Q(call_id=compact)
+                    | Q(unique_id=compact)
+                    | Q(agent_user=compact)
+                    | Q(phone_number=compact)
                 )
-            queryset = queryset.filter(
-                Q(phone_number__icontains=search)
-                | Q(lead_id__icontains=search)
-                | Q(call_id__icontains=search)
-                | Q(unique_id__icontains=search)
-                | Q(agent_user__icontains=search)
-                | Q(agent_name__icontains=search)
-                | Q(disposition__icontains=search)
-                | Q(preset__icontains=search)
-                | Q(client_status__icontains=search)
-            )
+            else:
+                queryset = queryset.filter(
+                    Q(call_id__icontains=search)
+                    | Q(unique_id__icontains=search)
+                    | Q(agent_user__icontains=search)
+                    | Q(agent_name__icontains=search)
+                    | Q(disposition__icontains=search)
+                    | Q(preset__icontains=search)
+                    | Q(client_status__icontains=search)
+                )
 
         if disposition:
             queryset = queryset.filter(disposition__iexact=disposition)
+        tz = timezone.get_current_timezone()
         if date_from:
-            queryset = queryset.filter(call_date__date__gte=date_from)
+            start_at = timezone.make_aware(datetime.combine(date_from, time.min), tz)
+            queryset = queryset.filter(call_date__gte=start_at)
         if date_to:
-            queryset = queryset.filter(call_date__date__lte=date_to)
+            end_at = timezone.make_aware(
+                datetime.combine(date_to + timedelta(days=1), time.min), tz
+            )
+            queryset = queryset.filter(call_date__lt=end_at)
 
         # Always put the newest matching record first. For lifecycle rows that
         # do not have call_date, fall back to finalized/received time.

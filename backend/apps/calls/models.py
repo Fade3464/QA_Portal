@@ -418,6 +418,26 @@ class CallEvent(models.Model):
                 ],
                 name="calls_stale_scan_idx",
             ),
+            models.Index(
+                fields=["branch", "phone_number", "-call_date"],
+                name="calls_ed_phone_date_idx",
+            ),
+            models.Index(
+                fields=["branch", "lead_id", "-call_date"],
+                name="calls_ed_lead_date_idx",
+            ),
+            models.Index(
+                fields=["branch", "agent_user", "-call_date"],
+                name="calls_ed_agent_date_idx",
+            ),
+            models.Index(
+                fields=["branch", "disposition", "-call_date"],
+                name="calls_ed_dispo_date_idx",
+            ),
+            models.Index(
+                fields=["branch", "dialer", "campaign"],
+                name="calls_ed_scope_idx",
+            ),
         ]
 
     @property

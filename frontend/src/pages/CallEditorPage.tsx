@@ -96,9 +96,8 @@ export function CallEditorPage() {
 
   const openCall = useCallback(async (call: CallEvent | string) => {
     try {
-      const record = typeof call === 'string'
-        ? await api<CallEvent>(`/api/v1/calls/editor/${call}/`)
-        : call;
+      const callId = typeof call === 'string' ? call : call.id;
+      const record = await api<CallEvent>(`/api/v1/calls/editor/${callId}/`);
       setSelected(record);
       form.setFieldsValue({
         disposition: record.disposition,

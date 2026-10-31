@@ -196,6 +196,7 @@ def _agent_rows_with_activity(activity_qs, sale_qs):
         else:
             row = dict(sale)
 
+        row["total_call_records"] = int(active.get("activity_count") or 0)
         row["agent"] = row.get("agent_name") or row.get("agent_user") or "Unknown"
         first = row.pop("team__team_leader__first_name", None) or ""
         last = row.pop("team__team_leader__last_name", None) or ""
@@ -289,7 +290,10 @@ def _agent_table_rows(agents, sale_qs, *, include_preset_columns: bool):
             "Sold": int(row.get("sold") or 0),
             "30+": int(row.get("thirty_plus") or 0),
             "Transfers": int(row.get("transfers") or 0),
-            "Conversion %": float(row.get("conversion_pct") or 0),
+            "Conversion %": _pct(
+                int(row.get("transfers") or 0) + int(row.get("sold") or 0),
+                int(row.get("total_call_records") or 0),
+            ),
         }
         per_preset = transfer_counts.get(
             (
@@ -379,7 +383,7 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
     filter_signature = hashlib.sha256(
         json.dumps(filters, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     ).hexdigest()[:20]
-    cache_key=f"sales-analytics:v12:{company.pk}:{start_key}:{end_key}:{filter_signature}"
+    cache_key=f"sales-analytics:v13:{company.pk}:{start_key}:{end_key}:{filter_signature}"
     cached=cache.get(cache_key)
     if cached is not None:
         return cached

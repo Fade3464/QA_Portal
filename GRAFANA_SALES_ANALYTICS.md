@@ -7,6 +7,7 @@ CallLens exposes a company-wide Grafana sidecar at `/analytics/`. Grafana never 
 - **SALE opportunities**: calls whose VICIdial disposition is `SALE`.
 - **Sold**: `SALE` calls where the manually maintained `sold` flag is true.
 - **Transfers**: `SALE` calls where `sold` is false. A dialer `SALE` never automatically marks a policy sold.
+- **Agent Leaderboard conversion**: `(Transfers + Sold) / all non-provisional call records for that agent in the selected time range × 100`. This definition is leaderboard-only; Team, Project, Client, and summary conversion definitions are unchanged.
 - **20+ / 30+**: the manually maintained client-side duration flags.
 - **Missing preset**: a `SALE` whose User Stats preset lookup did not resolve a preset.
 - **Stale calls**: provisional calls that exceeded the two-hour Start/Dispo lifecycle window.

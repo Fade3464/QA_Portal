@@ -85,3 +85,8 @@ notifications.0006_add_missing_preset_category
 ```
 
 Apply all migrations before deploying the new backend/worker/frontend images. Migration `calls.0020` also normalizes any pre-existing non-SALE `sold=true` row back to `false` before installing the SALE-only database constraints.
+
+
+## Editor search performance
+
+The Call Editor remains search-only. Its list endpoint uses a lean result serializer and a dedicated project-scoped queryset. Full phone-number searches are normalized to exact indexed variants and remain limited to the previous seven days; numeric IDs use exact indexed matching. Date bounds use range comparisons rather than SQL date casts so PostgreSQL can use the editor indexes. Opening an individual result still fetches the full detail record before editing.

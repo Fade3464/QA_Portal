@@ -338,6 +338,30 @@ class ReviewDetailSerializer(ReviewListSerializer):
         fields = ReviewListSerializer.Meta.fields + ("call", "workflow_events")
 
 
+class CallEditorListSerializer(serializers.ModelSerializer):
+    """Lean serializer for search results; detail data is fetched only when opened."""
+
+    project_name = serializers.CharField(read_only=True, allow_null=True)
+
+    class Meta:
+        model = CallEvent
+        fields = (
+            "id",
+            "phone_number",
+            "lead_id",
+            "agent_user",
+            "agent_name",
+            "campaign",
+            "project_name",
+            "call_date",
+            "disposition",
+            "preset",
+            "client_20_plus",
+            "client_30_plus",
+            "sold",
+        )
+
+
 class CallEditorSerializer(CallEventSerializer):
     """Manual business editor for explicitly authorized Project Managers."""
 

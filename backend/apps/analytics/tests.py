@@ -70,6 +70,9 @@ class SalesAnalyticsTests(TestCase):
         self.assertEqual(data["projects"][0]["project"], "Medicare")
         self.assertEqual(data["agent_table"][0]["D33"], 1)
         self.assertEqual(data["agent_table"][0]["D42"], 0)
+        # Leaderboard conversion is SALE outcomes (Transfers + Sold) divided by
+        # all finalized call records for the agent in the selected time range.
+        self.assertEqual(data["agent_table"][0]["Conversion %"], 75.0)
         self.assertEqual(data["team_table"][0]["D33"], 1)
         self.assertEqual(data["team_table"][0]["D42"], 0)
         self.assertEqual(
