@@ -187,3 +187,7 @@ The optional company-wide Grafana sidecar is documented in [`GRAFANA_SALES_ANALY
 ### Call lifecycle integrity
 
 VICIdial Start Call callbacks use `NEW`. CallEvent preserves immutable first receipt (`received_at`) and first final-disposition receipt (`finalized_at`) separately. The Call Library displays/sorts by the effective receipt time (`finalized_at` when available). Webhook idempotency uses stable VICIdial identifiers, so disposition/SQLdate changes and duplicate final callbacks cannot create a second lifecycle row when a strong call identifier is present.
+
+### Grafana styled XLSX table export
+
+The provisioned sales dashboard adds an **Export XLSX** panel link to each table. Requests stay under `/analytics/`, are authenticated against the current Grafana session by Nginx, and are proxied internally to the analytics XLSX exporter. The backend uses `openpyxl` to reproduce the dashboard table styling in a true Excel workbook. Native Grafana CSV export remains available for plain-data workflows.

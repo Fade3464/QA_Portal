@@ -14,3 +14,4 @@ whitenoise==6.11.0
 Pillow==12.1.1
 uvicorn[standard]==0.41.0
 tzdata>=2025.2,<2027
+openpyxl==3.1.5

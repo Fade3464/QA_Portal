@@ -16,3 +16,12 @@ class HasGrafanaAnalyticsToken(BasePermission):
             return False
         supplied = header[7:].strip()
         return bool(supplied and hmac.compare_digest(supplied, expected))
+
+
+class HasGrafanaExportProxy(BasePermission):
+    """Allow XLSX export only through the authenticated frontend Grafana proxy."""
+
+    message = "Grafana export proxy authentication is required."
+
+    def has_permission(self, request, view):
+        return request.headers.get("X-Grafana-Export-Authorized", "") == "1"

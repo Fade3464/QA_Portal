@@ -1,14 +1,17 @@
 import json
+from io import BytesIO
 from datetime import timedelta
 
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
+from openpyxl import load_workbook
 
 from apps.accounts.models import User
 from apps.calls.models import CallEvent
 from apps.tenancy.models import Branch, Company, Dialer, DialerCampaign, Team
 from .services.sales import build_sales_dashboard
+from .services.xlsx import build_sales_xlsx
 
 
 class SalesAnalyticsTests(TestCase):
@@ -296,6 +299,81 @@ class SalesAnalyticsTests(TestCase):
         )
         self.assertEqual(data["trend_granularity"], "hour")
         self.assertLessEqual(len(data["top_agents"]), 10)
+
+    def test_styled_xlsx_export_hides_helper_field_and_styles_sold_number(self):
+        now = timezone.now()
+        self._call(
+            "xlsx-sold",
+            sold=True,
+            preset="D77",
+            thirty=True,
+            when=now-timedelta(seconds=20),
+            phone_number="15551234567",
+        )
+        self._call(
+            "xlsx-thirty",
+            sold=False,
+            preset="D78",
+            thirty=True,
+            when=now-timedelta(seconds=10),
+            phone_number="15557654321",
+        )
+        payload = build_sales_dashboard(
+            from_ms=str(int((now-timedelta(hours=1)).timestamp()*1000)),
+            to_ms=str(int(now.timestamp()*1000)),
+        )
+        content, filename = build_sales_xlsx(payload, "sold_30plus")
+        self.assertEqual(filename, "sold-30plus.xlsx")
+        wb = load_workbook(BytesIO(content))
+        ws = wb.active
+        headers = [cell.value for cell in ws[1]]
+        self.assertEqual(
+            headers,
+            ["Agent", "Team", "Number", "Client", "Client status", "Disposition time"],
+        )
+        self.assertNotIn("number_style", headers)
+        rows = {ws.cell(row=i, column=3).value: i for i in range(2, ws.max_row + 1)}
+        sold_cell = ws.cell(rows["15551234567"], 3)
+        thirty_cell = ws.cell(rows["15557654321"], 3)
+        self.assertEqual(sold_cell.fill.fill_type, "solid")
+        self.assertEqual(sold_cell.fill.fgColor.rgb[-6:], "49AB53")
+        self.assertNotEqual(thirty_cell.fill.fgColor.rgb[-6:], "49AB53")
+
+    def test_agent_xlsx_contains_bold_cumulative_footer(self):
+        now = timezone.now()
+        payload = build_sales_dashboard(
+            from_ms=str(int((now-timedelta(hours=1)).timestamp()*1000)),
+            to_ms=str(int(now.timestamp()*1000)),
+        )
+        content, _ = build_sales_xlsx(payload, "agent")
+        wb = load_workbook(BytesIO(content))
+        ws = wb.active
+        self.assertEqual([c.value for c in ws[1]][:5], [
+            "Agent", "Team leader", "30+", "Transfers", "Conversion %"
+        ])
+        self.assertNotIn("Sold", [c.value for c in ws[1]])
+        footer = ws.max_row
+        self.assertTrue(all(cell.font.bold for cell in ws[footer]))
+        self.assertEqual(ws.cell(footer, 1).value, 1)
+        self.assertEqual(ws.cell(footer, 2).value, 1)
+        self.assertEqual(ws.cell(footer, 4).value, 2)
+        self.assertEqual(ws.cell(footer, 5).number_format, "0.00%")
+
+    def test_xlsx_export_endpoint_requires_authenticated_grafana_proxy(self):
+        client = APIClient()
+        path = "/api/v1/analytics/grafana/export/xlsx/"
+        self.assertEqual(client.get(path, {"table": "team"}).status_code, 403)
+        response = client.get(
+            path,
+            {"table": "team"},
+            HTTP_X_GRAFANA_EXPORT_AUTHORIZED="1",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertIn("attachment;", response["Content-Disposition"])
 
     @override_settings(GRAFANA_ANALYTICS_API_TOKEN="analytics-token")
     def test_grafana_endpoint_requires_internal_bearer_token(self):

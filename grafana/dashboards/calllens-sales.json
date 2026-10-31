@@ -1251,6 +1251,13 @@
             "renameByName": {}
           }
         }
+      ],
+      "links": [
+        {
+          "title": "Export XLSX",
+          "url": "/analytics/export/sales.xlsx?table=agent&from=${__from}&to=${__to}&team=${team:percentencode}&preset=${preset:percentencode}&${project:customqueryparam:project}",
+          "targetBlank": true
+        }
       ]
     },
     {
@@ -1549,6 +1556,13 @@
             "renameByName": {}
           }
         }
+      ],
+      "links": [
+        {
+          "title": "Export XLSX",
+          "url": "/analytics/export/sales.xlsx?table=team&from=${__from}&to=${__to}&team=${team:percentencode}&preset=${preset:percentencode}&${project:customqueryparam:project}",
+          "targetBlank": true
+        }
       ]
     },
     {
@@ -1811,6 +1825,13 @@
             },
             "renameByName": {}
           }
+        }
+      ],
+      "links": [
+        {
+          "title": "Export XLSX",
+          "url": "/analytics/export/sales.xlsx?table=project&from=${__from}&to=${__to}&team=${team:percentencode}&preset=${preset:percentencode}&${project:customqueryparam:project}",
+          "targetBlank": true
         }
       ]
     },
@@ -2088,6 +2109,13 @@
             "renameByName": {}
           }
         }
+      ],
+      "links": [
+        {
+          "title": "Export XLSX",
+          "url": "/analytics/export/sales.xlsx?table=client&from=${__from}&to=${__to}&team=${team:percentencode}&preset=${preset:percentencode}&${project:customqueryparam:project}",
+          "targetBlank": true
+        }
       ]
     },
     {
@@ -2169,7 +2197,7 @@
             },
             {
               "selector": "number_style",
-              "text": "Number style",
+              "text": "number_style",
               "type": "string"
             }
           ]
@@ -2236,7 +2264,7 @@
               },
               {
                 "id": "custom.styleField",
-                "value": "Number style"
+                "value": "number_style"
               }
             ]
           },
@@ -2279,7 +2307,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Number style"
+              "options": "number_style"
             },
             "properties": [
               {
@@ -2304,10 +2332,17 @@
               "Client": 3,
               "Client status": 4,
               "Disposition time": 5,
-              "Number style": 6
+              "number_style": 6
             },
             "renameByName": {}
           }
+        }
+      ],
+      "links": [
+        {
+          "title": "Export XLSX",
+          "url": "/analytics/export/sales.xlsx?table=sold_30plus&from=${__from}&to=${__to}&team=${team:percentencode}&preset=${preset:percentencode}&${project:customqueryparam:project}",
+          "targetBlank": true
         }
       ]
     },
@@ -2528,7 +2563,14 @@
           }
         ]
       },
-      "pluginVersion": "13.3.0"
+      "pluginVersion": "13.3.0",
+      "links": [
+        {
+          "title": "Export XLSX",
+          "url": "/analytics/export/sales.xlsx?table=transfers&from=${__from}&to=${__to}&team=${team:percentencode}&preset=${preset:percentencode}&${project:customqueryparam:project}",
+          "targetBlank": true
+        }
+      ]
     }
   ],
   "refresh": "1m",

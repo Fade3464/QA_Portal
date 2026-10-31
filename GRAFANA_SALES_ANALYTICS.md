@@ -51,7 +51,7 @@ GRAFANA_COOKIE_SECURE=true
 
 ## Image rendering / panel exports
 
-Grafana 13 no longer supports the historical in-process Image Renderer plugin. This repository therefore runs the supported `grafana/grafana-image-renderer:5.12.5` service on the private Compose network and connects Grafana to it with `GF_RENDERING_SERVER_URL`, `GF_RENDERING_CALLBACK_URL`, and a matching renderer authentication token. No renderer port is published publicly.
+Grafana 13 no longer supports the historical in-process Image Renderer plugin. This repository therefore runs the supported `grafana/grafana-image-renderer:v5.12.10` service on the private Compose network and connects Grafana to it with `GF_RENDERING_SERVER_URL`, `GF_RENDERING_CALLBACK_URL`, and a matching renderer authentication token. No renderer port is published publicly.
 
 With the renderer healthy, Grafana can render dashboard/panel views (including table panels) as images through Grafana's normal share/render workflow. The renderer uses the internal callback `http://grafana:3000/analytics/`, which matches this deployment's configured Grafana subpath.
 
@@ -86,3 +86,21 @@ The dashboard also includes a final **Transfer calls** table with Agent, Team, N
 - **Transfer call details** is a separate dashboard section below **Sold call details**; it is not nested under the Sold section.
 
 - The Agent Leaderboard Team leader column is filterable using Grafana's native table-column filter.
+
+### CSV export limitation
+
+Grafana's CSV export contains table data, not visual presentation metadata. CSV itself cannot encode cell fills, font weight, borders, heatmaps, or CSS-based table styling. Use Grafana's rendered image export when the visual styling must be preserved. If an editable styled spreadsheet is required, it must be exported as a spreadsheet format such as XLSX rather than CSV.
+
+## Styled Excel exports
+
+Every Grafana table panel exposes an **Export XLSX** panel link. The link preserves the current dashboard time range plus Team, Project and Client/Preset selections, then downloads a styled Excel workbook for that specific table. Grafana session authentication is re-used by the frontend reverse proxy, so no analytics bearer token is exposed to the browser.
+
+The XLSX export mirrors the visible table semantics:
+
+- Agent Leaderboard keeps the hidden Sold field out of the workbook, preserves Team Leader ordering, reproduces 30+ / Transfer / Conversion styling, applies heatmaps to dynamic preset columns, and writes the cumulative footer as a bold final row.
+- Team, Project and Client performance exports preserve the Sold/30+/Transfer/Conversion visual treatment; dynamic preset columns are included for Team when Client/Preset is All.
+- Sold & 30+ exports never expose the internal `number_style` helper field. Sold phone-number cells are filled green; unsold 30+ number cells remain unfilled.
+- Transfer exports keep the same six visible columns.
+- All worksheets include Excel header styling, frozen headers, column filters, sensible widths and native percentage/date number formats.
+
+Grafana's original CSV export remains available and unchanged. CSV is intentionally data-only because the CSV format cannot represent cell fills, fonts, borders or other visual formatting.

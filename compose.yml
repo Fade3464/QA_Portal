@@ -197,7 +197,7 @@ services:
     networks: [internal]
 
   renderer:
-    image: grafana/grafana-image-renderer:5.12.5
+    image: grafana/grafana-image-renderer:v5.12.10
     restart: unless-stopped
     environment:
       AUTH_TOKEN: ${GRAFANA_RENDERER_TOKEN:?Set GRAFANA_RENDERER_TOKEN in .env}
