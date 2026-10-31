@@ -1016,6 +1016,14 @@
                 "value": {
                   "type": "color-text"
                 }
+              },
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "viz": true,
+                  "tooltip": true,
+                  "legend": false
+                }
               }
             ]
           },

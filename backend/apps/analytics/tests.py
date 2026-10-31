@@ -39,11 +39,11 @@ class SalesAnalyticsTests(TestCase):
         self._call("missing", sold=False, preset=None, when=now-timedelta(minutes=6))
         self._call("nonsale", disposition="DNC", when=now-timedelta(minutes=4))
 
-    def _call(self, key, *, disposition="SALE", sold=False, preset=None, twenty=False, thirty=False, when=None, phone_number="", client_status=None):
+    def _call(self, key, *, disposition="SALE", sold=False, preset=None, twenty=False, thirty=False, when=None, phone_number="", client_status=None, agent_user="8102", agent_name="Agent One"):
         return CallEvent.objects.create(
             dialer=self.dialer, branch=self.branch, event_key=key,
             event_type=CallEvent.EventType.DISPOSITION,
-            call_id=key, lead_id=key, agent_user="8102", agent_name="Agent One",
+            call_id=key, lead_id=key, agent_user=agent_user, agent_name=agent_name,
             team=self.team, team_name=self.team.name, campaign="002",
             disposition=disposition, sold=sold, preset=preset,
             client_20_plus=twenty, client_30_plus=thirty,
@@ -98,6 +98,48 @@ class SalesAnalyticsTests(TestCase):
                 "D42",
             ],
         )
+
+    def test_active_agent_without_sale_still_appears_with_zero_metrics(self):
+        now = timezone.now()
+        self._call(
+            "active-no-sale",
+            disposition="DNC",
+            when=now-timedelta(minutes=2),
+            agent_user="8200",
+            agent_name="Agent Zero",
+        )
+
+        data = build_sales_dashboard(
+            from_ms=str(int((now-timedelta(hours=1)).timestamp()*1000)),
+            to_ms=str(int(now.timestamp()*1000)),
+        )
+
+        row = next(item for item in data["agents"] if item["agent"] == "Agent Zero")
+        self.assertEqual(row["team_leader"], "Team Lead")
+        self.assertEqual(row["sold"], 0)
+        self.assertEqual(row["transfers"], 0)
+        self.assertEqual(row["conversion_pct"], 0.0)
+
+        table_row = next(
+            item for item in data["agent_table"] if item["Agent"] == "Agent Zero"
+        )
+        self.assertEqual(table_row["Sold"], 0)
+        self.assertEqual(table_row["30+"], 0)
+        self.assertEqual(table_row["Transfers"], 0)
+        self.assertEqual(table_row["Conversion %"], 0.0)
+
+        # Client filtering changes SALE metrics, but should not remove an agent
+        # who had ordinary call activity inside the selected time/team/project.
+        filtered = build_sales_dashboard(
+            from_ms=str(int((now-timedelta(hours=1)).timestamp()*1000)),
+            to_ms=str(int(now.timestamp()*1000)),
+            preset="D33",
+        )
+        filtered_row = next(
+            item for item in filtered["agent_table"] if item["Agent"] == "Agent Zero"
+        )
+        self.assertEqual(filtered_row["Transfers"], 0)
+        self.assertEqual(filtered_row["Conversion %"], 0.0)
 
     def test_preset_transfer_columns_only_exist_when_client_filter_is_all(self):
         now = timezone.now()

@@ -146,6 +146,74 @@ def _grouped(qs, fields, order_by="-sold_count"):
     return _decorate(rows)
 
 
+def _agent_rows_with_activity(activity_qs, sale_qs):
+    """Return active agents even when they have no SALE rows in the range.
+
+    Agent membership comes from all call records in the selected time/team/project
+    scope. SALE metrics are overlaid from the fully-filtered SALE queryset, so a
+    client/preset filter still affects the metrics without removing otherwise
+    active agents from the leaderboard.
+    """
+    fields = [
+        "agent_user",
+        "agent_name",
+        "team__team_leader__first_name",
+        "team__team_leader__last_name",
+    ]
+
+    sale_rows = _grouped(sale_qs, fields)
+
+    def identity(row):
+        return tuple(row.get(field) or "" for field in fields)
+
+    sale_by_identity = {identity(row): row for row in sale_rows}
+    active_rows = (
+        activity_qs.exclude(agent_user="", agent_name="")
+        .values(*fields)
+        .annotate(activity_count=Count("id"))
+        .order_by()[:250]
+    )
+
+    result = []
+    for active in active_rows:
+        key = identity(active)
+        sale = sale_by_identity.get(key)
+        if sale is None:
+            row = {field: active.get(field) for field in fields}
+            row.update(
+                {
+                    "opportunities": 0,
+                    "sold": 0,
+                    "transfers": 0,
+                    "twenty_plus": 0,
+                    "thirty_plus": 0,
+                    "missing_preset": 0,
+                    "conversion_pct": 0.0,
+                    "twenty_plus_pct": 0.0,
+                    "thirty_plus_pct": 0.0,
+                }
+            )
+        else:
+            row = dict(sale)
+
+        row["agent"] = row.get("agent_name") or row.get("agent_user") or "Unknown"
+        first = row.pop("team__team_leader__first_name", None) or ""
+        last = row.pop("team__team_leader__last_name", None) or ""
+        row["team_leader"] = f"{first} {last}".strip() or "Unassigned"
+        result.append(row)
+
+    # Keep the API stable for Top sellers. Grafana applies its own Team leader
+    # grouping/sort to the full Agent leaderboard table.
+    result.sort(
+        key=lambda row: (
+            -int(row.get("sold") or 0),
+            -int(row.get("transfers") or 0),
+            str(row.get("agent") or "").casefold(),
+        )
+    )
+    return result[:250]
+
+
 def _available_presets(sale_qs) -> list[str]:
     """Return the currently-visible resolved presets in stable display order."""
     values = sale_qs.exclude(preset__isnull=True).exclude(preset="").values_list(
@@ -311,11 +379,14 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
     filter_signature = hashlib.sha256(
         json.dumps(filters, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     ).hexdigest()[:20]
-    cache_key=f"sales-analytics:v10:{company.pk}:{start_key}:{end_key}:{filter_signature}"
+    cache_key=f"sales-analytics:v11:{company.pk}:{start_key}:{end_key}:{filter_signature}"
     cached=cache.get(cache_key)
     if cached is not None:
         return cached
     qs=_base_queryset(company,start,end,team=team,project=project,preset=preset)
+    # Leaderboard membership deliberately ignores the client/preset filter so
+    # active agents remain visible with zero SALE metrics when appropriate.
+    activity_qs=_base_queryset(company,start,end,team=team,project=project,preset="")
     sale_qs=qs.filter(disposition__iexact="SALE")
     metrics=_sale_metrics(qs)
     opportunities=int(metrics["opportunities"] or 0)
@@ -347,20 +418,7 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
     projects=_grouped(sale_qs,["project_name"])
     for row in projects:
         row["project"] = row.pop("project_name") or "Unmapped"
-    agents=_grouped(
-        sale_qs,
-        [
-            "agent_user",
-            "agent_name",
-            "team__team_leader__first_name",
-            "team__team_leader__last_name",
-        ],
-    )
-    for row in agents:
-        row["agent"] = row.get("agent_name") or row.get("agent_user") or "Unknown"
-        first = row.pop("team__team_leader__first_name") or ""
-        last = row.pop("team__team_leader__last_name") or ""
-        row["team_leader"] = f"{first} {last}".strip() or "Unassigned"
+    agents=_agent_rows_with_activity(activity_qs, sale_qs)
     include_preset_columns = not bool(_clean_filter(preset))
     agent_table = _agent_table_rows(
         agents, sale_qs, include_preset_columns=include_preset_columns
