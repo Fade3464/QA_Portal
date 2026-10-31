@@ -45,7 +45,7 @@ disposition = STALE
 stale = true
 ```
 
-Recording lookup/download are marked `SKIPPED`. Stale calls remain visible in Call Logs but are explicitly rejected by the QA analysis endpoint.
+Recording lookup/download are marked `SKIPPED`. Stale calls remain visible in Call Logs but are explicitly rejected by the QA analysis endpoint. If the Start Call did not provide a usable agent name/team, CallLens queues `calls.resolve_stale_agent_identity` after the row is marked stale. That task uses the dialer's configured VICIdial Non-Agent API credentials: it first uses `recording_lookup` by lead ID only when the agent user is missing, then calls `agent_ingroup_info` for the agent user to recover the VICIdial full name. The result is parsed with the same `Team - Agent` convention and existing team resolver used by webhook ingestion. The task re-checks that the row is still `STALE` before saving, so a late authoritative disposition always wins.
 
 A late real disposition can recover a stale call. Recovery also matches rows whose `stale=true` even if a Project Manager has already manually changed their displayed disposition. The same row is updated, `stale` becomes `false`, and normal recording/QA processing begins. A late non-SALE disposition clears SALE-only business fields but preserves `client_status`.
 

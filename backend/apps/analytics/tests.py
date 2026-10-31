@@ -141,6 +141,24 @@ class SalesAnalyticsTests(TestCase):
         self.assertEqual(filtered_row["Transfers"], 0)
         self.assertEqual(filtered_row["Conversion %"], 0.0)
 
+    def test_live_new_agent_is_excluded_from_leaderboard_activity(self):
+        now = timezone.now()
+        self._call(
+            "live-new",
+            disposition="NEW",
+            when=now-timedelta(minutes=1),
+            agent_user="8300",
+            agent_name="Live Agent",
+        )
+
+        data = build_sales_dashboard(
+            from_ms=str(int((now-timedelta(hours=1)).timestamp()*1000)),
+            to_ms=str(int(now.timestamp()*1000)),
+        )
+
+        self.assertNotIn("Live Agent", {row["agent"] for row in data["agents"]})
+        self.assertNotIn("Live Agent", {row["Agent"] for row in data["agent_table"]})
+
     def test_preset_transfer_columns_only_exist_when_client_filter_is_all(self):
         now = timezone.now()
         data = build_sales_dashboard(

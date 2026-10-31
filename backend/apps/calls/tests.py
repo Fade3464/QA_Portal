@@ -6,7 +6,7 @@ import wave
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import httpx
 from celery.exceptions import Retry
@@ -31,6 +31,7 @@ from apps.tenancy.models import (
 )
 from config.celery import app as celery_app
 
+from .agent_identity import StaleAgentIdentity, lookup_stale_agent_identity
 from .models import CallEvent, Review, ReviewWorkflowEvent
 from .scorecard import CRITICAL_ERRORS, SCORECARD
 from .serializers import CallEventSerializer
@@ -51,6 +52,7 @@ from .tasks import (
     fetch_recording,
     mark_stale_calls,
     resolve_recording,
+    resolve_stale_agent_identity,
 )
 from .webhooks import infer_call_direction, infer_dial_method
 
@@ -1170,7 +1172,8 @@ class WebhookTests(TestCase):
         self.assertEqual(CallEvent.objects.get().disposition, "NEW")
         queue_task.assert_not_called()
 
-    def test_stale_sweep_marks_old_new_and_legacy_incall_rows(self):
+    @patch("apps.calls.tasks.resolve_stale_agent_identity.delay")
+    def test_stale_sweep_marks_old_new_and_legacy_incall_rows(self, identity_task):
         old = CallEvent.objects.create(
             dialer=self.dialer,
             branch=self.branch,
@@ -1225,6 +1228,141 @@ class WebhookTests(TestCase):
         self.assertFalse(fresh.stale)
         self.assertEqual(finalized.disposition, "SALE")
         self.assertFalse(finalized.stale)
+        self.assertEqual(result["identity_queued"], 2)
+        self.assertEqual(identity_task.call_count, 2)
+        queued_ids = {call.args[0] for call in identity_task.call_args_list}
+        self.assertEqual(queued_ids, {str(old.pk), str(legacy_incall.pk)})
+
+    @patch("apps.calls.agent_identity.httpx.Client")
+    def test_stale_identity_non_agent_api_parses_team_and_agent_name(self, client_factory):
+        response = MagicMock()
+        response.text = (
+            '<TABLE><TR><TD>Agent: 8031 - Med Legends - Billie DON </TD>'
+            '<TD> &nbsp; Campaign: 002</TD></TR></TABLE>'
+        )
+        response.raise_for_status.return_value = None
+        client = MagicMock()
+        client.__enter__.return_value = client
+        client.__exit__.return_value = False
+        client.get.return_value = response
+        client_factory.return_value = client
+        event = SimpleNamespace(
+            agent_user="8031",
+            lead_id="13554780",
+            unique_id="",
+            call_date=timezone.now(),
+            received_at=timezone.now(),
+        )
+
+        identity = lookup_stale_agent_identity(self.dialer, event)
+
+        self.assertIsNotNone(identity)
+        self.assertEqual(identity.agent_user, "8031")
+        self.assertEqual(identity.team_name, "Med Legends")
+        self.assertEqual(identity.agent_name, "Billie DON")
+        params = client.get.call_args.kwargs["params"]
+        self.assertEqual(params["function"], "agent_ingroup_info")
+        self.assertEqual(params["agent_user"], "8031")
+
+    @patch("apps.calls.agent_identity.httpx.Client")
+    def test_stale_identity_can_recover_agent_user_from_lead_id(self, client_factory):
+        recording_response = MagicMock()
+        recording_response.text = (
+            "2026-10-31 10:00:00|8031|534820|13554780|https://recordings.example/call.wav\n"
+        )
+        recording_response.raise_for_status.return_value = None
+        info_response = MagicMock()
+        info_response.text = (
+            '<TABLE><TR><TD>Agent: 8031 - Med Legends - Billie DON </TD>'
+            '<TD> &nbsp; Campaign: 002</TD></TR></TABLE>'
+        )
+        info_response.raise_for_status.return_value = None
+        client = MagicMock()
+        client.__enter__.return_value = client
+        client.__exit__.return_value = False
+        client.get.side_effect = [recording_response, info_response]
+        client_factory.return_value = client
+        event = SimpleNamespace(
+            agent_user="",
+            lead_id="13554780",
+            unique_id="",
+            call_date=timezone.make_aware(datetime(2026, 10, 31, 10, 0, 0)),
+            received_at=timezone.make_aware(datetime(2026, 10, 31, 10, 0, 0)),
+        )
+
+        identity = lookup_stale_agent_identity(self.dialer, event)
+
+        self.assertIsNotNone(identity)
+        self.assertEqual(identity.agent_user, "8031")
+        self.assertEqual(identity.agent_name, "Billie DON")
+        self.assertEqual(client.get.call_count, 2)
+        first_params = client.get.call_args_list[0].kwargs["params"]
+        second_params = client.get.call_args_list[1].kwargs["params"]
+        self.assertEqual(first_params["function"], "recording_lookup")
+        self.assertEqual(first_params["lead_id"], "13554780")
+        self.assertEqual(second_params["function"], "agent_ingroup_info")
+
+    @patch("apps.calls.tasks.lookup_stale_agent_identity")
+    def test_stale_identity_lookup_populates_agent_name_and_team(self, lookup_identity):
+        leader = User.objects.create_user(
+            email="stale-leader@example.com",
+            password="a-very-strong-password",
+            first_name="Stale",
+            last_name="Leader",
+            role=User.Role.TEAM_LEADER,
+            company=self.branch.company,
+            branch=self.branch,
+            must_change_password=False,
+        )
+        team = Team.objects.create(
+            branch=self.branch, name="Med Legends", team_leader=leader
+        )
+        event = CallEvent.objects.create(
+            dialer=self.dialer,
+            branch=self.branch,
+            event_key="stale-identity".ljust(64, "0"),
+            event_type=CallEvent.EventType.DISPOSITION,
+            call_id="V-STALE-IDENTITY",
+            lead_id="13554780",
+            agent_user="8031",
+            agent_name="",
+            disposition="STALE",
+            stale=True,
+        )
+        lookup_identity.return_value = StaleAgentIdentity(
+            agent_user="8031",
+            agent_full_name="Med Legends - Billie DON",
+            team_name="Med Legends",
+            agent_name="Billie DON",
+        )
+
+        result = resolve_stale_agent_identity.run(str(event.pk))
+
+        event.refresh_from_db()
+        self.assertEqual(result["status"], "resolved")
+        self.assertEqual(event.agent_user, "8031")
+        self.assertEqual(event.agent_name, "Billie DON")
+        self.assertEqual(event.team_name, "Med Legends")
+        self.assertEqual(event.team, team)
+
+    @patch("apps.calls.tasks.lookup_stale_agent_identity")
+    def test_stale_identity_lookup_does_not_overwrite_recovered_call(self, lookup_identity):
+        event = CallEvent.objects.create(
+            dialer=self.dialer,
+            branch=self.branch,
+            event_key="stale-superseded".ljust(64, "0"),
+            event_type=CallEvent.EventType.DISPOSITION,
+            call_id="V-STALE-SUPERSEDED",
+            lead_id="13554781",
+            agent_user="8031",
+            disposition="SALE",
+            stale=False,
+        )
+
+        result = resolve_stale_agent_identity.run(str(event.pk))
+
+        self.assertEqual(result["status"], "superseded")
+        lookup_identity.assert_not_called()
 
     @patch("apps.calls.webhooks.announce_call")
     @patch("apps.calls.webhooks.resolve_sale_preset.delay")
@@ -3149,11 +3287,10 @@ class RecordingTaskConfigurationTests(TestCase):
             route = celery_app.amqp.router.route({}, task.name, args=(), kwargs={})
             self.assertEqual(route["queue"].name, "recordings")
 
-    def test_stale_sweep_routes_to_default_queue(self):
-        route = celery_app.amqp.router.route(
-            {}, mark_stale_calls.name, args=(), kwargs={}
-        )
-        self.assertEqual(route["queue"].name, "celery")
+    def test_stale_housekeeping_routes_to_default_queue(self):
+        for task in (mark_stale_calls, resolve_stale_agent_identity):
+            route = celery_app.amqp.router.route({}, task.name, args=(), kwargs={})
+            self.assertEqual(route["queue"].name, "celery")
 
     def test_recording_tasks_are_rate_limited(self):
         self.assertEqual(resolve_recording.rate_limit, "20/s")

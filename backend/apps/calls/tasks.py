@@ -12,6 +12,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
+from .agent_identity import lookup_stale_agent_identity
 from .models import CallEvent
 from .preset_lookup import lookup_sale_preset
 from .services import download_recording, lookup_recording, recording_duration_seconds
@@ -19,6 +20,7 @@ from apps.notifications.services import (
     queue_missing_preset_notification,
     resolve_missing_preset_notification,
 )
+from apps.tenancy.services import resolve_team_prefix
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +165,106 @@ def resolve_sale_preset(self, event_id: str):
     raise self.retry(exc=RuntimeError(error), countdown=countdown)
 
 
+@shared_task(
+    name="calls.resolve_stale_agent_identity",
+    bind=True,
+    max_retries=2,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    soft_time_limit=45,
+    time_limit=60,
+)
+def resolve_stale_agent_identity(self, event_id: str):
+    """Enrich a still-stale call with agent/team identity from VICIdial.
+
+    The task is intentionally guarded by the STALE lifecycle state before and
+    after the network lookup so a late real disposition always remains the
+    authoritative source of agent/team data.
+    """
+    try:
+        event = CallEvent.objects.select_related(
+            "dialer", "dialer__branch", "branch", "team"
+        ).get(pk=event_id)
+    except CallEvent.DoesNotExist:
+        return {"status": "missing"}
+
+    if not event.stale or event.disposition.upper() != "STALE":
+        return {"status": "superseded"}
+    if event.agent_name and event.team_id and event.agent_name != event.agent_user:
+        return {"status": "already_resolved"}
+
+    try:
+        identity = lookup_stale_agent_identity(event.dialer, event)
+    except httpx.HTTPError as exc:
+        if self.request.retries >= self.max_retries:
+            logger.warning(
+                "Stale-call agent identity lookup failed",
+                extra={"event_id": event_id, "error": str(exc)},
+            )
+            return {"status": "http_error", "error": str(exc)}
+        raise self.retry(exc=exc, countdown=30 * (self.request.retries + 1))
+    except ValidationError as exc:
+        logger.warning(
+            "Stale-call agent identity lookup configuration is unavailable",
+            extra={"event_id": event_id, "error": str(exc)},
+        )
+        return {"status": "configuration_error", "error": str(exc)}
+
+    if identity is None:
+        logger.info(
+            "VICIdial did not return identity for stale call",
+            extra={"event_id": event_id, "lead_id": event.lead_id},
+        )
+        return {"status": "not_found"}
+
+    team = (
+        resolve_team_prefix(event.branch, identity.team_name)
+        if identity.team_name
+        else None
+    )
+
+    with transaction.atomic():
+        current = CallEvent.objects.select_for_update().get(pk=event.pk)
+        if not current.stale or current.disposition.upper() != "STALE":
+            return {"status": "superseded"}
+
+        update_fields = []
+        if identity.agent_user and not current.agent_user:
+            current.agent_user = identity.agent_user
+            update_fields.append("agent_user")
+        if identity.agent_name and (
+            not current.agent_name or current.agent_name == current.agent_user
+        ):
+            current.agent_name = identity.agent_name
+            update_fields.append("agent_name")
+        if identity.team_name and current.team_name != identity.team_name:
+            current.team_name = identity.team_name
+            update_fields.append("team_name")
+        if team is not None and current.team_id != team.pk:
+            current.team = team
+            update_fields.append("team")
+
+        if update_fields:
+            current.save(update_fields=update_fields)
+
+    logger.info(
+        "Resolved stale-call agent identity",
+        extra={
+            "event_id": event_id,
+            "agent_user": identity.agent_user,
+            "agent_name": identity.agent_name,
+            "team_name": identity.team_name,
+            "team_resolved": bool(team),
+        },
+    )
+    return {
+        "status": "resolved",
+        "agent_user": identity.agent_user,
+        "agent_name": identity.agent_name,
+        "team": team.name if team else "",
+    }
+
+
 @shared_task(name="calls.mark_stale_calls")
 def mark_stale_calls(batch_size: int = 500):
     """Mark provisional Start Call records stale after two hours.
@@ -184,7 +286,7 @@ def mark_stale_calls(batch_size: int = 500):
             .order_by("received_at")[: max(1, min(batch_size, 5000))]
         )
         if not events:
-            return {"status": "ok", "marked_stale": 0}
+            return {"status": "ok", "marked_stale": 0, "identity_queued": 0}
 
         for event in events:
             event.disposition = "STALE"
@@ -210,11 +312,17 @@ def mark_stale_calls(batch_size: int = 500):
             ],
         )
 
+    identity_queued = 0
+    for event in events:
+        if not event.agent_name or not event.team_id or event.agent_name == event.agent_user:
+            resolve_stale_agent_identity.delay(str(event.pk))
+            identity_queued += 1
+
     logger.warning(
         "Marked undispositioned VICIdial calls stale",
         extra={"count": len(events), "cutoff": cutoff.isoformat()},
     )
-    return {"status": "ok", "marked_stale": len(events)}
+    return {"status": "ok", "marked_stale": len(events), "identity_queued": identity_queued}
 
 
 @shared_task(

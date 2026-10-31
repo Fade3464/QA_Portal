@@ -214,9 +214,10 @@ CELERY_TASK_ROUTES = {
     # Preset lookups are light HTTP/report parsing work and should not queue
     # behind recording downloads.
     "calls.resolve_sale_preset": {"queue": "celery"},
-    # Keep stale-call housekeeping on the default queue so a large recording
-    # backlog cannot delay two-hour lifecycle enforcement.
+    # Keep stale-call housekeeping and identity enrichment on the default queue
+    # so a large recording backlog cannot delay lifecycle enforcement.
     "calls.mark_stale_calls": {"queue": "celery"},
+    "calls.resolve_stale_agent_identity": {"queue": "celery"},
     "analytics.sync_grafana_viewer": {"queue": "celery"},
     "analytics.sync_all_grafana_viewers": {"queue": "celery"},
 }

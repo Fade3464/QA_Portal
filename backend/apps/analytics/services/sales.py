@@ -379,14 +379,17 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
     filter_signature = hashlib.sha256(
         json.dumps(filters, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     ).hexdigest()[:20]
-    cache_key=f"sales-analytics:v11:{company.pk}:{start_key}:{end_key}:{filter_signature}"
+    cache_key=f"sales-analytics:v12:{company.pk}:{start_key}:{end_key}:{filter_signature}"
     cached=cache.get(cache_key)
     if cached is not None:
         return cached
     qs=_base_queryset(company,start,end,team=team,project=project,preset=preset)
     # Leaderboard membership deliberately ignores the client/preset filter so
     # active agents remain visible with zero SALE metrics when appropriate.
-    activity_qs=_base_queryset(company,start,end,team=team,project=project,preset="")
+    activity_qs=(
+        _base_queryset(company,start,end,team=team,project=project,preset="")
+        .exclude(disposition__in=CallEvent.PROVISIONAL_START_DISPOSITIONS)
+    )
     sale_qs=qs.filter(disposition__iexact="SALE")
     metrics=_sale_metrics(qs)
     opportunities=int(metrics["opportunities"] or 0)
