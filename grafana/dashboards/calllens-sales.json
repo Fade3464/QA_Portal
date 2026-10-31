@@ -1018,12 +1018,8 @@
                 }
               },
               {
-                "id": "custom.hideFrom",
-                "value": {
-                  "viz": true,
-                  "tooltip": true,
-                  "legend": false
-                }
+                "id": "custom.hidden",
+                "value": true
               }
             ]
           },
