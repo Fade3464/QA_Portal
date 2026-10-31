@@ -1465,10 +1465,30 @@ class CallEditorListView(ListAPIView):
 
     def get_queryset(self):
         _require_call_editor(self.request.user)
-        queryset = scoped_calls(self.request.user)
+
         search = self.request.query_params.get("search", "").strip()
+        disposition = self.request.query_params.get("disposition", "").strip()
+        raw_date_from = self.request.query_params.get("date_from", "")
+        raw_date_to = self.request.query_params.get("date_to", "")
+
         if len(search) > 200:
             raise ValidationError({"search": "Search cannot exceed 200 characters."})
+
+        date_from = parse_date(raw_date_from)
+        date_to = parse_date(raw_date_to)
+        if raw_date_from and not date_from:
+            raise ValidationError({"date_from": "Enter a valid date."})
+        if raw_date_to and not date_to:
+            raise ValidationError({"date_to": "Enter a valid date."})
+        if date_from and date_to and date_from > date_to:
+            raise ValidationError({"date_to": "End date must be on or after start date."})
+
+        # The editor is deliberately search-driven. An unfiltered request must
+        # never hydrate the workspace with the user's entire project history.
+        if not (search or disposition or date_from or date_to):
+            return CallEvent.objects.none()
+
+        queryset = scoped_calls(self.request.user)
         if search:
             if _looks_like_phone_search(search):
                 cutoff = timezone.now() - timedelta(days=7)
@@ -1488,23 +1508,18 @@ class CallEditorListView(ListAPIView):
                 | Q(client_status__icontains=search)
             )
 
-        disposition = self.request.query_params.get("disposition", "").strip()
         if disposition:
             queryset = queryset.filter(disposition__iexact=disposition)
-
-        date_from = parse_date(self.request.query_params.get("date_from", ""))
-        date_to = parse_date(self.request.query_params.get("date_to", ""))
-        if self.request.query_params.get("date_from") and not date_from:
-            raise ValidationError({"date_from": "Enter a valid date."})
-        if self.request.query_params.get("date_to") and not date_to:
-            raise ValidationError({"date_to": "Enter a valid date."})
-        if date_from and date_to and date_from > date_to:
-            raise ValidationError({"date_to": "End date must be on or after start date."})
         if date_from:
             queryset = queryset.filter(call_date__date__gte=date_from)
         if date_to:
             queryset = queryset.filter(call_date__date__lte=date_to)
-        return queryset.order_by("-call_date", "-effective_received_at", "-id")
+
+        # Always put the newest matching record first. For lifecycle rows that
+        # do not have call_date, fall back to finalized/received time.
+        return queryset.annotate(
+            editor_sort_at=Coalesce("call_date", "finalized_at", "received_at")
+        ).order_by("-editor_sort_at", "-id")
 
 
 class CallEditorDetailView(APIView):

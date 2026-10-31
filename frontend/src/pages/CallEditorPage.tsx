@@ -59,12 +59,24 @@ export function CallEditorPage() {
   const isSale = selectedDisposition === 'SALE';
 
   const load = useCallback(async (targetPage = page, overrides?: { search?: string; disposition?: string; dates?: [Dayjs, Dayjs] | null }) => {
+    const activeSearch = overrides?.search ?? search;
+    const activeDisposition = overrides?.disposition ?? disposition;
+    const activeDates = overrides?.dates === undefined ? dates : overrides.dates;
+    const hasUserFilter = Boolean(activeSearch.trim() || activeDisposition.trim() || activeDates);
+
+    // The editor is intentionally search-driven. Never populate the workspace
+    // with an unfiltered call list on page load or after filters are cleared.
+    if (!hasUserFilter) {
+      setRows([]);
+      setCount(0);
+      setPage(1);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
       const query = new URLSearchParams({ page: String(targetPage), page_size: '20' });
-      const activeSearch = overrides?.search ?? search;
-      const activeDisposition = overrides?.disposition ?? disposition;
-      const activeDates = overrides?.dates === undefined ? dates : overrides.dates;
       if (activeSearch.trim()) query.set('search', activeSearch.trim());
       if (activeDisposition.trim()) query.set('disposition', activeDisposition.trim());
       if (activeDates) {
@@ -101,7 +113,6 @@ export function CallEditorPage() {
     }
   }, [form, message]);
 
-  useEffect(() => { void load(1); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const callId = searchParams.get('call');
     if (callId) void openCall(callId);
@@ -164,7 +175,7 @@ export function CallEditorPage() {
         <Col xs={24} lg={9}><Text strong>Search</Text><Input allowClear prefix={<SearchOutlined />} value={search} onChange={(event) => setSearch(event.target.value)} onPressEnter={() => void load(1)} placeholder="Phone, lead ID, call ID, agent, preset…" /></Col>
         <Col xs={24} sm={12} lg={5}><Text strong>Disposition</Text><Input allowClear value={disposition} onChange={(event) => setDisposition(event.target.value.toUpperCase())} onPressEnter={() => void load(1)} placeholder="e.g. SALE" /></Col>
         <Col xs={24} sm={12} lg={7}><Text strong>Call date</Text><RangePicker value={dates} onChange={(value) => setDates(value as [Dayjs, Dayjs] | null)} style={{ width: '100%' }} /></Col>
-        <Col xs={24} lg={3}><Space><Button type="primary" icon={<SearchOutlined />} onClick={() => void load(1)}>Search</Button><Button icon={<ReloadOutlined />} onClick={() => { setSearch(''); setDisposition(''); setDates(null); void load(1, { search: '', disposition: '', dates: null }); }} /></Space></Col>
+        <Col xs={24} lg={3}><Space><Button type="primary" icon={<SearchOutlined />} onClick={() => void load(1)}>Search</Button><Button icon={<ReloadOutlined />} onClick={() => { setSearch(''); setDisposition(''); setDates(null); setRows([]); setCount(0); setPage(1); }} /></Space></Col>
       </Row>
     </Card>
 
@@ -174,7 +185,7 @@ export function CallEditorPage() {
         columns={columns}
         dataSource={rows}
         loading={loading}
-        locale={{ emptyText: <Empty description="No calls match these filters" /> }}
+        locale={{ emptyText: <Empty description="Search to load call records" /> }}
         pagination={{ current: page, pageSize: 20, total: count, showSizeChanger: false, showTotal: (total) => `${total} calls`, onChange: (next) => void load(next) }}
         scroll={{ x: 1050 }}
       />

@@ -67,6 +67,8 @@ The workspace is available at `/editor` and supports:
 - viewing call identity and project context;
 - editing only disposition, 20+, 30+, client status, sold, and preset.
 
+The editor is search-driven: opening the workspace or clearing all filters does not load any call records. A user must provide a search term, disposition filter, or date range before the list endpoint returns records. Matching records are returned newest-first, using call date with finalized/received time as the fallback ordering timestamp.
+
 Phone-number-style searches are constrained to records from the previous seven days. Other editor search modes keep their existing behavior, and project assignment checks remain authoritative.
 
 Server-side authorization and validation are authoritative; hiding or modifying browser controls cannot bypass project scope or SALE-only rules. Database constraints also enforce that 20+, 30+, sold, and preset cannot remain populated on a non-SALE call, and 30+ cannot be true unless 20+ is true.

@@ -3785,6 +3785,37 @@ class CallEditorTests(TestCase):
         )
         self.assertEqual(response.status_code, 404)
 
+    def test_editor_list_is_empty_until_user_filters(self):
+        response = self.client.get(reverse("call-editor-list"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 0)
+        self.assertEqual(response.json()["results"], [])
+
+    def test_editor_search_returns_latest_record_first(self):
+        older_time = timezone.now() - timedelta(hours=2)
+        newer_time = timezone.now() - timedelta(minutes=5)
+        CallEvent.objects.filter(pk=self.call.pk).update(call_date=older_time)
+        newer = CallEvent.objects.create(
+            dialer=self.dialer,
+            branch=self.call.branch,
+            event_key="newer-editor-search".ljust(64, "0"),
+            event_type=CallEvent.EventType.DISPOSITION,
+            call_id="V-EDITOR-NEWER",
+            lead_id="12346",
+            agent_user="8102",
+            campaign="002",
+            phone_number=self.call.phone_number,
+            disposition="SALE",
+            call_date=newer_time,
+        )
+
+        response = self.client.get(
+            reverse("call-editor-list"), {"search": self.call.phone_number}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual(response.json()["results"][0]["id"], str(newer.pk))
+
     def test_phone_number_search_is_limited_to_previous_seven_days(self):
         old_call = CallEvent.objects.create(
             dialer=self.dialer,
