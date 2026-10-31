@@ -1,4 +1,3 @@
-import json
 from io import BytesIO
 from datetime import timedelta
 
@@ -202,13 +201,12 @@ class SalesAnalyticsTests(TestCase):
         self.assertEqual(detail["team"], "Alpha")
         self.assertEqual(detail["number"], "15551234567")
         self.assertEqual(detail["client"], "D77")
+        self.assertEqual(detail["sale_status"], "Confirmed")
         self.assertEqual(detail["client_status"], "Confirmed")
         self.assertIn("T", detail["disposition_time"])
-        style = json.loads(detail["number_style"])
-        self.assertIn("backgroundColor", style)
-        self.assertIn("73, 171, 83", style["backgroundColor"])
+        self.assertNotIn("number_style", detail)
 
-    def test_sold_details_also_include_unsold_thirty_plus_without_green_style(self):
+    def test_sold_details_also_include_unsold_thirty_plus_as_sale_chance(self):
         now = timezone.now()
         self._call(
             "detail-thirty-plus-unsold",
@@ -227,8 +225,9 @@ class SalesAnalyticsTests(TestCase):
             row for row in data["sold_details"] if row["number"] == "15550003030"
         )
         self.assertEqual(detail["client"], "D91")
+        self.assertEqual(detail["sale_status"], "Only 30+")
         self.assertEqual(detail["client_status"], "Follow-up")
-        self.assertEqual(json.loads(detail["number_style"]), {})
+        self.assertNotIn("number_style", detail)
 
     def test_sold_details_exclude_unsold_calls_below_thirty_plus(self):
         now = timezone.now()
@@ -300,7 +299,7 @@ class SalesAnalyticsTests(TestCase):
         self.assertEqual(data["trend_granularity"], "hour")
         self.assertLessEqual(len(data["top_agents"]), 10)
 
-    def test_styled_xlsx_export_hides_helper_field_and_styles_sold_number(self):
+    def test_sales_and_30plus_xlsx_has_sale_status_without_number_highlight(self):
         now = timezone.now()
         self._call(
             "xlsx-sold",
@@ -329,15 +328,15 @@ class SalesAnalyticsTests(TestCase):
         headers = [cell.value for cell in ws[1]]
         self.assertEqual(
             headers,
-            ["Agent", "Team", "Number", "Client", "Client status", "Disposition time"],
+            ["Agent", "Team", "Number", "Client", "Sale Status", "Client status", "Disposition time"],
         )
-        self.assertNotIn("number_style", headers)
         rows = {ws.cell(row=i, column=3).value: i for i in range(2, ws.max_row + 1)}
-        sold_cell = ws.cell(rows["15551234567"], 3)
-        thirty_cell = ws.cell(rows["15557654321"], 3)
-        self.assertEqual(sold_cell.fill.fill_type, "solid")
-        self.assertEqual(sold_cell.fill.fgColor.rgb[-6:], "49AB53")
-        self.assertNotEqual(thirty_cell.fill.fgColor.rgb[-6:], "49AB53")
+        sold_row = rows["15551234567"]
+        chance_row = rows["15557654321"]
+        self.assertEqual(ws.cell(sold_row, 5).value, "Confirmed")
+        self.assertEqual(ws.cell(chance_row, 5).value, "Only 30+")
+        self.assertNotEqual(ws.cell(sold_row, 3).fill.fill_type, "solid")
+        self.assertNotEqual(ws.cell(chance_row, 3).fill.fill_type, "solid")
 
     def test_agent_xlsx_contains_bold_cumulative_footer(self):
         now = timezone.now()

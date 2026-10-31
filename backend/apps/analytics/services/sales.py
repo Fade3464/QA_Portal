@@ -333,7 +333,7 @@ def _team_table_rows(teams, sale_qs, *, include_preset_columns: bool):
     return rows
 
 
-def _detail_row(event, *, highlight_sold_number: bool = False):
+def _detail_row(event, *, include_sale_status: bool = False):
     team_name = (event.team.name if event.team_id else event.team_name) or "Unassigned"
     row = {
         "agent": event.agent_name or event.agent_user or "Unknown",
@@ -343,26 +343,15 @@ def _detail_row(event, *, highlight_sold_number: bool = False):
         "client_status": event.client_status or "",
         "disposition_time": event.analytics_at.isoformat() if getattr(event, "analytics_at", None) else "",
     }
-    if highlight_sold_number:
-        # Grafana 13 table panels support Styling from field. Keep the phone
-        # number itself unchanged and return a separate CSS JSON field so only
-        # sold number cells receive a green fill; unsold 30+ rows remain plain.
-        row["number_style"] = (
-            json.dumps(
-                {
-                    "backgroundColor": "rgba(73, 171, 83, 0.55)",
-                    "fontWeight": "600",
-                },
-                separators=(",", ":"),
-            )
-            if event.sold
-            else "{}"
-        )
+    if include_sale_status:
+        # Sold takes precedence over the 30+ opportunity state. Rows in this
+        # table are either confirmed sales or unsold 30+ sale chances.
+        row["sale_status"] = "Confirmed" if event.sold else "Only 30+"
     return row
 
 
 def _sold_detail_rows(qs):
-    """Return Sold calls plus unsold 30+ calls for the combined drill-down."""
+    """Return confirmed sales plus unsold 30+ sale chances."""
     rows = []
     events = (
         qs.filter(disposition__iexact="SALE")
@@ -371,7 +360,7 @@ def _sold_detail_rows(qs):
         .order_by("-analytics_at", "-received_at")[:500]
     )
     for event in events:
-        rows.append(_detail_row(event, highlight_sold_number=True))
+        rows.append(_detail_row(event, include_sale_status=True))
     return rows
 
 
@@ -407,7 +396,7 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
     filter_signature = hashlib.sha256(
         json.dumps(filters, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     ).hexdigest()[:20]
-    cache_key=f"sales-analytics:v14:{company.pk}:{start_key}:{end_key}:{filter_signature}"
+    cache_key=f"sales-analytics:v15:{company.pk}:{start_key}:{end_key}:{filter_signature}"
     cached=cache.get(cache_key)
     if cached is not None:
         return cached

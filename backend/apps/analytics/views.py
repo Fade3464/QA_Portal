@@ -32,13 +32,27 @@ class GrafanaSalesXlsxExportView(APIView):
     authentication_classes = []
     permission_classes = [HasGrafanaExportProxy]
 
+    @staticmethod
+    def _single_param(request, name):
+        # Dashboard links use Grafana's includeVars option, which appends
+        # variables as var-<name>. Keep accepting the older explicit panel-link
+        # parameters too so existing bookmarked export URLs continue working.
+        return request.query_params.get(name, request.query_params.get(f"var-{name}", ""))
+
+    @staticmethod
+    def _multi_param(request, name):
+        values = request.query_params.getlist(name)
+        if values:
+            return values
+        return request.query_params.getlist(f"var-{name}")
+
     def get(self, request):
         payload = build_sales_dashboard(
             from_ms=request.query_params.get("from"),
             to_ms=request.query_params.get("to"),
-            team=request.query_params.get("team", ""),
-            project=request.query_params.getlist("project"),
-            preset=request.query_params.get("preset", ""),
+            team=self._single_param(request, "team"),
+            project=self._multi_param(request, "project"),
+            preset=self._single_param(request, "preset"),
         )
         try:
             content, filename = build_sales_xlsx(

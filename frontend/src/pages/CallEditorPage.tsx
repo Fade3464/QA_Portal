@@ -211,7 +211,7 @@ export function CallEditorPage() {
           </Row>
           <Form.Item name="client_status" label="Client status"><Input allowClear placeholder="Optional client-side status" /></Form.Item>
           <Form.Item name="preset" label="Preset" extra={isSale ? 'Automatically resolved from VICIdial when available; editable for corrections.' : 'Preset is available only for SALE calls.'}><Input allowClear disabled={!isSale} placeholder="e.g. D42" /></Form.Item>
-          <Form.Item name="sold" label="Mark sold" valuePropName="checked" extra="This is manual business confirmation and is never inferred from the dialer SALE disposition."><Switch disabled={!isSale} /></Form.Item>
+          <Form.Item name="sold" label="Mark sold" valuePropName="checked" extra="This is manual business confirmation and is never inferred from the dialer SALE disposition."><Switch disabled={!isSale} onChange={(checked) => { if (checked) form.setFieldsValue({ client_20_plus: true, client_30_plus: true }); }} /></Form.Item>
         </Form>
       </>}
     </Drawer>

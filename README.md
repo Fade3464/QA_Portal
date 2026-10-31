@@ -190,4 +190,4 @@ VICIdial Start Call callbacks use `NEW`. CallEvent preserves immutable first rec
 
 ### Grafana styled XLSX table export
 
-The provisioned sales dashboard adds an **Export XLSX** panel link to each table. Requests stay under `/analytics/`, are authenticated against the current Grafana session by Nginx, and are proxied internally to the analytics XLSX exporter. The backend uses `openpyxl` to reproduce the dashboard table styling in a true Excel workbook. Native Grafana CSV export remains available for plain-data workflows.
+The analytics backend retains an authenticated XLSX export endpoint under `/analytics/` for internal integrations, but the provisioned dashboard does not inject custom XLSX export buttons or links. Native Grafana export behavior remains unchanged.

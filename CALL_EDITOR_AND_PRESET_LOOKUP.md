@@ -71,7 +71,7 @@ The editor is search-driven: opening the workspace or clearing all filters does 
 
 Phone-number-style searches are constrained to records from the previous seven days. Other editor search modes keep their existing behavior, and project assignment checks remain authoritative.
 
-Server-side authorization and validation are authoritative; hiding or modifying browser controls cannot bypass project scope or SALE-only rules. Database constraints also enforce that 20+, 30+, sold, and preset cannot remain populated on a non-SALE call, and 30+ cannot be true unless 20+ is true.
+Server-side authorization and validation are authoritative; hiding or modifying browser controls cannot bypass project scope or SALE-only rules. Database constraints also enforce that 20+, 30+, sold, and preset cannot remain populated on a non-SALE call, and 30+ cannot be true unless 20+ is true. In the Call Editor, marking a SALE call as sold automatically enables both the 20+ and 30+ flags; the server applies the same rule as a safety net.
 
 ## Migrations
 

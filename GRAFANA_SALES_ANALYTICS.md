@@ -26,11 +26,11 @@ The layout is intentionally outcome-first:
 - When **Client / preset = All**, Agent Leaderboard and Team Performance dynamically insert one column for every resolved preset visible in the selected time/project/team scope. Each dynamic preset cell is that agent/team's transfer count for the preset. Selecting one client removes the dynamic preset columns again.
 - Table widths and panel heights are tuned for fast scanning: ownership columns get useful space, numeric performance fields are compact and centered, oversized empty panel areas are reduced, and Grafana-native colored cell types reinforce the important metrics without filling the page with decoration.
 - Performance tables are tall enough to keep roughly seven compact rows visible before scrolling.
-- The old full-width **Sold in selected time range** stat card was removed because it duplicated the Sold KPI. The bottom drill-down is now **Sold & 30+ call details** with Agent, Team, Number, Client, Client status, and Disposition time. It contains every sold SALE call plus unsold SALE calls whose manual `client_30_plus` flag is true. Sold phone-number cells receive a green background; unsold 30+ phone numbers remain unfilled. The Client value comes from the resolved SALE preset/client field.
+- The old full-width **Sold in selected time range** stat card was removed because it duplicated the Sold KPI. The bottom drill-down is **Sales and 30+** with Agent, Team, Number, Client, Sale Status, Client status, and Disposition time. It contains every sold SALE call plus unsold SALE calls whose manual `client_30_plus` flag is true. `Sale Status` is `Confirmed` for sold calls and 'Only 30+` for qualifying unsold 30+ calls. The Client value comes from the resolved SALE preset/client field.
 
 Project multi-select is implemented end-to-end: Grafana emits one `project=...` query parameter per selected project and the analytics service treats the selected names as an OR filter. The custom `__all` value removes the project restriction without expanding every project into a very long URL. The backend caches each aggregate response for 60 seconds and filter metadata for five minutes, so multiple Grafana panels reuse the same Redis-backed payload rather than repeatedly scanning the calls table.
 
-The aggregate analytics payload excludes recordings and lead metadata. The internal **Sold & 30+ calls** and **Transfer calls** drill-downs intentionally include the call phone number because authorized dashboard users need to locate business-relevant entries inside the currently selected time window.
+The aggregate analytics payload excludes recordings and lead metadata. The internal **Sales and 30+** and **Transfer calls** drill-downs intentionally include the call phone number because authorized dashboard users need to locate business-relevant entries inside the currently selected time window.
 
 ## Administration
 
@@ -93,14 +93,18 @@ Grafana's CSV export contains table data, not visual presentation metadata. CSV 
 
 ## Styled Excel exports
 
-Every Grafana table panel exposes an **Export XLSX** panel link. The link preserves the current dashboard time range plus Team, Project and Client/Preset selections, then downloads a styled Excel workbook for that specific table. Grafana session authentication is re-used by the frontend reverse proxy, so no analytics bearer token is exposed to the browser.
+The backend still supports authenticated styled XLSX generation for internal use, but the dashboard does not inject custom XLSX export buttons or links. Native Grafana export behavior remains unchanged.
 
 The XLSX export mirrors the visible table semantics:
 
 - Agent Leaderboard keeps the hidden Sold field out of the workbook, preserves Team Leader ordering, reproduces 30+ / Transfer / Conversion styling, applies heatmaps to dynamic preset columns, and writes the cumulative footer as a bold final row.
 - Team, Project and Client performance exports preserve the Sold/30+/Transfer/Conversion visual treatment; dynamic preset columns are included for Team when Client/Preset is All.
-- Sold & 30+ exports never expose the internal `number_style` helper field. Sold phone-number cells are filled green; unsold 30+ number cells remain unfilled.
+- Sales and 30+ exports include the Sale Status field and do not apply special phone-number cell highlighting.
 - Transfer exports keep the same six visible columns.
 - All worksheets include Excel header styling, frozen headers, column filters, sensible widths and native percentage/date number formats.
 
 Grafana's original CSV export remains available and unchanged. CSV is intentionally data-only because the CSV format cannot represent cell fills, fonts, borders or other visual formatting.
+
+### Styled XLSX exports
+
+The authenticated `/analytics/export/sales.xlsx` backend route remains available for internal integrations, but no custom dashboard-level or panel-level XLSX links are provisioned.

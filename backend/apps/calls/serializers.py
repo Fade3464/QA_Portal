@@ -435,6 +435,12 @@ class CallEditorSerializer(CallEventSerializer):
             return attrs
 
         if attrs.get(
+            "sold",
+            instance.sold if instance else False,
+        ):
+            attrs["client_20_plus"] = True
+            attrs["client_30_plus"] = True
+        elif attrs.get(
             "client_30_plus",
             instance.client_30_plus if instance else False,
         ):

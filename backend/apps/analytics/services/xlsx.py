@@ -21,8 +21,6 @@ RED_FONT = Font(color="EF4444")
 ORANGE_FONT = Font(color="F59E0B")
 TOTAL_FILL = PatternFill("solid", fgColor="E5E7EB")
 TOTAL_FONT = Font(color="111827", bold=True)
-SOLD_FILL = PatternFill("solid", fgColor="49AB53")
-SOLD_FONT = Font(color="FFFFFF", bold=True)
 THIN_GRAY = Side(style="thin", color="D1D5DB")
 BOTTOM_BORDER = Border(bottom=THIN_GRAY)
 
@@ -36,7 +34,7 @@ TABLE_TITLES = {
     "team": "Team performance",
     "project": "Project performance",
     "client": "Client performance",
-    "sold_30plus": "Sold & 30+ calls",
+    "sold_30plus": "Sales and 30+",
     "transfers": "Transfer calls",
 }
 
@@ -266,31 +264,34 @@ def _performance_export(payload: dict, table: str):
 def _detail_export(payload: dict, table: str):
     key = "sold_details" if table == "sold_30plus" else "transfer_details"
     rows = list(payload.get(key) or [])
-    headers = ["Agent", "Team", "Number", "Client", "Client status", "Disposition time"]
+    if table == "sold_30plus":
+        headers = ["Agent", "Team", "Number", "Client", "Sale Status", "Client status", "Disposition time"]
+    else:
+        headers = ["Agent", "Team", "Number", "Client", "Client status", "Disposition time"]
     wb, ws = _base_sheet(TABLE_TITLES[table], headers)
 
     for row in rows:
-        ws.append(
+        values = [
+            row.get("agent", ""),
+            row.get("team", ""),
+            row.get("number", ""),
+            row.get("client", ""),
+        ]
+        if table == "sold_30plus":
+            values.append(row.get("sale_status", ""))
+        values.extend(
             [
-                row.get("agent", ""),
-                row.get("team", ""),
-                row.get("number", ""),
-                row.get("client", ""),
                 row.get("client_status", ""),
                 _local_datetime(row.get("disposition_time", "")),
             ]
         )
-        row_idx = ws.max_row
-        if table == "sold_30plus" and row.get("number_style") not in (None, "", "{}"):
-            number = ws.cell(row_idx, 3)
-            number.fill = SOLD_FILL
-            number.font = SOLD_FONT
-        dt_cell = ws.cell(row_idx, 6)
+        ws.append(values)
+        dt_cell = ws.cell(ws.max_row, len(headers))
         if isinstance(dt_cell.value, datetime):
             dt_cell.number_format = "yyyy-mm-dd hh:mm:ss"
 
     _set_auto_filter(ws)
-    _autosize(ws, {"Agent": 28, "Team": 24, "Number": 18, "Client": 20, "Client status": 28, "Disposition time": 22})
+    _autosize(ws, {"Agent": 28, "Team": 24, "Number": 18, "Client": 20, "Sale Status": 16, "Client status": 28, "Disposition time": 22})
     return wb
 
 

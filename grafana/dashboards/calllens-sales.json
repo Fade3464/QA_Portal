@@ -1251,13 +1251,6 @@
             "renameByName": {}
           }
         }
-      ],
-      "links": [
-        {
-          "title": "Export XLSX",
-          "url": "/analytics/export/sales.xlsx?table=agent&from=${__from}&to=${__to}&team=${team:percentencode}&preset=${preset:percentencode}&${project:customqueryparam:project}",
-          "targetBlank": true
-        }
       ]
     },
     {
@@ -1556,13 +1549,6 @@
             "renameByName": {}
           }
         }
-      ],
-      "links": [
-        {
-          "title": "Export XLSX",
-          "url": "/analytics/export/sales.xlsx?table=team&from=${__from}&to=${__to}&team=${team:percentencode}&preset=${preset:percentencode}&${project:customqueryparam:project}",
-          "targetBlank": true
-        }
       ]
     },
     {
@@ -1825,13 +1811,6 @@
             },
             "renameByName": {}
           }
-        }
-      ],
-      "links": [
-        {
-          "title": "Export XLSX",
-          "url": "/analytics/export/sales.xlsx?table=project&from=${__from}&to=${__to}&team=${team:percentencode}&preset=${preset:percentencode}&${project:customqueryparam:project}",
-          "targetBlank": true
         }
       ]
     },
@@ -2109,19 +2088,12 @@
             "renameByName": {}
           }
         }
-      ],
-      "links": [
-        {
-          "title": "Export XLSX",
-          "url": "/analytics/export/sales.xlsx?table=client&from=${__from}&to=${__to}&team=${team:percentencode}&preset=${preset:percentencode}&${project:customqueryparam:project}",
-          "targetBlank": true
-        }
       ]
     },
     {
       "id": 160,
       "type": "row",
-      "title": "Sold & 30+ call details",
+      "title": "Sales and 30+",
       "collapsed": false,
       "panels": [],
       "gridPos": {
@@ -2134,8 +2106,8 @@
     {
       "id": 162,
       "type": "table",
-      "title": "Sold & 30+ calls",
-      "description": "Sold calls plus unsold calls marked 30+ for the selected dashboard filters. Sold phone-number cells are highlighted green.",
+      "title": "Sales and 30+",
+      "description": "Confirmed sales plus unsold 30+ sale-chance calls for the selected dashboard filters.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
@@ -2186,6 +2158,11 @@
               "type": "string"
             },
             {
+              "selector": "sale_status",
+              "text": "Sale Status",
+              "type": "string"
+            },
+            {
               "selector": "client_status",
               "text": "Client status",
               "type": "string"
@@ -2193,11 +2170,6 @@
             {
               "selector": "disposition_time",
               "text": "Disposition time",
-              "type": "string"
-            },
-            {
-              "selector": "number_style",
-              "text": "number_style",
               "type": "string"
             }
           ]
@@ -2261,10 +2233,6 @@
               {
                 "id": "custom.filterable",
                 "value": true
-              },
-              {
-                "id": "custom.styleField",
-                "value": "number_style"
               }
             ]
           },
@@ -2295,24 +2263,24 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Disposition time"
+              "options": "Sale Status"
             },
             "properties": [
               {
                 "id": "custom.width",
-                "value": 285
+                "value": 150
               }
             ]
           },
           {
             "matcher": {
               "id": "byName",
-              "options": "number_style"
+              "options": "Disposition time"
             },
             "properties": [
               {
-                "id": "custom.hidden",
-                "value": true
+                "id": "custom.width",
+                "value": 285
               }
             ]
           }
@@ -2330,19 +2298,12 @@
               "Team": 1,
               "Number": 2,
               "Client": 3,
-              "Client status": 4,
-              "Disposition time": 5,
-              "number_style": 6
+              "Sale Status": 4,
+              "Client status": 5,
+              "Disposition time": 6
             },
             "renameByName": {}
           }
-        }
-      ],
-      "links": [
-        {
-          "title": "Export XLSX",
-          "url": "/analytics/export/sales.xlsx?table=sold_30plus&from=${__from}&to=${__to}&team=${team:percentencode}&preset=${preset:percentencode}&${project:customqueryparam:project}",
-          "targetBlank": true
         }
       ]
     },
@@ -2563,14 +2524,7 @@
           }
         ]
       },
-      "pluginVersion": "13.3.0",
-      "links": [
-        {
-          "title": "Export XLSX",
-          "url": "/analytics/export/sales.xlsx?table=transfers&from=${__from}&to=${__to}&team=${team:percentencode}&preset=${preset:percentencode}&${project:customqueryparam:project}",
-          "targetBlank": true
-        }
-      ]
+      "pluginVersion": "13.3.0"
     }
   ],
   "refresh": "1m",

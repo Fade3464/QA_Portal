@@ -3752,6 +3752,20 @@ class CallEditorTests(TestCase):
         self.assertEqual(self.call.preset, "D42")
         lookup_task.assert_not_called()
 
+    @patch("apps.calls.views.resolve_sale_preset.delay")
+    def test_marking_sold_enables_both_duration_flags(self, lookup_task):
+        response = self.client.patch(
+            reverse("call-editor-detail", kwargs={"pk": self.call.pk}),
+            data=json.dumps({"sold": True}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.call.refresh_from_db()
+        self.assertTrue(self.call.sold)
+        self.assertTrue(self.call.client_20_plus)
+        self.assertTrue(self.call.client_30_plus)
+        lookup_task.assert_not_called()
+
     def test_moving_away_from_sale_clears_sale_only_fields(self):
         CallEvent.objects.filter(pk=self.call.pk).update(
             client_20_plus=True, client_30_plus=True, sold=True, preset="D42", client_status="Keep me"
