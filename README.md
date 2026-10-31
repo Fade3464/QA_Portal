@@ -181,7 +181,7 @@ See [AI_V3_CONVERSATIONAL_REFACTOR.md](AI_V3_CONVERSATIONAL_REFACTOR.md) for the
 
 ## Sales analytics
 
-The optional company-wide Grafana sidecar is documented in [`GRAFANA_SALES_ANALYTICS.md`](GRAFANA_SALES_ANALYTICS.md). It is served at `/analytics/` and consumes only the aggregate CallLens analytics API.
+The optional company-wide Grafana sidecar is documented in [`GRAFANA_SALES_ANALYTICS.md`](GRAFANA_SALES_ANALYTICS.md). It is served at `/analytics/`, consumes the CallLens analytics API, and includes a private Grafana Image Renderer service for panel/table image exports.
 
 
 ### Call lifecycle integrity

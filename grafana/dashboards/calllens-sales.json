@@ -2093,7 +2093,7 @@
     {
       "id": 160,
       "type": "row",
-      "title": "Sold call details",
+      "title": "Sold & 30+ call details",
       "collapsed": false,
       "panels": [],
       "gridPos": {
@@ -2106,8 +2106,8 @@
     {
       "id": 162,
       "type": "table",
-      "title": "Sold calls",
-      "description": "Individual sold calls for the selected time range and filters.",
+      "title": "Sold & 30+ calls",
+      "description": "Sold calls plus unsold calls marked 30+ for the selected dashboard filters. Sold phone-number cells are highlighted green.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
@@ -2165,6 +2165,11 @@
             {
               "selector": "disposition_time",
               "text": "Disposition time",
+              "type": "string"
+            },
+            {
+              "selector": "number_style",
+              "text": "Number style",
               "type": "string"
             }
           ]
@@ -2228,6 +2233,10 @@
               {
                 "id": "custom.filterable",
                 "value": true
+              },
+              {
+                "id": "custom.styleField",
+                "value": "Number style"
               }
             ]
           },
@@ -2266,6 +2275,18 @@
                 "value": 285
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Number style"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
           }
         ]
       },
@@ -2282,7 +2303,8 @@
               "Number": 2,
               "Client": 3,
               "Client status": 4,
-              "Disposition time": 5
+              "Disposition time": 5,
+              "Number style": 6
             },
             "renameByName": {}
           }

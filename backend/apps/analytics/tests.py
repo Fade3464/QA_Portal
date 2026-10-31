@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 
 from django.test import TestCase, override_settings
@@ -200,6 +201,50 @@ class SalesAnalyticsTests(TestCase):
         self.assertEqual(detail["client"], "D77")
         self.assertEqual(detail["client_status"], "Confirmed")
         self.assertIn("T", detail["disposition_time"])
+        style = json.loads(detail["number_style"])
+        self.assertIn("backgroundColor", style)
+        self.assertIn("73, 171, 83", style["backgroundColor"])
+
+    def test_sold_details_also_include_unsold_thirty_plus_without_green_style(self):
+        now = timezone.now()
+        self._call(
+            "detail-thirty-plus-unsold",
+            sold=False,
+            preset="D91",
+            thirty=True,
+            when=now-timedelta(seconds=30),
+            phone_number="15550003030",
+            client_status="Follow-up",
+        )
+        data = build_sales_dashboard(
+            from_ms=str(int((now-timedelta(hours=1)).timestamp()*1000)),
+            to_ms=str(int(now.timestamp()*1000)),
+        )
+        detail = next(
+            row for row in data["sold_details"] if row["number"] == "15550003030"
+        )
+        self.assertEqual(detail["client"], "D91")
+        self.assertEqual(detail["client_status"], "Follow-up")
+        self.assertEqual(json.loads(detail["number_style"]), {})
+
+    def test_sold_details_exclude_unsold_calls_below_thirty_plus(self):
+        now = timezone.now()
+        self._call(
+            "detail-below-thirty-unsold",
+            sold=False,
+            preset="D92",
+            twenty=True,
+            thirty=False,
+            when=now-timedelta(seconds=20),
+            phone_number="15550002020",
+        )
+        data = build_sales_dashboard(
+            from_ms=str(int((now-timedelta(hours=1)).timestamp()*1000)),
+            to_ms=str(int(now.timestamp()*1000)),
+        )
+        self.assertNotIn(
+            "15550002020", {row["number"] for row in data["sold_details"]}
+        )
 
     def test_transfer_detail_rows_include_expected_fields(self):
         now = timezone.now()

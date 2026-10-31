@@ -196,6 +196,16 @@ services:
       redis: { condition: service_healthy }
     networks: [internal]
 
+  renderer:
+    image: grafana/grafana-image-renderer:5.12.5
+    restart: unless-stopped
+    environment:
+      AUTH_TOKEN: ${GRAFANA_RENDERER_TOKEN:?Set GRAFANA_RENDERER_TOKEN in .env}
+      TZ: ${TIME_ZONE:-America/New_York}
+    security_opt:
+      - no-new-privileges:true
+    networks: [internal]
+
   grafana:
     image: grafana/grafana:13.3.0
     restart: unless-stopped
@@ -210,6 +220,9 @@ services:
       GF_AUTH_BASIC_ENABLED: "true"
       GF_AUTH_BASIC_PASSWORD_POLICY: "true"
       GF_PLUGINS_PREINSTALL_SYNC: yesoreyeram-infinity-datasource@4.1.4
+      GF_RENDERING_SERVER_URL: http://renderer:8081/render
+      GF_RENDERING_CALLBACK_URL: http://grafana:3000/analytics/
+      GF_RENDERING_RENDERER_TOKEN: ${GRAFANA_RENDERER_TOKEN:?Set GRAFANA_RENDERER_TOKEN in .env}
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/calllens-sales.json
       GF_DATE_FORMATS_DEFAULT_TIMEZONE: ${TIME_ZONE:-America/New_York}
       GRAFANA_ANALYTICS_API_TOKEN: ${GRAFANA_ANALYTICS_API_TOKEN:?Set GRAFANA_ANALYTICS_API_TOKEN in .env}
@@ -230,6 +243,7 @@ services:
       start_period: 45s
     depends_on:
       backend: { condition: service_healthy }
+      renderer: { condition: service_started }
     networks: [internal]
 
   frontend:

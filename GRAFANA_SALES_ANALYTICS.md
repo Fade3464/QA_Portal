@@ -26,11 +26,11 @@ The layout is intentionally outcome-first:
 - When **Client / preset = All**, Agent Leaderboard and Team Performance dynamically insert one column for every resolved preset visible in the selected time/project/team scope. Each dynamic preset cell is that agent/team's transfer count for the preset. Selecting one client removes the dynamic preset columns again.
 - Table widths and panel heights are tuned for fast scanning: ownership columns get useful space, numeric performance fields are compact and centered, oversized empty panel areas are reduced, and Grafana-native colored cell types reinforce the important metrics without filling the page with decoration.
 - Performance tables are tall enough to keep roughly seven compact rows visible before scrolling.
-- The old full-width **Sold in selected time range** stat card was removed because it duplicated the Sold KPI. The bottom of the dashboard is now a practical **Sold call details** drill-down with Agent, Team, Number, Client, Client status, and Disposition time. The Client value comes from the resolved SALE preset/client field.
+- The old full-width **Sold in selected time range** stat card was removed because it duplicated the Sold KPI. The bottom drill-down is now **Sold & 30+ call details** with Agent, Team, Number, Client, Client status, and Disposition time. It contains every sold SALE call plus unsold SALE calls whose manual `client_30_plus` flag is true. Sold phone-number cells receive a green background; unsold 30+ phone numbers remain unfilled. The Client value comes from the resolved SALE preset/client field.
 
 Project multi-select is implemented end-to-end: Grafana emits one `project=...` query parameter per selected project and the analytics service treats the selected names as an OR filter. The custom `__all` value removes the project restriction without expanding every project into a very long URL. The backend caches each aggregate response for 60 seconds and filter metadata for five minutes, so multiple Grafana panels reuse the same Redis-backed payload rather than repeatedly scanning the calls table.
 
-The aggregate analytics payload excludes recordings and lead metadata. The internal **Sold calls** drill-down intentionally includes the call phone number because authorized dashboard users need to locate a sold entry inside the currently selected time window.
+The aggregate analytics payload excludes recordings and lead metadata. The internal **Sold & 30+ calls** and **Transfer calls** drill-downs intentionally include the call phone number because authorized dashboard users need to locate business-relevant entries inside the currently selected time window.
 
 ## Administration
 
@@ -42,25 +42,33 @@ The internal Grafana service administrator is separate from the viewer and is co
 GRAFANA_SERVICE_ADMIN_USER=calllens_grafana_admin
 GRAFANA_SERVICE_ADMIN_PASSWORD=<strong-random-secret>
 GRAFANA_ANALYTICS_API_TOKEN=<another-long-random-secret>
+GRAFANA_RENDERER_TOKEN=<separate-long-random-renderer-secret>
 GRAFANA_ROOT_URL=https://calllens.example.com/analytics/
 GRAFANA_COOKIE_SECURE=true
 ```
 
-`GRAFANA_SERVICE_ADMIN_PASSWORD` and `GRAFANA_ANALYTICS_API_TOKEN` must not be shared with users.
+`GRAFANA_SERVICE_ADMIN_PASSWORD`, `GRAFANA_ANALYTICS_API_TOKEN`, and `GRAFANA_RENDERER_TOKEN` must not be shared with users.
+
+## Image rendering / panel exports
+
+Grafana 13 no longer supports the historical in-process Image Renderer plugin. This repository therefore runs the supported `grafana/grafana-image-renderer:5.12.5` service on the private Compose network and connects Grafana to it with `GF_RENDERING_SERVER_URL`, `GF_RENDERING_CALLBACK_URL`, and a matching renderer authentication token. No renderer port is published publicly.
+
+With the renderer healthy, Grafana can render dashboard/panel views (including table panels) as images through Grafana's normal share/render workflow. The renderer uses the internal callback `http://grafana:3000/analytics/`, which matches this deployment's configured Grafana subpath.
 
 ## Deployment
 
 ```bash
 docker compose build backend worker beat frontend
-docker compose pull grafana
+docker compose pull grafana renderer
 docker compose run --rm --no-deps -e DB_DIRECT=true --entrypoint python backend manage.py migrate --noinput
 docker compose up -d --no-deps --wait backend
 docker compose up -d --no-deps worker beat
+docker compose up -d renderer
 docker compose up -d --wait grafana
 docker compose up -d --no-deps --wait frontend
 ```
 
-The first Grafana start downloads the pinned Infinity datasource plugin. After it becomes healthy, the viewer sync task converges the Administration-configured credentials.
+The first Grafana start downloads the pinned Infinity datasource plugin. The image renderer is a separate service (not a Grafana plugin in Grafana 13). After Grafana becomes healthy, the viewer sync task converges the Administration-configured credentials.
 
 ## Internal HTTP / HTTPS handling
 

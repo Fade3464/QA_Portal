@@ -333,34 +333,58 @@ def _team_table_rows(teams, sale_qs, *, include_preset_columns: bool):
     return rows
 
 
-def _call_detail_rows(qs, *, sold: bool):
-    """Return dashboard-safe SALE call details for sold or transfer rows."""
-    rows = []
-    for event in (
-        qs.filter(disposition__iexact="SALE", sold=sold)
-        .select_related("team")
-        .order_by("-analytics_at", "-received_at")[:500]
-    ):
-        team_name = (event.team.name if event.team_id else event.team_name) or "Unassigned"
-        rows.append(
-            {
-                "agent": event.agent_name or event.agent_user or "Unknown",
-                "team": team_name,
-                "number": event.phone_number or "",
-                "client": event.preset or "Unresolved",
-                "client_status": event.client_status or "",
-                "disposition_time": event.analytics_at.isoformat() if getattr(event, "analytics_at", None) else "",
-            }
+def _detail_row(event, *, highlight_sold_number: bool = False):
+    team_name = (event.team.name if event.team_id else event.team_name) or "Unassigned"
+    row = {
+        "agent": event.agent_name or event.agent_user or "Unknown",
+        "team": team_name,
+        "number": event.phone_number or "",
+        "client": event.preset or "Unresolved",
+        "client_status": event.client_status or "",
+        "disposition_time": event.analytics_at.isoformat() if getattr(event, "analytics_at", None) else "",
+    }
+    if highlight_sold_number:
+        # Grafana 13 table panels support Styling from field. Keep the phone
+        # number itself unchanged and return a separate CSS JSON field so only
+        # sold number cells receive a green fill; unsold 30+ rows remain plain.
+        row["number_style"] = (
+            json.dumps(
+                {
+                    "backgroundColor": "rgba(73, 171, 83, 0.55)",
+                    "fontWeight": "600",
+                },
+                separators=(",", ":"),
+            )
+            if event.sold
+            else "{}"
         )
-    return rows
+    return row
 
 
 def _sold_detail_rows(qs):
-    return _call_detail_rows(qs, sold=True)
+    """Return Sold calls plus unsold 30+ calls for the combined drill-down."""
+    rows = []
+    events = (
+        qs.filter(disposition__iexact="SALE")
+        .filter(Q(sold=True) | Q(client_30_plus=True))
+        .select_related("team")
+        .order_by("-analytics_at", "-received_at")[:500]
+    )
+    for event in events:
+        rows.append(_detail_row(event, highlight_sold_number=True))
+    return rows
 
 
 def _transfer_detail_rows(qs):
-    return _call_detail_rows(qs, sold=False)
+    rows = []
+    events = (
+        qs.filter(disposition__iexact="SALE", sold=False)
+        .select_related("team")
+        .order_by("-analytics_at", "-received_at")[:500]
+    )
+    for event in events:
+        rows.append(_detail_row(event))
+    return rows
 
 
 def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", preset=""):
@@ -383,7 +407,7 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
     filter_signature = hashlib.sha256(
         json.dumps(filters, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     ).hexdigest()[:20]
-    cache_key=f"sales-analytics:v13:{company.pk}:{start_key}:{end_key}:{filter_signature}"
+    cache_key=f"sales-analytics:v14:{company.pk}:{start_key}:{end_key}:{filter_signature}"
     cached=cache.get(cache_key)
     if cached is not None:
         return cached
