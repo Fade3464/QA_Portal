@@ -153,12 +153,13 @@ class SalesAnalyticsTests(TestCase):
         self.assertEqual(filtered_row["Transfers"], 0)
         self.assertEqual(filtered_row["Conversion %"], 0.0)
 
-    def test_team_and_project_kpi_is_sold_per_distinct_agent(self):
+    def test_team_and_project_kpi_counts_agents_with_any_submitted_call(self):
         now = timezone.now()
+        # Agent Two has no SALE at all. A completed DNC call must still make
+        # them part of the distinct active-agent denominator for Team/Project.
         self._call(
-            "second-agent-transfer",
-            sold=False,
-            preset="D33",
+            "second-agent-dnc",
+            disposition="DNC",
             when=now-timedelta(minutes=1),
             agent_user="8201",
             agent_name="Agent Two",

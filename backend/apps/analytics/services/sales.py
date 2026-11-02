@@ -142,7 +142,7 @@ def _decorate(rows):
     return result
 
 
-def _grouped(qs, fields, order_by="-sold_count", *, include_agent_count=False):
+def _grouped(qs, fields, order_by="-sold_count", *, agent_count_qs=None):
     annotations = {
         "opportunities": Count("id"),
         "sold_count": Count("id", filter=Q(sold=True)),
@@ -151,21 +151,37 @@ def _grouped(qs, fields, order_by="-sold_count", *, include_agent_count=False):
         "thirty_plus": Count("id", filter=Q(client_30_plus=True)),
         "missing_preset": Count("id", filter=Q(preset__isnull=True) | Q(preset="")),
     }
-    if include_agent_count:
-        # agent_user is the stable VICIdial identity. Blank identities are not
-        # counted as an agent so KPI cannot be inflated by anonymous rows.
-        annotations["agent_count"] = Count(
-            "agent_user",
-            distinct=True,
-            filter=~Q(agent_user=""),
-        )
     rows=(
         qs.filter(disposition__iexact="SALE")
         .values(*fields)
         .annotate(**annotations)
         .order_by(order_by, "-opportunities")[:250]
     )
-    return _decorate(rows)
+    decorated = _decorate(rows)
+
+    if agent_count_qs is not None:
+        # Agent count is intentionally independent of SALE. It represents the
+        # number of distinct VICIdial agents who submitted at least one real
+        # (non-provisional, non-stale) call during the selected timeframe.
+        # agent_user is the stable VICIdial identity; blank identities are not
+        # counted because they cannot be deduplicated reliably.
+        count_rows = (
+            agent_count_qs.exclude(agent_user="")
+            .values(*fields)
+            .annotate(agent_count=Count("agent_user", distinct=True))
+            .order_by()
+        )
+        counts = {
+            tuple(row.get(field) for field in fields): int(row.get("agent_count") or 0)
+            for row in count_rows
+        }
+        for item in decorated:
+            key = tuple(item.get(field) for field in fields)
+            agent_count = counts.get(key, 0)
+            item["agent_count"] = agent_count
+            item["kpi"] = _ratio(int(item.get("sold") or 0), agent_count)
+
+    return decorated
 
 
 def _agent_rows_with_activity(activity_qs, sale_qs):
@@ -421,7 +437,7 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
     filter_signature = hashlib.sha256(
         json.dumps(filters, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     ).hexdigest()[:20]
-    cache_key=f"sales-analytics:v16:{company.pk}:{start_key}:{end_key}:{filter_signature}"
+    cache_key=f"sales-analytics:v17:{company.pk}:{start_key}:{end_key}:{filter_signature}"
     cached=cache.get(cache_key)
     if cached is not None:
         return cached
@@ -432,6 +448,7 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
         _base_queryset(company,start,end,team=team,project=project,preset="")
         .exclude(disposition__in=CallEvent.PROVISIONAL_START_DISPOSITIONS)
     )
+    submitted_activity_qs = activity_qs.filter(stale=False)
     sale_qs=qs.filter(disposition__iexact="SALE")
     metrics=_sale_metrics(qs)
     opportunities=int(metrics["opportunities"] or 0)
@@ -454,7 +471,7 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
     teams=_grouped(
         sale_qs,
         ["team__name", "team__team_leader__first_name", "team__team_leader__last_name"],
-        include_agent_count=True,
+        agent_count_qs=submitted_activity_qs,
     )
     for row in teams:
         row["team"] = row.pop("team__name") or "Unassigned"
@@ -464,7 +481,7 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
     presets=_grouped(sale_qs,["preset"])
     for row in presets:
         row["preset"] = row.get("preset") or "Unresolved"
-    projects=_grouped(sale_qs,["project_name"], include_agent_count=True)
+    projects=_grouped(sale_qs,["project_name"], agent_count_qs=submitted_activity_qs)
     for row in projects:
         row["project"] = row.pop("project_name") or "Unmapped"
     agents=_agent_rows_with_activity(activity_qs, sale_qs)
