@@ -68,6 +68,14 @@ class CallEvent(models.Model):
         auto_now_add=True,
     )
 
+    # Timestamp of the most recent manual Call Editor save. This deliberately
+    # stays separate from ingestion/finalization timestamps so analytics can
+    # distinguish an operator correction from normal VICIdial lifecycle work.
+    edited_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
     # First receipt and final disposition receipt are intentionally separate.
     # received_at is immutable and represents the first callback seen for the
     # lifecycle (normally Start Call). finalized_at is set once, when the first

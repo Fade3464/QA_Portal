@@ -5,6 +5,7 @@ import {
   SearchOutlined,
 } from '@ant-design/icons';
 import {
+  Alert,
   App as AntApp,
   Button,
   Card,
@@ -15,6 +16,7 @@ import {
   Empty,
   Form,
   Input,
+  Modal,
   Row,
   Space,
   Switch,
@@ -54,6 +56,7 @@ export function CallEditorPage() {
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<CallEvent | null>(null);
   const [saving, setSaving] = useState(false);
+  const [pendingEdit, setPendingEdit] = useState<EditorFormValues | null>(null);
   const [form] = Form.useForm<EditorFormValues>();
   const selectedDisposition = Form.useWatch('disposition', form)?.trim().toUpperCase();
   const isSale = selectedDisposition === 'SALE';
@@ -118,6 +121,7 @@ export function CallEditorPage() {
   }, [openCall, searchParams]);
 
   const closeEditor = () => {
+    setPendingEdit(null);
     setSelected(null);
     form.resetFields();
     if (searchParams.has('call')) {
@@ -145,12 +149,17 @@ export function CallEditorPage() {
         preset: updated.preset,
       });
       setRows((current) => current.map((row) => row.id === updated.id ? updated : row));
+      setPendingEdit(null);
       message.success('Call record updated.');
     } catch (error) {
       message.error(error instanceof ApiError ? error.message : 'The call could not be updated.');
     } finally {
       setSaving(false);
     }
+  };
+
+  const requestSave = (values: EditorFormValues) => {
+    setPendingEdit(values);
   };
 
   const columns = useMemo<TableProps<CallEvent>['columns']>(() => [
@@ -160,7 +169,7 @@ export function CallEditorPage() {
     { title: 'Disposition', dataIndex: 'disposition', key: 'disposition', width: 110, render: (value) => <Tag color={value === 'SALE' ? 'success' : value === 'STALE' ? 'warning' : 'default'}>{value || '—'}</Tag> },
     { title: 'Preset', dataIndex: 'preset', key: 'preset', width: 120, render: (value) => value || <Text type="secondary">—</Text> },
     { title: 'Client time', key: 'client_time', width: 110, render: (_, row) => row.client_30_plus ? <Tag color="purple">30+</Tag> : row.client_20_plus ? <Tag color="blue">20+</Tag> : <Text type="secondary">—</Text> },
-    { title: 'Sold', dataIndex: 'sold', key: 'sold', width: 80, render: (value) => value ? <CheckCircleOutlined style={{ fontSize: 18 }} /> : <Text type="secondary">No</Text> },
+    { title: 'Sold', dataIndex: 'sold', key: 'sold', width: 80, render: (value) => value ? <CheckCircleOutlined style={{ fontSize: 18, color: '#52c41a' }} /> : <Text type="secondary">No</Text> },
     { title: '', key: 'edit', width: 70, render: (_, row) => <Button type="text" icon={<EditOutlined />} onClick={() => void openCall(row)}>Edit</Button> },
   ], [openCall]);
 
@@ -203,7 +212,7 @@ export function CallEditorPage() {
           <Descriptions.Item label="Stale">{selected.stale ? 'Yes — QA remains unavailable' : 'No'}</Descriptions.Item>
         </Descriptions>
 
-        <Form form={form} layout="vertical" onFinish={save} requiredMark="optional">
+        <Form form={form} layout="vertical" onFinish={requestSave} requiredMark="optional">
           <Form.Item name="disposition" label="Disposition" rules={[{ required: true, message: 'Disposition is required.' }]}><Input onChange={(event) => { const next = event.target.value.toUpperCase(); form.setFieldValue('disposition', next); if (next !== 'SALE') form.setFieldsValue({ client_20_plus: false, client_30_plus: false, sold: false, preset: null }); }} /></Form.Item>
           <Row gutter={14}>
             <Col span={12}><Form.Item name="client_20_plus" label="Client side 20+ minutes" valuePropName="checked"><Switch disabled={!isSale} /></Form.Item></Col>
@@ -215,5 +224,40 @@ export function CallEditorPage() {
         </Form>
       </>}
     </Drawer>
+
+    <Modal
+      open={Boolean(pendingEdit && selected)}
+      title="Confirm call changes"
+      okText="Confirm & save"
+      cancelText="Go back"
+      confirmLoading={saving}
+      closable={!saving}
+      maskClosable={!saving}
+      keyboard={!saving}
+      onCancel={() => { if (!saving) setPendingEdit(null); }}
+      onOk={() => { if (pendingEdit) void save(pendingEdit); }}
+      destroyOnHidden
+      width={640}
+    >
+      {pendingEdit && selected && <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <Alert
+          type="info"
+          showIcon
+          message="Review the information before saving"
+          description="These values will update the call record and will be reflected in reporting. Nothing is saved until you click Confirm & save."
+        />
+
+        <Descriptions bordered size="small" column={2}>
+          <Descriptions.Item label="Phone">{selected.phone_number || '—'}</Descriptions.Item>
+          <Descriptions.Item label="Lead ID">{selected.lead_id || '—'}</Descriptions.Item>
+          <Descriptions.Item label="Disposition"><Tag color={pendingEdit.disposition?.trim().toUpperCase() === 'SALE' ? 'success' : 'default'}>{pendingEdit.disposition || '—'}</Tag></Descriptions.Item>
+          <Descriptions.Item label="Sold">{pendingEdit.sold ? <Tag color="success">Yes</Tag> : <Tag>No</Tag>}</Descriptions.Item>
+          <Descriptions.Item label="Client 20+">{pendingEdit.client_20_plus ? <Tag color="blue">Yes</Tag> : <Tag>No</Tag>}</Descriptions.Item>
+          <Descriptions.Item label="Client 30+">{pendingEdit.client_30_plus ? <Tag color="purple">Yes</Tag> : <Tag>No</Tag>}</Descriptions.Item>
+          <Descriptions.Item label="Preset">{pendingEdit.preset || '—'}</Descriptions.Item>
+          <Descriptions.Item label="Client status">{pendingEdit.client_status || '—'}</Descriptions.Item>
+        </Descriptions>
+      </Space>}
+    </Modal>
   </div>;
 }

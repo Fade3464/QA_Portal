@@ -78,6 +78,10 @@ class SalesAnalyticsTests(TestCase):
         self.assertEqual(data["agent_table"][0]["Conversion %"], 75.0)
         self.assertEqual(data["team_table"][0]["D33"], 1)
         self.assertEqual(data["team_table"][0]["D42"], 0)
+        self.assertEqual(data["teams"][0]["agent_count"], 1)
+        self.assertEqual(data["teams"][0]["kpi"], 1.0)
+        self.assertEqual(data["projects"][0]["agent_count"], 1)
+        self.assertEqual(data["projects"][0]["kpi"], 1.0)
         self.assertEqual(
             list(data["agent_table"][0]),
             [
@@ -96,7 +100,9 @@ class SalesAnalyticsTests(TestCase):
             [
                 "Team",
                 "Team leader",
+                "Agent count",
                 "Sold",
+                "KPI",
                 "30+",
                 "Transfers",
                 "Conversion %",
@@ -147,6 +153,31 @@ class SalesAnalyticsTests(TestCase):
         self.assertEqual(filtered_row["Transfers"], 0)
         self.assertEqual(filtered_row["Conversion %"], 0.0)
 
+    def test_team_and_project_kpi_is_sold_per_distinct_agent(self):
+        now = timezone.now()
+        self._call(
+            "second-agent-transfer",
+            sold=False,
+            preset="D33",
+            when=now-timedelta(minutes=1),
+            agent_user="8201",
+            agent_name="Agent Two",
+        )
+
+        data = build_sales_dashboard(
+            from_ms=str(int((now-timedelta(hours=1)).timestamp()*1000)),
+            to_ms=str(int(now.timestamp()*1000)),
+        )
+
+        team = next(row for row in data["teams"] if row["team"] == "Alpha")
+        project = next(row for row in data["projects"] if row["project"] == "Medicare")
+        self.assertEqual(team["agent_count"], 2)
+        self.assertEqual(team["sold"], 1)
+        self.assertEqual(team["kpi"], 0.5)
+        self.assertEqual(project["agent_count"], 2)
+        self.assertEqual(project["sold"], 1)
+        self.assertEqual(project["kpi"], 0.5)
+
     def test_live_new_agent_is_excluded_from_leaderboard_activity(self):
         now = timezone.now()
         self._call(
@@ -178,12 +209,13 @@ class SalesAnalyticsTests(TestCase):
         )
         self.assertEqual(
             list(data["team_table"][0]),
-            ["Team", "Team leader", "Sold", "30+", "Transfers", "Conversion %"],
+            ["Team", "Team leader", "Agent count", "Sold", "KPI", "30+", "Transfers", "Conversion %"],
         )
 
     def test_sold_detail_rows_include_expected_fields(self):
         now = timezone.now()
-        self._call(
+        edited_at = now - timedelta(seconds=15)
+        event = self._call(
             "detail-sold",
             sold=True,
             preset="D77",
@@ -192,6 +224,7 @@ class SalesAnalyticsTests(TestCase):
             phone_number="15551234567",
             client_status="Confirmed",
         )
+        CallEvent.objects.filter(pk=event.pk).update(edited_at=edited_at)
         data = build_sales_dashboard(
             from_ms=str(int((now-timedelta(hours=1)).timestamp()*1000)),
             to_ms=str(int(now.timestamp()*1000)),
@@ -204,6 +237,7 @@ class SalesAnalyticsTests(TestCase):
         self.assertEqual(detail["sale_status"], "Confirmed")
         self.assertEqual(detail["client_status"], "Confirmed")
         self.assertIn("T", detail["disposition_time"])
+        self.assertEqual(detail["edited_at"], edited_at.isoformat())
         self.assertNotIn("number_style", detail)
 
     def test_sold_details_also_include_unsold_thirty_plus_as_sale_chance(self):
@@ -328,7 +362,7 @@ class SalesAnalyticsTests(TestCase):
         headers = [cell.value for cell in ws[1]]
         self.assertEqual(
             headers,
-            ["Agent", "Team", "Number", "Client", "Sale Status", "Client status", "Disposition time"],
+            ["Agent", "Team", "Number", "Client", "Sale Status", "Client status", "Disposition time", "Edited at"],
         )
         rows = {ws.cell(row=i, column=3).value: i for i in range(2, ws.max_row + 1)}
         sold_row = rows["15551234567"]

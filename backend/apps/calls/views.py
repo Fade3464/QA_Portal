@@ -1598,7 +1598,7 @@ class CallEditorDetailView(APIView):
             context={"request": request},
         )
         serializer.is_valid(raise_exception=True)
-        call = serializer.save()
+        call = serializer.save(edited_at=timezone.now())
 
         if call.disposition.upper() != "SALE":
             transaction.on_commit(lambda: resolve_missing_preset_notification(call))

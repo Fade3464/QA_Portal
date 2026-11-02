@@ -198,7 +198,7 @@ def _performance_export(payload: dict, table: str):
     if table == "team":
         rows = list(payload.get("team_table") or [])
         rows.sort(key=lambda row: (-int(row.get("Sold") or 0), str(row.get("Team") or "").casefold()))
-        fixed = ["Team", "Team leader", "Sold", "30+", "Transfers", "Conversion %"]
+        fixed = ["Team", "Team leader", "Agent count", "Sold", "KPI", "30+", "Transfers", "Conversion %"]
         dynamic = [key for key in (rows[0].keys() if rows else []) if key not in fixed]
         headers = [*fixed, *dynamic]
     elif table == "project":
@@ -206,7 +206,9 @@ def _performance_export(payload: dict, table: str):
         rows = [
             {
                 "Project": row.get("project", ""),
+                "Agent count": int(row.get("agent_count") or 0),
                 "Sold": int(row.get("sold") or 0),
+                "KPI": float(row.get("kpi") or 0),
                 "30+": int(row.get("thirty_plus") or 0),
                 "Transfers": int(row.get("transfers") or 0),
                 "Conversion %": float(row.get("conversion_pct") or 0),
@@ -214,7 +216,7 @@ def _performance_export(payload: dict, table: str):
             for row in source
         ]
         rows.sort(key=lambda row: (-row["Sold"], str(row["Project"]).casefold()))
-        headers = ["Project", "Sold", "30+", "Transfers", "Conversion %"]
+        headers = ["Project", "Agent count", "Sold", "KPI", "30+", "Transfers", "Conversion %"]
         dynamic = []
     else:
         source = payload.get("presets") or []
@@ -239,6 +241,8 @@ def _performance_export(payload: dict, table: str):
     thirty_col = headers.index("30+") + 1
     transfer_col = headers.index("Transfers") + 1
     conv_col = headers.index("Conversion %") + 1
+    agent_count_col = headers.index("Agent count") + 1 if "Agent count" in headers else None
+    kpi_col = headers.index("KPI") + 1 if "KPI" in headers else None
     for row_idx, row in enumerate(rows, start=2):
         ws.cell(row_idx, sold_col).font = GREEN_FONT
         ws.cell(row_idx, sold_col).alignment = Alignment(horizontal="center")
@@ -250,6 +254,13 @@ def _performance_export(payload: dict, table: str):
         conv.number_format = "0.00%"
         conv.font = _conversion_font(raw_pct)
         conv.alignment = Alignment(horizontal="center")
+        if agent_count_col:
+            ws.cell(row_idx, agent_count_col).alignment = Alignment(horizontal="center")
+        if kpi_col:
+            kpi = ws.cell(row_idx, kpi_col)
+            kpi.value = float(kpi.value or 0)
+            kpi.number_format = "0.00"
+            kpi.alignment = Alignment(horizontal="center")
 
     _style_heatmap_column(ws, transfer_col, [float(row.get("Transfers") or 0) for row in rows])
     for name in dynamic:
@@ -257,7 +268,7 @@ def _performance_export(payload: dict, table: str):
         _style_heatmap_column(ws, col, [float(row.get(name) or 0) for row in rows])
 
     _set_auto_filter(ws)
-    _autosize(ws, {headers[0]: 28, "Team leader": 26, "Sold": 10, "30+": 10, "Transfers": 12, "Conversion %": 15, **{name: 12 for name in dynamic}})
+    _autosize(ws, {headers[0]: 28, "Team leader": 26, "Agent count": 13, "Sold": 10, "KPI": 10, "30+": 10, "Transfers": 12, "Conversion %": 15, **{name: 12 for name in dynamic}})
     return wb
 
 
@@ -265,7 +276,7 @@ def _detail_export(payload: dict, table: str):
     key = "sold_details" if table == "sold_30plus" else "transfer_details"
     rows = list(payload.get(key) or [])
     if table == "sold_30plus":
-        headers = ["Agent", "Team", "Number", "Client", "Sale Status", "Client status", "Disposition time"]
+        headers = ["Agent", "Team", "Number", "Client", "Sale Status", "Client status", "Disposition time", "Edited at"]
     else:
         headers = ["Agent", "Team", "Number", "Client", "Client status", "Disposition time"]
     wb, ws = _base_sheet(TABLE_TITLES[table], headers)
@@ -285,13 +296,17 @@ def _detail_export(payload: dict, table: str):
                 _local_datetime(row.get("disposition_time", "")),
             ]
         )
+        if table == "sold_30plus":
+            values.append(_local_datetime(row.get("edited_at", "")))
         ws.append(values)
-        dt_cell = ws.cell(ws.max_row, len(headers))
-        if isinstance(dt_cell.value, datetime):
-            dt_cell.number_format = "yyyy-mm-dd hh:mm:ss"
+        time_headers = ["Disposition time"] + (["Edited at"] if table == "sold_30plus" else [])
+        for header in time_headers:
+            dt_cell = ws.cell(ws.max_row, headers.index(header) + 1)
+            if isinstance(dt_cell.value, datetime):
+                dt_cell.number_format = "yyyy-mm-dd hh:mm:ss"
 
     _set_auto_filter(ws)
-    _autosize(ws, {"Agent": 28, "Team": 24, "Number": 18, "Client": 20, "Sale Status": 16, "Client status": 28, "Disposition time": 22})
+    _autosize(ws, {"Agent": 28, "Team": 24, "Number": 18, "Client": 20, "Sale Status": 16, "Client status": 28, "Disposition time": 22, "Edited at": 22})
     return wb
 
 

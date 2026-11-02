@@ -268,6 +268,7 @@ class CallEventSerializer(serializers.ModelSerializer):
             "id",
             "received_at",
             "first_received_at",
+            "edited_at",
             "finalized_at",
             "call_date",
             "call_id",

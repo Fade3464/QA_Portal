@@ -1333,6 +1333,26 @@
           {
             "matcher": {
               "id": "byName",
+              "options": "Agent count"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 105
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
               "options": "Sold"
             },
             "properties": [
@@ -1356,6 +1376,26 @@
                 "value": {
                   "type": "color-text"
                 }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "KPI"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
+                "id": "decimals",
+                "value": 2
               }
             ]
           },
@@ -1481,7 +1521,7 @@
           {
             "matcher": {
               "id": "byRegexp",
-              "options": "^(?!Team$|Team leader$|Sold$|30\\+$|Transfers$|Conversion %$).+"
+              "options": "^(?!Team$|Team leader$|Agent count$|Sold$|KPI$|30\\+$|Transfers$|Conversion %$).+"
             },
             "properties": [
               {
@@ -1541,10 +1581,12 @@
             "indexByName": {
               "Team": 0,
               "Team leader": 1,
-              "Sold": 2,
-              "30+": 3,
-              "Transfers": 4,
-              "Conversion %": 5
+              "Agent count": 2,
+              "Sold": 3,
+              "KPI": 4,
+              "30+": 5,
+              "Transfers": 6,
+              "Conversion %": 7
             },
             "renameByName": {}
           }
@@ -1591,8 +1633,18 @@
               "type": "string"
             },
             {
+              "selector": "agent_count",
+              "text": "Agent count",
+              "type": "number"
+            },
+            {
               "selector": "sold",
               "text": "Sold",
+              "type": "number"
+            },
+            {
+              "selector": "kpi",
+              "text": "KPI",
               "type": "number"
             },
             {
@@ -1631,6 +1683,26 @@
           {
             "matcher": {
               "id": "byName",
+              "options": "Agent count"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 110
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
               "options": "Sold"
             },
             "properties": [
@@ -1654,6 +1726,26 @@
                 "value": {
                   "type": "color-text"
                 }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "KPI"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
+                "id": "decimals",
+                "value": 2
               }
             ]
           },
@@ -1804,10 +1896,12 @@
             "includeByName": {},
             "indexByName": {
               "Project": 0,
-              "Sold": 1,
-              "30+": 2,
-              "Transfers": 3,
-              "Conversion %": 4
+              "Agent count": 1,
+              "Sold": 2,
+              "KPI": 3,
+              "30+": 4,
+              "Transfers": 5,
+              "Conversion %": 6
             },
             "renameByName": {}
           }
@@ -2171,6 +2265,11 @@
               "selector": "disposition_time",
               "text": "Disposition time",
               "type": "string"
+            },
+            {
+              "selector": "edited_at",
+              "text": "Edited at",
+              "type": "string"
             }
           ]
         }
@@ -2287,6 +2386,18 @@
                 "value": 285
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Edited at"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 250
+              }
+            ]
           }
         ]
       },
@@ -2304,7 +2415,8 @@
               "Client": 3,
               "Sale Status": 4,
               "Client status": 5,
-              "Disposition time": 6
+              "Disposition time": 6,
+              "Edited at": 7
             },
             "renameByName": {}
           }

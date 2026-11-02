@@ -20,6 +20,16 @@ def _pct(numerator: int, denominator: int) -> float:
     return float((Decimal(numerator) * Decimal(100) / Decimal(denominator)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
+def _ratio(numerator: int, denominator: int) -> float:
+    if not denominator:
+        return 0.0
+    return float(
+        (Decimal(numerator) / Decimal(denominator)).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+    )
+
+
 def active_analytics_company() -> Company | None:
     return Company.objects.filter(analytics_enabled=True, is_active=True).first()
 
@@ -125,22 +135,34 @@ def _decorate(rows):
         item["conversion_pct"]=_pct(sold, opportunities)
         item["twenty_plus_pct"]=_pct(int(item.get("twenty_plus") or 0), opportunities)
         item["thirty_plus_pct"]=_pct(int(item.get("thirty_plus") or 0), opportunities)
+        if "agent_count" in item:
+            item["agent_count"] = int(item.get("agent_count") or 0)
+            item["kpi"] = _ratio(sold, item["agent_count"])
         result.append(item)
     return result
 
 
-def _grouped(qs, fields, order_by="-sold_count"):
+def _grouped(qs, fields, order_by="-sold_count", *, include_agent_count=False):
+    annotations = {
+        "opportunities": Count("id"),
+        "sold_count": Count("id", filter=Q(sold=True)),
+        "transfers": Count("id", filter=Q(sold=False)),
+        "twenty_plus": Count("id", filter=Q(client_20_plus=True)),
+        "thirty_plus": Count("id", filter=Q(client_30_plus=True)),
+        "missing_preset": Count("id", filter=Q(preset__isnull=True) | Q(preset="")),
+    }
+    if include_agent_count:
+        # agent_user is the stable VICIdial identity. Blank identities are not
+        # counted as an agent so KPI cannot be inflated by anonymous rows.
+        annotations["agent_count"] = Count(
+            "agent_user",
+            distinct=True,
+            filter=~Q(agent_user=""),
+        )
     rows=(
         qs.filter(disposition__iexact="SALE")
         .values(*fields)
-        .annotate(
-            opportunities=Count("id"),
-            sold_count=Count("id", filter=Q(sold=True)),
-            transfers=Count("id", filter=Q(sold=False)),
-            twenty_plus=Count("id", filter=Q(client_20_plus=True)),
-            thirty_plus=Count("id", filter=Q(client_30_plus=True)),
-            missing_preset=Count("id", filter=Q(preset__isnull=True) | Q(preset="")),
-        )
+        .annotate(**annotations)
         .order_by(order_by, "-opportunities")[:250]
     )
     return _decorate(rows)
@@ -321,7 +343,9 @@ def _team_table_rows(teams, sale_qs, *, include_preset_columns: bool):
         item = {
             "Team": row["team"],
             "Team leader": row["team_leader"],
+            "Agent count": int(row.get("agent_count") or 0),
             "Sold": int(row.get("sold") or 0),
+            "KPI": float(row.get("kpi") or 0),
             "30+": int(row.get("thirty_plus") or 0),
             "Transfers": int(row.get("transfers") or 0),
             "Conversion %": float(row.get("conversion_pct") or 0),
@@ -347,6 +371,7 @@ def _detail_row(event, *, include_sale_status: bool = False):
         # Sold takes precedence over the 30+ opportunity state. Rows in this
         # table are either confirmed sales or unsold 30+ sale chances.
         row["sale_status"] = "Confirmed" if event.sold else "Only 30+"
+        row["edited_at"] = event.edited_at.isoformat() if event.edited_at else ""
     return row
 
 
@@ -396,7 +421,7 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
     filter_signature = hashlib.sha256(
         json.dumps(filters, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     ).hexdigest()[:20]
-    cache_key=f"sales-analytics:v15:{company.pk}:{start_key}:{end_key}:{filter_signature}"
+    cache_key=f"sales-analytics:v16:{company.pk}:{start_key}:{end_key}:{filter_signature}"
     cached=cache.get(cache_key)
     if cached is not None:
         return cached
@@ -426,7 +451,11 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
         "stale_calls": qs.filter(stale=True).count(),
     })
     summary=[metrics]
-    teams=_grouped(sale_qs, ["team__name", "team__team_leader__first_name", "team__team_leader__last_name"])
+    teams=_grouped(
+        sale_qs,
+        ["team__name", "team__team_leader__first_name", "team__team_leader__last_name"],
+        include_agent_count=True,
+    )
     for row in teams:
         row["team"] = row.pop("team__name") or "Unassigned"
         first=row.pop("team__team_leader__first_name") or ""
@@ -435,7 +464,7 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
     presets=_grouped(sale_qs,["preset"])
     for row in presets:
         row["preset"] = row.get("preset") or "Unresolved"
-    projects=_grouped(sale_qs,["project_name"])
+    projects=_grouped(sale_qs,["project_name"], include_agent_count=True)
     for row in projects:
         row["project"] = row.pop("project_name") or "Unmapped"
     agents=_agent_rows_with_activity(activity_qs, sale_qs)

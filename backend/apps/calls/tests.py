@@ -3754,6 +3754,7 @@ class CallEditorTests(TestCase):
 
     @patch("apps.calls.views.resolve_sale_preset.delay")
     def test_marking_sold_enables_both_duration_flags(self, lookup_task):
+        self.assertIsNone(self.call.edited_at)
         response = self.client.patch(
             reverse("call-editor-detail", kwargs={"pk": self.call.pk}),
             data=json.dumps({"sold": True}),
@@ -3764,6 +3765,8 @@ class CallEditorTests(TestCase):
         self.assertTrue(self.call.sold)
         self.assertTrue(self.call.client_20_plus)
         self.assertTrue(self.call.client_30_plus)
+        self.assertIsNotNone(self.call.edited_at)
+        self.assertIsNotNone(response.json()["edited_at"])
         lookup_task.assert_not_called()
 
     def test_moving_away_from_sale_clears_sale_only_fields(self):
