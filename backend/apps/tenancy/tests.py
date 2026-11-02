@@ -1,3 +1,4 @@
+from unittest.mock import patch
 from django.test import TestCase
 from django.urls import reverse
 
@@ -160,6 +161,39 @@ class AdministrationApiTests(TestCase):
             "Customer Retention",
         )
         self.assertEqual(len(dialer_response.json()["campaigns"]), 2)
+
+    @patch("apps.analytics.tasks.sync_grafana_viewer.delay")
+    def test_grafana_viewer_password_is_managed_from_administration(self, sync_viewer):
+        self.client.force_login(self.admin)
+        first_password = "ViewerPass123!"
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                reverse("administration-company-detail", kwargs={"pk": self.company.pk}),
+                {
+                    "analytics_enabled": True,
+                    "grafana_viewer_username": "sales-viewer",
+                    "grafana_viewer_password": first_password,
+                },
+                content_type="application/json",
+            )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.company.refresh_from_db()
+        self.assertEqual(self.company.get_grafana_viewer_password(), first_password)
+        self.assertNotIn("grafana_viewer_password", response.json())
+        sync_viewer.assert_called_once_with(str(self.company.pk))
+
+        sync_viewer.reset_mock()
+        rotated_password = "RotatedPass456!"
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                reverse("administration-company-detail", kwargs={"pk": self.company.pk}),
+                {"grafana_viewer_password": rotated_password},
+                content_type="application/json",
+            )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.company.refresh_from_db()
+        self.assertEqual(self.company.get_grafana_viewer_password(), rotated_password)
+        sync_viewer.assert_called_once_with(str(self.company.pk))
 
     def test_branch_timezone_is_restricted_to_new_york(self):
         self.client.force_login(self.admin)

@@ -49,7 +49,7 @@ class SalesAnalyticsTests(TestCase):
             call_id=key, lead_id=key, agent_user=agent_user, agent_name=agent_name,
             team=self.team, team_name=self.team.name, campaign="002",
             disposition=disposition, sold=sold, preset=preset,
-            client_20_plus=twenty, client_30_plus=thirty,
+            client_20_plus=(twenty or thirty), client_30_plus=thirty,
             call_date=when or timezone.now(), phone_number=phone_number,
             client_status=client_status,
         )

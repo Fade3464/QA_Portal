@@ -1,0 +1,7 @@
+/* CallLens owns the shared Grafana viewer credential. Keep Grafana
+   self-service password rotation out of the viewer UI. */
+a[href$="/profile/password"],
+a[href*="/profile/password?"],
+a[href*="/user/password/send-reset-email"] {
+  display: none !important;
+}

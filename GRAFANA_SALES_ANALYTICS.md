@@ -108,3 +108,9 @@ Grafana's original CSV export remains available and unchanged. CSV is intentiona
 ### Styled XLSX exports
 
 The authenticated `/analytics/export/sales.xlsx` backend route remains available for internal integrations, but no custom dashboard-level or panel-level XLSX links are provisioned.
+
+## Grafana viewer password ownership
+
+The shared Grafana viewer username/password is managed from CallLens **Administration -> Companies -> Sales analytics / Grafana**. Updating the password there stores the credential encrypted and queues the existing Grafana synchronization task, which updates the Grafana viewer through the internal Grafana Admin API.
+
+End-user password rotation inside Grafana is intentionally disabled. The public reverse proxy hides the **Change password** menu action, redirects direct password/reset pages (including `/.well-known/change-password`), and rejects the public password change/reset APIs. The internal service-to-service Grafana Admin API remains available to the backend so Administration can rotate the viewer password.
