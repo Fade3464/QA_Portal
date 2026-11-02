@@ -115,7 +115,7 @@ def _sale_metrics(qs):
     return qs.filter(disposition__iexact="SALE").aggregate(
         opportunities=Count("id"),
         sold_count=Count("id", filter=Q(sold=True)),
-        transfers=Count("id", filter=Q(sold=False)),
+        transfers=Count("id"),
         twenty_plus=Count("id", filter=Q(client_20_plus=True)),
         thirty_plus=Count("id", filter=Q(client_30_plus=True)),
         missing_preset=Count("id", filter=Q(preset__isnull=True) | Q(preset="")),
@@ -146,7 +146,7 @@ def _grouped(qs, fields, order_by="-sold_count", *, agent_count_qs=None):
     annotations = {
         "opportunities": Count("id"),
         "sold_count": Count("id", filter=Q(sold=True)),
-        "transfers": Count("id", filter=Q(sold=False)),
+        "transfers": Count("id"),
         "twenty_plus": Count("id", filter=Q(client_20_plus=True)),
         "thirty_plus": Count("id", filter=Q(client_30_plus=True)),
         "missing_preset": Count("id", filter=Q(preset__isnull=True) | Q(preset="")),
@@ -161,7 +161,7 @@ def _grouped(qs, fields, order_by="-sold_count", *, agent_count_qs=None):
 
     if agent_count_qs is not None:
         # Agent count is intentionally independent of SALE. It represents the
-        # number of distinct VICIdial agents who submitted at least one real
+        # number of distinct VICIdial agents who disposed at least one real
         # (non-provisional, non-stale) call during the selected timeframe.
         # agent_user is the stable VICIdial identity; blank identities are not
         # counted because they cannot be deduplicated reliably.
@@ -265,7 +265,7 @@ def _agent_preset_transfer_counts(
     sale_qs,
 ) -> dict[tuple[str, str, str], dict[str, int]]:
     rows = (
-        sale_qs.filter(sold=False)
+        sale_qs
         .exclude(preset__isnull=True)
         .exclude(preset="")
         .values(
@@ -296,7 +296,7 @@ def _agent_preset_transfer_counts(
 
 def _team_preset_transfer_counts(sale_qs) -> dict[str, dict[str, int]]:
     rows = (
-        sale_qs.filter(sold=False)
+        sale_qs
         .exclude(preset__isnull=True)
         .exclude(preset="")
         .values("team__name", "team_name", "preset")
@@ -329,7 +329,7 @@ def _agent_table_rows(agents, sale_qs, *, include_preset_columns: bool):
             "30+": int(row.get("thirty_plus") or 0),
             "Transfers": int(row.get("transfers") or 0),
             "Conversion %": _pct(
-                int(row.get("transfers") or 0) + int(row.get("sold") or 0),
+                int(row.get("transfers") or 0),
                 int(row.get("total_call_records") or 0),
             ),
         }
@@ -406,9 +406,19 @@ def _sold_detail_rows(qs):
 
 
 def _transfer_detail_rows(qs):
+    """Return SALE dispositions that are neither Sold nor 30+.
+
+    The response key remains ``transfer_details`` for API compatibility, but
+    the dashboard presents these rows as "Other SALE calls" because Transfers
+    now means every SALE disposition, including Sold and 30+ rows.
+    """
     rows = []
     events = (
-        qs.filter(disposition__iexact="SALE", sold=False)
+        qs.filter(
+            disposition__iexact="SALE",
+            sold=False,
+            client_30_plus=False,
+        )
         .select_related("team")
         .order_by("-analytics_at", "-received_at")[:500]
     )
@@ -437,7 +447,7 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
     filter_signature = hashlib.sha256(
         json.dumps(filters, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     ).hexdigest()[:20]
-    cache_key=f"sales-analytics:v17:{company.pk}:{start_key}:{end_key}:{filter_signature}"
+    cache_key=f"sales-analytics:v18:{company.pk}:{start_key}:{end_key}:{filter_signature}"
     cached=cache.get(cache_key)
     if cached is not None:
         return cached
@@ -448,7 +458,11 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
         _base_queryset(company,start,end,team=team,project=project,preset="")
         .exclude(disposition__in=CallEvent.PROVISIONAL_START_DISPOSITIONS)
     )
-    submitted_activity_qs = activity_qs.filter(stale=False)
+    disposed_activity_qs = (
+        activity_qs.filter(stale=False)
+        .exclude(disposition__isnull=True)
+        .exclude(disposition="")
+    )
     sale_qs=qs.filter(disposition__iexact="SALE")
     metrics=_sale_metrics(qs)
     opportunities=int(metrics["opportunities"] or 0)
@@ -471,7 +485,7 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
     teams=_grouped(
         sale_qs,
         ["team__name", "team__team_leader__first_name", "team__team_leader__last_name"],
-        agent_count_qs=submitted_activity_qs,
+        agent_count_qs=disposed_activity_qs,
     )
     for row in teams:
         row["team"] = row.pop("team__name") or "Unassigned"
@@ -481,7 +495,7 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
     presets=_grouped(sale_qs,["preset"])
     for row in presets:
         row["preset"] = row.get("preset") or "Unresolved"
-    projects=_grouped(sale_qs,["project_name"], agent_count_qs=submitted_activity_qs)
+    projects=_grouped(sale_qs,["project_name"], agent_count_qs=disposed_activity_qs)
     for row in projects:
         row["project"] = row.pop("project_name") or "Unmapped"
     agents=_agent_rows_with_activity(activity_qs, sale_qs)
@@ -499,7 +513,7 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
         .annotate(
             opportunities=Count("id"),
             sold_count=Count("id", filter=Q(sold=True)),
-            transfers=Count("id", filter=Q(sold=False)),
+            transfers=Count("id"),
             twenty_plus=Count("id", filter=Q(client_20_plus=True)),
             thirty_plus=Count("id", filter=Q(client_30_plus=True)),
         )

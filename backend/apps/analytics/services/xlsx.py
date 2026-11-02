@@ -35,7 +35,7 @@ TABLE_TITLES = {
     "project": "Project performance",
     "client": "Client performance",
     "sold_30plus": "Sales and 30+",
-    "transfers": "Transfer calls",
+    "transfers": "Other SALE calls",
 }
 
 

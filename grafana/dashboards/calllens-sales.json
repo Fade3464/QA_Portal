@@ -186,7 +186,7 @@
       "id": 103,
       "type": "stat",
       "title": "Transfers",
-      "description": "Call transfers that are not sold.",
+      "description": "All VICIdial SALE dispositions in the selected range, including confirmed Sold calls.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
@@ -266,7 +266,7 @@
       "id": 102,
       "type": "stat",
       "title": "Conversion",
-      "description": "Sold conversion to the total transferred calls",
+      "description": "Sold / Transfers, where Transfers equals all VICIdial SALE dispositions.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
@@ -679,8 +679,8 @@
     {
       "id": 122,
       "type": "bargauge",
-      "title": "Outcome mix",
-      "description": "Side-by-side selected-range totals for the three core volume outcomes.",
+      "title": "Volume overview",
+      "description": "Selected-range totals for Sold, 30+, and Transfers. Transfers is the full SALE-disposition total, so Sold is included inside Transfers.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
@@ -926,7 +926,7 @@
       "id": 132,
       "type": "table",
       "title": "Agent leaderboard",
-      "description": "Agent performance. When Client / preset is All, resolved presets are added as dynamic columns showing each agent's transfer count for that preset.",
+      "description": "Agent performance. Transfers equals all SALE dispositions, including Sold. When Client / preset is All, resolved presets are added as dynamic columns showing each agent's SALE-disposition count for that preset.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
@@ -1270,7 +1270,7 @@
       "id": 141,
       "type": "table",
       "title": "Team performance",
-      "description": "Team performance. When Client / preset is All, resolved presets are added as dynamic columns showing each team's transfer count for that preset.",
+      "description": "Team performance. Transfers equals all SALE dispositions, including Sold. Agent count is distinct agents with any real disposed call in the selected range. When Client / preset is All, resolved presets are added as dynamic columns showing each team's SALE-disposition count for that preset.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
@@ -1597,7 +1597,7 @@
       "id": 142,
       "type": "table",
       "title": "Project performance",
-      "description": "Compare selected projects. The Project filter above supports selecting several projects at once.",
+      "description": "Compare selected projects. Transfers equals all SALE dispositions, including Sold, and Agent count is distinct agents with any real disposed call in the selected range. The Project filter above supports selecting several projects at once.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
@@ -1925,7 +1925,7 @@
       "id": 151,
       "type": "table",
       "title": "Client performance",
-      "description": "See which client/preset groups are converting and where unresolved preset data exists.",
+      "description": "See which client/preset groups are converting. Transfers equals every SALE disposition for the client, including Sold.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
@@ -2426,7 +2426,7 @@
     {
       "id": 164,
       "type": "row",
-      "title": "Transfer call details",
+      "title": "Other SALE call details",
       "collapsed": false,
       "gridPos": {
         "x": 0,
@@ -2439,8 +2439,8 @@
     {
       "id": 163,
       "type": "table",
-      "title": "Transfer calls",
-      "description": "Transfer call details for the selected dashboard time range and filters. Every column can be filtered directly from its header.",
+      "title": "Other SALE calls",
+      "description": "SALE dispositions that are neither Sold nor 30+. These are the remaining SALE calls after the Sales and 30+ table, and every column can be filtered directly from its header.",
       "datasource": {
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"

@@ -63,7 +63,7 @@ class SalesAnalyticsTests(TestCase):
         summary = data["summary"][0]
         self.assertEqual(summary["opportunities"], 3)
         self.assertEqual(summary["sold"], 1)
-        self.assertEqual(summary["transfers"], 2)
+        self.assertEqual(summary["transfers"], 3)
         self.assertEqual(summary["missing_preset"], 1)
         self.assertEqual(summary["twenty_plus"], 2)
         self.assertEqual(summary["thirty_plus"], 1)
@@ -71,13 +71,20 @@ class SalesAnalyticsTests(TestCase):
         self.assertEqual(data["teams"][0]["team_leader"], "Team Lead")
         self.assertEqual(data["agents"][0]["team_leader"], "Team Lead")
         self.assertEqual(data["projects"][0]["project"], "Medicare")
+        self.assertEqual(data["teams"][0]["transfers"], 3)
+        self.assertEqual(data["projects"][0]["transfers"], 3)
+        self.assertEqual(data["presets"][0]["transfers"] + data["presets"][1]["transfers"] + data["presets"][2]["transfers"], 3)
         self.assertEqual(data["agent_table"][0]["D33"], 1)
-        self.assertEqual(data["agent_table"][0]["D42"], 0)
-        # Leaderboard conversion is SALE outcomes (Transfers + Sold) divided by
+        self.assertEqual(data["agent_table"][0]["D42"], 1)
+        # Leaderboard conversion is all SALE dispositions (Transfers) divided by
         # all finalized call records for the agent in the selected time range.
         self.assertEqual(data["agent_table"][0]["Conversion %"], 75.0)
         self.assertEqual(data["team_table"][0]["D33"], 1)
-        self.assertEqual(data["team_table"][0]["D42"], 0)
+        self.assertEqual(data["team_table"][0]["D42"], 1)
+        preset_rows = {row["preset"]: row for row in data["presets"]}
+        self.assertEqual(preset_rows["D42"]["transfers"], 1)
+        self.assertEqual(preset_rows["D33"]["transfers"], 1)
+        self.assertEqual(preset_rows["Unresolved"]["transfers"], 1)
         self.assertEqual(data["teams"][0]["agent_count"], 1)
         self.assertEqual(data["teams"][0]["kpi"], 1.0)
         self.assertEqual(data["projects"][0]["agent_count"], 1)
@@ -163,6 +170,13 @@ class SalesAnalyticsTests(TestCase):
             when=now-timedelta(minutes=1),
             agent_user="8201",
             agent_name="Agent Two",
+        )
+        self._call(
+            "undisposed-agent",
+            disposition="",
+            when=now-timedelta(seconds=30),
+            agent_user="8202",
+            agent_name="Undisposed Agent",
         )
 
         data = build_sales_dashboard(
@@ -293,6 +307,21 @@ class SalesAnalyticsTests(TestCase):
             phone_number="15557654321",
             client_status="Pending",
         )
+        self._call(
+            "detail-transfer-thirty",
+            sold=False,
+            preset="D89",
+            thirty=True,
+            when=now-timedelta(seconds=45),
+            phone_number="15550003031",
+        )
+        self._call(
+            "detail-transfer-sold",
+            sold=True,
+            preset="D90",
+            when=now-timedelta(seconds=30),
+            phone_number="15550009999",
+        )
         data = build_sales_dashboard(
             from_ms=str(int((now-timedelta(hours=1)).timestamp()*1000)),
             to_ms=str(int(now.timestamp()*1000)),
@@ -305,6 +334,9 @@ class SalesAnalyticsTests(TestCase):
         self.assertEqual(detail["client"], "D88")
         self.assertEqual(detail["client_status"], "Pending")
         self.assertIn("T", detail["disposition_time"])
+        detail_numbers = {row["number"] for row in data["transfer_details"]}
+        self.assertNotIn("15550003031", detail_numbers)
+        self.assertNotIn("15550009999", detail_numbers)
 
     def test_multiple_projects_can_be_selected_together(self):
         DialerCampaign.objects.create(
@@ -390,7 +422,7 @@ class SalesAnalyticsTests(TestCase):
         self.assertTrue(all(cell.font.bold for cell in ws[footer]))
         self.assertEqual(ws.cell(footer, 1).value, 1)
         self.assertEqual(ws.cell(footer, 2).value, 1)
-        self.assertEqual(ws.cell(footer, 4).value, 2)
+        self.assertEqual(ws.cell(footer, 4).value, 3)
         self.assertEqual(ws.cell(footer, 5).number_format, "0.00%")
 
     def test_xlsx_export_endpoint_requires_authenticated_grafana_proxy(self):
