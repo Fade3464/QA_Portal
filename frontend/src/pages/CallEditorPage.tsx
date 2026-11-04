@@ -22,6 +22,7 @@ import {
   Switch,
   Table,
   Tag,
+  Tooltip,
   Typography,
   type TableProps,
 } from 'antd';
@@ -57,6 +58,8 @@ export function CallEditorPage() {
   const [selected, setSelected] = useState<CallEvent | null>(null);
   const [saving, setSaving] = useState(false);
   const [pendingEdit, setPendingEdit] = useState<EditorFormValues | null>(null);
+  const [clientStatusWarningShown, setClientStatusWarningShown] = useState(false);
+  const [clientStatusWarningVisible, setClientStatusWarningVisible] = useState(false);
   const [form] = Form.useForm<EditorFormValues>();
   const selectedDisposition = Form.useWatch('disposition', form)?.trim().toUpperCase();
   const isSale = selectedDisposition === 'SALE';
@@ -102,6 +105,8 @@ export function CallEditorPage() {
       const callId = typeof call === 'string' ? call : call.id;
       const record = await api<CallEvent>(`/api/v1/calls/editor/${callId}/`);
       setSelected(record);
+      setClientStatusWarningShown(false);
+      setClientStatusWarningVisible(false);
       form.setFieldsValue({
         disposition: record.disposition,
         client_20_plus: record.client_20_plus,
@@ -122,6 +127,8 @@ export function CallEditorPage() {
 
   const closeEditor = () => {
     setPendingEdit(null);
+    setClientStatusWarningShown(false);
+    setClientStatusWarningVisible(false);
     setSelected(null);
     form.resetFields();
     if (searchParams.has('call')) {
@@ -159,6 +166,14 @@ export function CallEditorPage() {
   };
 
   const requestSave = (values: EditorFormValues) => {
+    const newlyMarkedSold = Boolean(selected && !selected.sold && values.sold);
+    const hasClientStatus = Boolean(values.client_status?.trim());
+    if (newlyMarkedSold && hasClientStatus && !clientStatusWarningShown) {
+      setClientStatusWarningShown(true);
+      setClientStatusWarningVisible(true);
+      return;
+    }
+    setClientStatusWarningVisible(false);
     setPendingEdit(values);
   };
 
@@ -218,7 +233,23 @@ export function CallEditorPage() {
             <Col span={12}><Form.Item name="client_20_plus" label="Client side 20+ minutes" valuePropName="checked"><Switch disabled={!isSale} /></Form.Item></Col>
             <Col span={12}><Form.Item name="client_30_plus" label="Client side 30+ minutes" valuePropName="checked"><Switch disabled={!isSale} onChange={(checked) => { if (checked) form.setFieldValue('client_20_plus', true); }} /></Form.Item></Col>
           </Row>
-          <Form.Item name="client_status" label="Client status"><Input allowClear placeholder="Optional client-side status" /></Form.Item>
+          <Tooltip
+            title="Please validate the Client Status before proceeding"
+            open={clientStatusWarningVisible}
+            placement="topLeft"
+          >
+            <div className={clientStatusWarningVisible ? 'call-editor-client-status-warning' : undefined}>
+              <Form.Item name="client_status" label="Client status">
+                <Input
+                  allowClear
+                  placeholder="Optional client-side status"
+                  onChange={() => {
+                    if (clientStatusWarningShown) setClientStatusWarningVisible(false);
+                  }}
+                />
+              </Form.Item>
+            </div>
+          </Tooltip>
           <Form.Item name="preset" label="Preset" extra={isSale ? 'Automatically resolved from VICIdial when available; editable for corrections.' : 'Preset is available only for SALE calls.'}><Input allowClear disabled={!isSale} placeholder="e.g. D42" /></Form.Item>
           <Form.Item name="sold" label="Mark sold" valuePropName="checked" extra="This is manual business confirmation and is never inferred from the dialer SALE disposition."><Switch disabled={!isSale} onChange={(checked) => { if (checked) form.setFieldsValue({ client_20_plus: true, client_30_plus: true }); }} /></Form.Item>
         </Form>

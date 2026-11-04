@@ -72,7 +72,16 @@ def _clean_multi_filter(value) -> tuple[str, ...]:
     return tuple(dict.fromkeys(values))
 
 
-def _base_queryset(company: Company, start: datetime, end: datetime, *, team="", project="", preset=""):
+def _base_queryset(
+    company: Company,
+    start: datetime,
+    end: datetime,
+    *,
+    team="",
+    project="",
+    preset="",
+    closer_group="",
+):
     project_subquery = DialerCampaign.objects.filter(
         dialer_id=OuterRef("dialer_id"),
         campaign__iexact=OuterRef("campaign"),
@@ -99,6 +108,7 @@ def _base_queryset(company: Company, start: datetime, end: datetime, *, team="",
     team = _clean_filter(team)
     projects = _clean_multi_filter(project)
     preset = _clean_filter(preset)
+    closer_group = _clean_filter(closer_group)
     if team:
         qs = qs.filter(Q(team__name=team) | Q(team_name=team))
     if projects:
@@ -108,6 +118,8 @@ def _base_queryset(company: Company, start: datetime, end: datetime, *, team="",
         qs = qs.filter(project_filter)
     if preset:
         qs = qs.filter(preset=preset)
+    if closer_group:
+        qs = qs.filter(closer_group__iexact=closer_group)
     return qs
 
 
@@ -427,7 +439,15 @@ def _transfer_detail_rows(qs):
     return rows
 
 
-def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", preset=""):
+def build_sales_dashboard(
+    *,
+    from_ms=None,
+    to_ms=None,
+    team="",
+    project="",
+    preset="",
+    closer_group="",
+):
     company=active_analytics_company()
     if not company:
         return {"enabled": False, "message": "Sales analytics is not enabled for a company."}
@@ -442,20 +462,41 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
     # aggregate response while still remaining operationally current.
     start_key=int(start.timestamp()//60)
     end_key=int(end.timestamp()//60)
-    filters=(_clean_filter(team),_clean_multi_filter(project),_clean_filter(preset))
+    filters=(
+        _clean_filter(team),
+        _clean_multi_filter(project),
+        _clean_filter(preset),
+        _clean_filter(closer_group),
+    )
     # Keep Redis/memcached keys bounded even when many projects are selected.
     filter_signature = hashlib.sha256(
         json.dumps(filters, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     ).hexdigest()[:20]
-    cache_key=f"sales-analytics:v18:{company.pk}:{start_key}:{end_key}:{filter_signature}"
+    cache_key=f"sales-analytics:v19:{company.pk}:{start_key}:{end_key}:{filter_signature}"
     cached=cache.get(cache_key)
     if cached is not None:
         return cached
-    qs=_base_queryset(company,start,end,team=team,project=project,preset=preset)
+    qs=_base_queryset(
+        company,
+        start,
+        end,
+        team=team,
+        project=project,
+        preset=preset,
+        closer_group=closer_group,
+    )
     # Leaderboard membership deliberately ignores the client/preset filter so
     # active agents remain visible with zero SALE metrics when appropriate.
     activity_qs=(
-        _base_queryset(company,start,end,team=team,project=project,preset="")
+        _base_queryset(
+            company,
+            start,
+            end,
+            team=team,
+            project=project,
+            preset="",
+            closer_group=closer_group,
+        )
         .exclude(disposition__in=CallEvent.PROVISIONAL_START_DISPOSITIONS)
     )
     disposed_activity_qs = (
@@ -527,7 +568,7 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
         item["sold"] = sold
         item["conversion_pct"]=_pct(sold,int(item.get("opportunities") or 0))
         trend_rows.append(item)
-    filter_cache=f"sales-analytics:filters:v2:{company.pk}:{start_key}:{end_key}"
+    filter_cache=f"sales-analytics:filters:v3:{company.pk}:{start_key}:{end_key}"
     filter_values=cache.get(filter_cache)
     if filter_values is None:
         base=_base_queryset(company,start,end)
@@ -535,6 +576,7 @@ def build_sales_dashboard(*, from_ms=None, to_ms=None, team="", project="", pres
             "teams": [{"text": value, "value": value} for value in sorted(set(base.exclude(team__name__isnull=True).exclude(team__name="").values_list("team__name",flat=True)))],
             "projects": [{"text": value, "value": value} for value in sorted(set(base.exclude(project_name__isnull=True).exclude(project_name="").values_list("project_name",flat=True)))],
             "presets": [{"text": value, "value": value} for value in sorted(set(base.filter(disposition__iexact="SALE").exclude(preset__isnull=True).exclude(preset="").values_list("preset",flat=True)))],
+            "closer_groups": [{"text": value, "value": value} for value in sorted(set(base.exclude(closer_group__isnull=True).exclude(closer_group="").values_list("closer_group",flat=True)))],
         }
         cache.set(filter_cache,filter_values,300)
     sold_details = _sold_detail_rows(qs)

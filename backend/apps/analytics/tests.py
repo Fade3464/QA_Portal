@@ -42,7 +42,7 @@ class SalesAnalyticsTests(TestCase):
         self._call("missing", sold=False, preset=None, when=now-timedelta(minutes=6))
         self._call("nonsale", disposition="DNC", when=now-timedelta(minutes=4))
 
-    def _call(self, key, *, disposition="SALE", sold=False, preset=None, twenty=False, thirty=False, when=None, phone_number="", client_status=None, agent_user="8102", agent_name="Agent One"):
+    def _call(self, key, *, disposition="SALE", sold=False, preset=None, twenty=False, thirty=False, when=None, phone_number="", client_status=None, agent_user="8102", agent_name="Agent One", closer_group=""):
         return CallEvent.objects.create(
             dialer=self.dialer, branch=self.branch, event_key=key,
             event_type=CallEvent.EventType.DISPOSITION,
@@ -51,7 +51,7 @@ class SalesAnalyticsTests(TestCase):
             disposition=disposition, sold=sold, preset=preset,
             client_20_plus=(twenty or thirty), client_30_plus=thirty,
             call_date=when or timezone.now(), phone_number=phone_number,
-            client_status=client_status,
+            client_status=client_status, closer_group=closer_group,
         )
 
     def test_transfer_definition_and_grouped_metrics(self):
@@ -225,6 +225,34 @@ class SalesAnalyticsTests(TestCase):
         self.assertEqual(
             list(data["team_table"][0]),
             ["Team", "Team leader", "Agent count", "Sold", "KPI", "30+", "Transfers", "Conversion %"],
+        )
+
+    def test_closer_group_filter_limits_dashboard_and_lists_available_groups(self):
+        now = timezone.now()
+        self._call(
+            "closer-a",
+            preset="D70",
+            closer_group="CLOSER-A",
+            when=now-timedelta(seconds=20),
+        )
+        self._call(
+            "closer-b",
+            preset="D71",
+            closer_group="CLOSER-B",
+            when=now-timedelta(seconds=10),
+        )
+
+        data = build_sales_dashboard(
+            from_ms=str(int((now-timedelta(hours=1)).timestamp()*1000)),
+            to_ms=str(int(now.timestamp()*1000)),
+            closer_group="closer-a",
+        )
+
+        self.assertEqual(data["summary"][0]["opportunities"], 1)
+        self.assertEqual(data["summary"][0]["transfers"], 1)
+        self.assertEqual(
+            {item["value"] for item in data["filters"]["closer_groups"]},
+            {"CLOSER-A", "CLOSER-B"},
         )
 
     def test_sold_detail_rows_include_expected_fields(self):

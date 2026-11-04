@@ -18,6 +18,7 @@ class GrafanaSalesDashboardView(APIView):
             team=request.query_params.get("team", ""),
             project=request.query_params.getlist("project"),
             preset=request.query_params.get("preset", ""),
+            closer_group=request.query_params.get("closer_group", ""),
         )
         # Agent/team table views intentionally return a root-level array so the
         # Infinity datasource can auto-discover the data-driven preset columns.
@@ -53,6 +54,7 @@ class GrafanaSalesXlsxExportView(APIView):
             team=self._single_param(request, "team"),
             project=self._multi_param(request, "project"),
             preset=self._single_param(request, "preset"),
+            closer_group=self._single_param(request, "closer_group"),
         )
         try:
             content, filename = build_sales_xlsx(

@@ -48,7 +48,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&closer_group=${closer_group}&preset=${preset}&${project:customqueryparam:project}",
           "url_options": {
             "method": "GET",
             "data": "",
@@ -128,7 +128,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&closer_group=${closer_group}&preset=${preset}&${project:customqueryparam:project}",
           "url_options": {
             "method": "GET",
             "data": "",
@@ -208,7 +208,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&closer_group=${closer_group}&preset=${preset}&${project:customqueryparam:project}",
           "url_options": {
             "method": "GET",
             "data": "",
@@ -288,7 +288,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&closer_group=${closer_group}&preset=${preset}&${project:customqueryparam:project}",
           "url_options": {
             "method": "GET",
             "data": "",
@@ -368,7 +368,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&closer_group=${closer_group}&preset=${preset}&${project:customqueryparam:project}",
           "url_options": {
             "method": "GET",
             "data": "",
@@ -448,7 +448,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&closer_group=${closer_group}&preset=${preset}&${project:customqueryparam:project}",
           "url_options": {
             "method": "GET",
             "data": "",
@@ -541,7 +541,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&closer_group=${closer_group}&preset=${preset}&${project:customqueryparam:project}",
           "url_options": {
             "method": "GET",
             "data": "",
@@ -702,7 +702,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&closer_group=${closer_group}&preset=${preset}&${project:customqueryparam:project}",
           "url_options": {
             "method": "GET",
             "data": "",
@@ -852,7 +852,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&closer_group=${closer_group}&preset=${preset}&${project:customqueryparam:project}",
           "url_options": {
             "method": "GET",
             "data": "",
@@ -948,7 +948,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}&section=agent_table",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&closer_group=${closer_group}&preset=${preset}&${project:customqueryparam:project}&section=agent_table",
           "url_options": {
             "method": "GET",
             "data": "",
@@ -1292,7 +1292,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}&section=team_table",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&closer_group=${closer_group}&preset=${preset}&${project:customqueryparam:project}&section=team_table",
           "url_options": {
             "method": "GET",
             "data": "",
@@ -1619,7 +1619,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&closer_group=${closer_group}&preset=${preset}&${project:customqueryparam:project}",
           "url_options": {
             "method": "GET",
             "data": "",
@@ -1947,7 +1947,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&closer_group=${closer_group}&preset=${preset}&${project:customqueryparam:project}",
           "url_options": {
             "method": "GET",
             "data": "",
@@ -2223,7 +2223,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&closer_group=${closer_group}&preset=${preset}&${project:customqueryparam:project}",
           "url_options": {
             "method": "GET",
             "data": "",
@@ -2462,7 +2462,7 @@
           "source": "url",
           "format": "table",
           "parser": "backend",
-          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&preset=${preset}&${project:customqueryparam:project}",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&closer_group=${closer_group}&preset=${preset}&${project:customqueryparam:project}",
           "url_options": {
             "method": "GET",
             "data": "",
@@ -2747,6 +2747,64 @@
               "params": []
             },
             "root_selector": "$.filters.teams",
+            "columns": [
+              {
+                "selector": "value",
+                "text": "value",
+                "type": "string"
+              },
+              {
+                "selector": "text",
+                "text": "text",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "__all"
+        }
+      },
+      {
+        "datasource": {
+          "type": "yesoreyeram-infinity-datasource",
+          "uid": "calllens-api"
+        },
+        "definition": "",
+        "hide": 0,
+        "includeAll": true,
+        "allValue": "__all",
+        "label": "Closer group",
+        "multi": false,
+        "name": "closer_group",
+        "options": [],
+        "query": {
+          "queryType": "infinity",
+          "refId": "variable",
+          "meta": {
+            "valueField": "value",
+            "textField": "text"
+          },
+          "infinityQuery": {
+            "refId": "variable",
+            "type": "json",
+            "source": "url",
+            "format": "table",
+            "parser": "backend",
+            "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}",
+            "url_options": {
+              "method": "GET",
+              "data": "",
+              "params": []
+            },
+            "root_selector": "$.filters.closer_groups",
             "columns": [
               {
                 "selector": "value",

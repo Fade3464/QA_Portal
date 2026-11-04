@@ -1177,3 +1177,17 @@ circle.db-chart__write { fill: #13c2c2; stroke: none; }
     --qa-border-soft: var(--qa-border) !important;
   }
 }
+
+@keyframes call-editor-client-status-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+
+.call-editor-client-status-warning .ant-input-affix-wrapper {
+  animation: call-editor-client-status-shake 360ms ease-in-out;
+  border-color: var(--ant-color-warning, #faad14) !important;
+  box-shadow: 0 0 0 2px rgba(250, 173, 20, 0.18);
+}
