@@ -2441,7 +2441,7 @@
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
       },
-      "description": "US state heatmap inferred from phone-number area codes. Transfers are all SALE dispositions; Sold is the confirmed subset.",
+      "description": "US state sales geography inferred from phone-number area codes. Transfer intensity is shown as a yellow halo; confirmed Sold calls appear as a dark-green core at the same state center.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -2521,14 +2521,90 @@
         "layers": [
           {
             "config": {
-              "weight": {
-                "field": "Transfers",
-                "fixed": 1,
-                "min": 0.08,
-                "max": 1
-              },
-              "blur": 22,
-              "radius": 32
+              "showLegend": false,
+              "style": {
+                "size": {
+                  "field": "Transfers",
+                  "fixed": 28,
+                  "min": 28,
+                  "max": 58
+                },
+                "color": {
+                  "fixed": "#FACC15"
+                },
+                "opacity": 0.2,
+                "symbol": {
+                  "mode": "fixed",
+                  "fixed": "img/icons/marker/circle.svg"
+                },
+                "symbolAlign": {
+                  "horizontal": "center",
+                  "vertical": "center"
+                },
+                "textConfig": {
+                  "fontSize": 12,
+                  "textAlign": "center",
+                  "textBaseline": "middle",
+                  "offsetX": 0,
+                  "offsetY": 0
+                },
+                "rotation": {
+                  "fixed": 0,
+                  "mode": "mod",
+                  "min": -360,
+                  "max": 360
+                }
+              }
+            },
+            "filterData": {
+              "id": "byRefId",
+              "options": "A"
+            },
+            "location": {
+              "gazetteer": "public/gazetteer/usa-states.json",
+              "lookup": "State",
+              "mode": "lookup"
+            },
+            "name": "Transfers halo",
+            "tooltip": false,
+            "type": "markers"
+          },
+          {
+            "config": {
+              "showLegend": false,
+              "style": {
+                "size": {
+                  "field": "Transfers",
+                  "fixed": 20,
+                  "min": 18,
+                  "max": 42
+                },
+                "color": {
+                  "fixed": "#FDE047"
+                },
+                "opacity": 0.58,
+                "symbol": {
+                  "mode": "fixed",
+                  "fixed": "img/icons/marker/circle.svg"
+                },
+                "symbolAlign": {
+                  "horizontal": "center",
+                  "vertical": "center"
+                },
+                "textConfig": {
+                  "fontSize": 12,
+                  "textAlign": "center",
+                  "textBaseline": "middle",
+                  "offsetX": 0,
+                  "offsetY": 0
+                },
+                "rotation": {
+                  "fixed": 0,
+                  "mode": "mod",
+                  "min": -360,
+                  "max": 360
+                }
+              }
             },
             "filterData": {
               "id": "byRefId",
@@ -2540,20 +2616,45 @@
               "mode": "lookup"
             },
             "name": "Transfers",
-            "opacity": 0.72,
             "tooltip": true,
-            "type": "heatmap"
+            "type": "markers"
           },
           {
             "config": {
-              "weight": {
-                "field": "Sold",
-                "fixed": 1,
-                "min": 0.12,
-                "max": 1
-              },
-              "blur": 10,
-              "radius": 17
+              "showLegend": false,
+              "style": {
+                "size": {
+                  "field": "Sold",
+                  "fixed": 10,
+                  "min": 7,
+                  "max": 16
+                },
+                "color": {
+                  "fixed": "#166534"
+                },
+                "opacity": 0.92,
+                "symbol": {
+                  "mode": "fixed",
+                  "fixed": "img/icons/marker/circle.svg"
+                },
+                "symbolAlign": {
+                  "horizontal": "center",
+                  "vertical": "center"
+                },
+                "textConfig": {
+                  "fontSize": 12,
+                  "textAlign": "center",
+                  "textBaseline": "middle",
+                  "offsetX": 0,
+                  "offsetY": 0
+                },
+                "rotation": {
+                  "fixed": 0,
+                  "mode": "mod",
+                  "min": -360,
+                  "max": 360
+                }
+              }
             },
             "filterData": {
               "id": "byRefId",
@@ -2565,9 +2666,8 @@
               "mode": "lookup"
             },
             "name": "Sold",
-            "opacity": 0.92,
             "tooltip": true,
-            "type": "heatmap"
+            "type": "markers"
           }
         ]
       },
