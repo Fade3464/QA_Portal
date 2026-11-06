@@ -2424,13 +2424,237 @@
       ]
     },
     {
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 24,
+        "h": 1
+      },
+      "id": 165,
+      "panels": [],
+      "title": "US sales geography",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "yesoreyeram-infinity-datasource",
+        "uid": "calllens-api"
+      },
+      "description": "US state heatmap inferred from phone-number area codes. Transfers are all SALE dispositions; Sold is the confirmed subset.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "yellow",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "yellow"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "dark-green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 57,
+        "w": 24,
+        "h": 12
+      },
+      "id": 166,
+      "options": {
+        "view": {
+          "allLayers": true,
+          "id": "coords",
+          "lat": 38.6,
+          "lon": -97.5,
+          "zoom": 3.65
+        },
+        "controls": {
+          "showZoom": true,
+          "mouseWheelZoom": true,
+          "showAttribution": true,
+          "showScale": false,
+          "showMeasure": false,
+          "showDebug": false
+        },
+        "tooltip": {
+          "mode": "details"
+        },
+        "basemap": {
+          "config": {
+            "theme": "dark",
+            "showLabels": true
+          },
+          "name": "Layer 0",
+          "type": "default"
+        },
+        "layers": [
+          {
+            "config": {
+              "weight": {
+                "field": "Transfers",
+                "fixed": 1,
+                "min": 0.08,
+                "max": 1
+              },
+              "blur": 22,
+              "radius": 32
+            },
+            "filterData": {
+              "id": "byRefId",
+              "options": "A"
+            },
+            "location": {
+              "gazetteer": "public/gazetteer/usa-states.json",
+              "lookup": "State",
+              "mode": "lookup"
+            },
+            "name": "Transfers",
+            "opacity": 0.72,
+            "tooltip": true,
+            "type": "heatmap"
+          },
+          {
+            "config": {
+              "weight": {
+                "field": "Sold",
+                "fixed": 1,
+                "min": 0.12,
+                "max": 1
+              },
+              "blur": 10,
+              "radius": 17
+            },
+            "filterData": {
+              "id": "byRefId",
+              "options": "B"
+            },
+            "location": {
+              "gazetteer": "public/gazetteer/usa-states.json",
+              "lookup": "State",
+              "mode": "lookup"
+            },
+            "name": "Sold",
+            "opacity": 0.92,
+            "tooltip": true,
+            "type": "heatmap"
+          }
+        ]
+      },
+      "pluginVersion": "13.3.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "calllens-api"
+          },
+          "refId": "A",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&closer_group=${closer_group}&preset=${preset}&${project:customqueryparam:project}",
+          "url_options": {
+            "method": "GET",
+            "data": "",
+            "params": []
+          },
+          "root_selector": "$.state_transfer_heatmap",
+          "columns": [
+            {
+              "selector": "state",
+              "text": "State",
+              "type": "string"
+            },
+            {
+              "selector": "transfers",
+              "text": "Transfers",
+              "type": "number"
+            },
+            {
+              "selector": "sold",
+              "text": "Sold",
+              "type": "number"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "yesoreyeram-infinity-datasource",
+            "uid": "calllens-api"
+          },
+          "refId": "B",
+          "type": "json",
+          "source": "url",
+          "format": "table",
+          "parser": "backend",
+          "url": "http://backend:8000/api/v1/analytics/grafana/sales/?from=${__from}&to=${__to}&team=${team}&closer_group=${closer_group}&preset=${preset}&${project:customqueryparam:project}",
+          "url_options": {
+            "method": "GET",
+            "data": "",
+            "params": []
+          },
+          "root_selector": "$.state_sold_heatmap",
+          "columns": [
+            {
+              "selector": "state",
+              "text": "State",
+              "type": "string"
+            },
+            {
+              "selector": "transfers",
+              "text": "Transfers",
+              "type": "number"
+            },
+            {
+              "selector": "sold",
+              "text": "Sold",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "title": "Transfers & Sold by state",
+      "type": "geomap"
+    },
+    {
       "id": 164,
       "type": "row",
       "title": "Other SALE call details",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 56,
+        "y": 69,
         "w": 24,
         "h": 1
       },
@@ -2447,7 +2671,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 57,
+        "y": 70,
         "w": 24,
         "h": 10
       },
@@ -2905,6 +3129,6 @@
   "timezone": "America/New_York",
   "title": "Convergence",
   "uid": "calllens-sales-performance",
-  "version": 4,
+  "version": 5,
   "description": "Team-facing sales performance dashboard. Starts on today, puts Sold first, and keeps every view synchronized with the native Grafana filters."
 }

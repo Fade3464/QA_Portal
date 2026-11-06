@@ -255,6 +255,51 @@ class SalesAnalyticsTests(TestCase):
             {"CLOSER-A", "CLOSER-B"},
         )
 
+    def test_state_geography_uses_area_code_and_preserves_transfer_definition(self):
+        now = timezone.now()
+        self._call(
+            "geo-tx-transfer",
+            sold=False,
+            when=now-timedelta(seconds=40),
+            phone_number="+1 (214) 555-0101",
+        )
+        self._call(
+            "geo-tx-sold",
+            sold=True,
+            when=now-timedelta(seconds=30),
+            phone_number="1-214-555-0102",
+        )
+        self._call(
+            "geo-fl-transfer",
+            sold=False,
+            when=now-timedelta(seconds=20),
+            phone_number="3055550103",
+        )
+        self._call(
+            "geo-unmapped-toll-free",
+            sold=True,
+            when=now-timedelta(seconds=10),
+            phone_number="8005550104",
+        )
+
+        data = build_sales_dashboard(
+            from_ms=str(int((now-timedelta(hours=1)).timestamp()*1000)),
+            to_ms=str(int(now.timestamp()*1000)),
+        )
+
+        geography = {row["state"]: row for row in data["state_geography"]}
+        self.assertEqual(set(geography), {"TX", "FL"})
+        self.assertEqual(geography["TX"], {"state": "TX", "transfers": 2, "sold": 1})
+        self.assertEqual(geography["FL"], {"state": "FL", "transfers": 1, "sold": 0})
+        self.assertEqual(
+            data["state_transfer_heatmap"],
+            data["state_geography"],
+        )
+        self.assertEqual(
+            data["state_sold_heatmap"],
+            [{"state": "TX", "transfers": 2, "sold": 1}],
+        )
+
     def test_sold_detail_rows_include_expected_fields(self):
         now = timezone.now()
         edited_at = now - timedelta(seconds=15)

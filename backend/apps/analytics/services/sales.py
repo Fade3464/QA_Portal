@@ -14,6 +14,67 @@ from apps.calls.models import CallEvent
 from apps.tenancy.models import Company, DialerCampaign
 
 
+AREA_CODES_BY_STATE = {
+    "AL": "205, 251, 256, 334, 659, 938",
+    "AK": "907",
+    "AZ": "480, 520, 602, 623, 928",
+    "AR": "479, 501, 870",
+    "CA": "209, 213, 279, 310, 323, 341, 369, 408, 415, 424, 442, 510, 530, 559, 562, 619, 626, 627, 628, 650, 657, 661, 669, 707, 714, 747, 760, 764, 805, 818, 820, 831, 858, 909, 916, 925, 935, 949, 951",
+    "CO": "303, 719, 720, 970",
+    "CT": "203, 475, 860, 959",
+    "DE": "302",
+    "DC": "202",
+    "FL": "239, 305, 321, 352, 386, 407, 561, 689, 727, 754, 772, 786, 813, 850, 863, 904, 941, 954",
+    "GA": "229, 404, 470, 478, 678, 706, 762, 770, 912",
+    "HI": "808",
+    "ID": "208, 986",
+    "IL": "217, 224, 309, 312, 331, 464, 618, 630, 708, 773, 779, 815, 847, 872",
+    "IN": "219, 260, 317, 463, 574, 765, 812, 930",
+    "IA": "319, 515, 563, 641, 712",
+    "KS": "316, 620, 785, 913",
+    "KY": "270, 364, 502, 606, 859",
+    "LA": "225, 318, 337, 504, 985",
+    "ME": "207",
+    "MD": "227, 240, 301, 410, 443, 667",
+    "MA": "339, 351, 413, 508, 617, 774, 781, 857, 978",
+    "MI": "231, 248, 269, 278, 313, 517, 586, 616, 679, 734, 810, 906, 947, 989",
+    "MN": "218, 320, 507, 612, 651, 763, 952",
+    "MS": "228, 601, 662, 769",
+    "MO": "314, 417, 557, 573, 636, 660, 816, 975",
+    "MT": "406",
+    "NE": "308, 402, 531",
+    "NV": "702, 725, 775",
+    "NH": "603",
+    "NJ": "201, 551, 609, 640, 732, 848, 856, 862, 908, 973",
+    "NM": "505, 575, 957",
+    "NY": "212, 315, 332, 347, 516, 518, 585, 607, 631, 646, 680, 716, 718, 838, 845, 914, 917, 929, 934",
+    "NC": "252, 336, 472, 704, 743, 828, 910, 919, 980, 984",
+    "ND": "701",
+    "OH": "216, 220, 234, 283, 326, 330, 380, 419, 440, 513, 567, 614, 740, 937",
+    "OK": "405, 539, 572, 580, 918",
+    "OR": "458, 503, 541, 971",
+    "PA": "215, 223, 267, 272, 412, 445, 484, 570, 610, 717, 724, 814, 835, 878",
+    "RI": "401",
+    "SC": "803, 839, 843, 854, 864",
+    "SD": "605",
+    "TN": "423, 615, 629, 731, 865, 901, 931",
+    "TX": "210, 214, 254, 281, 325, 346, 361, 409, 430, 432, 469, 512, 682, 713, 726, 737, 806, 817, 830, 832, 903, 915, 936, 940, 956, 972, 979",
+    "UT": "385, 435, 801",
+    "VT": "802",
+    "VA": "276, 434, 540, 571, 703, 757, 804, 948",
+    "WA": "206, 253, 360, 425, 509, 564",
+    "WV": "304, 681",
+    "WI": "262, 414, 534, 608, 715, 920",
+    "WY": "307",
+}
+
+AREA_CODE_TO_STATE = {
+    area_code.strip(): state
+    for state, area_codes in AREA_CODES_BY_STATE.items()
+    for area_code in area_codes.split(",")
+}
+
+
 def _pct(numerator: int, denominator: int) -> float:
     if not denominator:
         return 0.0
@@ -385,6 +446,43 @@ def _team_table_rows(teams, sale_qs, *, include_preset_columns: bool):
     return rows
 
 
+def _us_state_from_phone_number(phone_number: str | None) -> str | None:
+    """Resolve a US state from a 10-digit NANP number using the configured area codes.
+
+    Only plain 10-digit numbers and 11-digit numbers beginning with the US country
+    code ``1`` are accepted. Anything else is deliberately left unmapped rather
+    than guessing a geography.
+    """
+    digits = "".join(character for character in str(phone_number or "") if character.isdigit())
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    if len(digits) != 10:
+        return None
+    return AREA_CODE_TO_STATE.get(digits[:3])
+
+
+def _state_geography_rows(sale_qs):
+    """Aggregate SALE dispositions and confirmed Sold calls by inferred US state."""
+    by_state: dict[str, dict[str, int | str]] = {}
+    rows = (
+        sale_qs.exclude(phone_number__isnull=True)
+        .exclude(phone_number="")
+        .values_list("phone_number", "sold")
+        .iterator(chunk_size=2000)
+    )
+    for phone_number, sold in rows:
+        state = _us_state_from_phone_number(phone_number)
+        if state is None:
+            continue
+        item = by_state.setdefault(
+            state, {"state": state, "transfers": 0, "sold": 0}
+        )
+        item["transfers"] = int(item["transfers"]) + 1
+        if sold:
+            item["sold"] = int(item["sold"]) + 1
+    return [by_state[state] for state in sorted(by_state)]
+
+
 def _detail_row(event, *, include_sale_status: bool = False):
     team_name = (event.team.name if event.team_id else event.team_name) or "Unassigned"
     row = {
@@ -472,7 +570,7 @@ def build_sales_dashboard(
     filter_signature = hashlib.sha256(
         json.dumps(filters, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     ).hexdigest()[:20]
-    cache_key=f"sales-analytics:v19:{company.pk}:{start_key}:{end_key}:{filter_signature}"
+    cache_key=f"sales-analytics:v20:{company.pk}:{start_key}:{end_key}:{filter_signature}"
     cached=cache.get(cache_key)
     if cached is not None:
         return cached
@@ -581,6 +679,7 @@ def build_sales_dashboard(
         cache.set(filter_cache,filter_values,300)
     sold_details = _sold_detail_rows(qs)
     transfer_details = _transfer_detail_rows(qs)
+    state_geography = _state_geography_rows(sale_qs)
     payload={
         "enabled": True,
         "company": company.name,
@@ -597,6 +696,9 @@ def build_sales_dashboard(
         "trend_granularity": "hour" if trend_bucket is TruncHour else "day",
         "sold_details": sold_details,
         "transfer_details": transfer_details,
+        "state_geography": state_geography,
+        "state_transfer_heatmap": state_geography,
+        "state_sold_heatmap": [row for row in state_geography if int(row["sold"]) > 0],
         "filters": filter_values,
     }
     cache.set(cache_key,payload,60)
