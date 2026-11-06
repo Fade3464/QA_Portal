@@ -2433,7 +2433,7 @@
       },
       "id": 165,
       "panels": [],
-      "title": "US sales geography",
+      "title": "Sales Topography",
       "type": "row"
     },
     {
@@ -2441,7 +2441,7 @@
         "type": "yesoreyeram-infinity-datasource",
         "uid": "calllens-api"
       },
-      "description": "US state sales geography inferred from phone-number area codes. Transfer intensity is shown as a yellow halo; confirmed Sold calls appear as a dark-green core at the same state center.",
+      "description": "Sales in a statewise topography. Transfers equals all SALE dispositions, including Sold.",
       "fieldConfig": {
         "defaults": {
           "custom": {
