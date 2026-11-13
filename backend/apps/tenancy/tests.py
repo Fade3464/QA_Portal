@@ -769,3 +769,85 @@ class AdministrationApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["companies"], 1)
         self.assertEqual(response.json()["branches"], 1)
+
+
+class DialerManagerProjectAccessTests(TestCase):
+    def setUp(self):
+        self.company = Company.objects.create(name="Dialer Ops", slug="dialer-ops")
+        self.branch_one = Branch.objects.create(
+            company=self.company, name="Branch One", code="DM-B1"
+        )
+        self.branch_two = Branch.objects.create(
+            company=self.company, name="Branch Two", code="DM-B2"
+        )
+        self.other_company = Company.objects.create(name="Other Ops", slug="other-ops")
+        self.other_branch = Branch.objects.create(
+            company=self.other_company, name="Other", code="DM-OTHER"
+        )
+
+        self.dialer_one = Dialer.objects.create(
+            branch=self.branch_one,
+            name="Closer One",
+            api_url="https://one.example.com/non_agent_api.php",
+            api_username="api",
+        )
+        self.dialer_two = Dialer.objects.create(
+            branch=self.branch_two,
+            name="Closer Two",
+            api_url="https://two.example.com/non_agent_api.php",
+            api_username="api",
+        )
+        self.other_dialer = Dialer.objects.create(
+            branch=self.other_branch,
+            name="Other Dialer",
+            api_url="https://other.example.com/non_agent_api.php",
+            api_username="api",
+        )
+        self.project_one = DialerCampaign.objects.create(
+            dialer=self.dialer_one, campaign="ONE", project_name="Project One"
+        )
+        self.project_two = DialerCampaign.objects.create(
+            dialer=self.dialer_two, campaign="TWO", project_name="Project Two"
+        )
+        self.other_project = DialerCampaign.objects.create(
+            dialer=self.other_dialer, campaign="OTHER", project_name="Other Project"
+        )
+
+    def test_manager_receives_all_company_projects_across_branches(self):
+        manager = User.objects.create_user(
+            email="dialer.manager@example.com",
+            password="strong-temporary-password",
+            first_name="Dialer",
+            last_name="Manager",
+            role=User.Role.DIALER_MANAGER,
+            company=self.company,
+            branch=self.branch_one,
+            must_change_password=False,
+        )
+        assigned = set(
+            manager.qa_project_assignments.values_list("dialer_campaign_id", flat=True)
+        )
+        self.assertEqual(assigned, {self.project_one.pk, self.project_two.pk})
+        self.assertNotIn(self.other_project.pk, assigned)
+
+    def test_new_company_project_is_mapped_automatically(self):
+        manager = User.objects.create_user(
+            email="dialer.manager.future@example.com",
+            password="strong-temporary-password",
+            first_name="Future",
+            last_name="Manager",
+            role=User.Role.DIALER_MANAGER,
+            company=self.company,
+            branch=self.branch_one,
+            must_change_password=False,
+        )
+        new_project = DialerCampaign.objects.create(
+            dialer=self.dialer_two,
+            campaign="THREE",
+            project_name="Project Three",
+        )
+        self.assertTrue(
+            QAProjectAssignment.objects.filter(
+                qa=manager, dialer_campaign=new_project
+            ).exists()
+        )

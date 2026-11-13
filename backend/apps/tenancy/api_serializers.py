@@ -7,6 +7,7 @@ from rest_framework import serializers
 
 from apps.accounts.models import AuthenticationEvent, User
 from .access import branch_projects
+from .services import company_projects, sync_dialer_manager_project_access
 
 from .models import (
     Branch,
@@ -808,6 +809,8 @@ class UserAdminSerializer(serializers.ModelSerializer):
                     for assignment in assignments
                 ]
             )
+            if user.role == User.Role.DIALER_MANAGER:
+                sync_dialer_manager_project_access(user)
         return user
 
     def update(self, instance, validated_data):
@@ -826,8 +829,11 @@ class UserAdminSerializer(serializers.ModelSerializer):
                 User.Role.QA,
                 User.Role.TEAM_LEADER,
                 User.Role.PROJECT_MANAGER,
+                User.Role.DIALER_MANAGER,
             }:
                 instance.qa_project_assignments.all().delete()
+            elif instance.role == User.Role.DIALER_MANAGER:
+                sync_dialer_manager_project_access(instance)
             elif assignments_provided:
                 instance.qa_project_assignments.all().delete()
                 QAProjectAssignment.objects.bulk_create(
@@ -839,6 +845,18 @@ class UserAdminSerializer(serializers.ModelSerializer):
         return instance
 
     def get_assigned_projects(self, obj):
+        if obj.role == User.Role.DIALER_MANAGER and not obj.is_superuser:
+            projects = company_projects(obj)
+            return [
+                {
+                    "id": str(project.pk),
+                    "dialer_id": str(project.dialer_id),
+                    "dialer_name": project.dialer.name,
+                    "campaign": project.campaign,
+                    "project_name": project.project_name,
+                }
+                for project in projects
+            ]
         if obj.role == User.Role.SUPERVISOR and not obj.is_superuser:
             return [
                 {

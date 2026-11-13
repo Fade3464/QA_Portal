@@ -209,7 +209,7 @@ export function AppShell() {
 
   const items = useMemo<MenuProps['items']>(() => {
     const all = [
-      { key: '/', icon: <DashboardOutlined />, label: <Link to="/">{isQa ? 'QA overview' : 'Command center'}</Link> },
+      { key: '/', icon: user?.role === 'dialer_manager' ? <BarChartOutlined /> : <DashboardOutlined />, label: <Link to="/">{user?.role === 'dialer_manager' ? 'Observability' : isQa ? 'QA overview' : 'Command center'}</Link> },
       { key: '/queue', icon: <AuditOutlined />, label: <Link to="/queue">{isQa ? 'My reports' : user?.role === 'team_leader' ? 'QA inbox' : 'QA reports'}</Link> },
       { key: '/calls', icon: <CustomerServiceOutlined />, label: <Link to="/calls">{isQa ? 'Calls for review' : 'Call library'}</Link> },
       { key: '/analytics/', icon: <BarChartOutlined />, label: <a href="/analytics/">Sales analytics</a> },
@@ -267,7 +267,7 @@ export function AppShell() {
           />
         </div>
         <Menu mode="inline" theme="light" selectedKeys={[location.pathname]} items={items} className="app-menu" classNames={{ itemIcon: 'app-menu__icon', itemContent: 'app-menu__content' }} />
-        {!collapsed && (
+        {!collapsed && user?.role !== 'dialer_manager' && (
           <div className="sider-foot">
             <Link to={sidebarShortcut.path} className="sidebar-shortcut">
               <span className="sidebar-shortcut__head"><span className="sidebar-shortcut__icon" aria-hidden="true">{sidebarShortcut.icon}</span><span className="sidebar-shortcut__label">Quick access</span></span>

@@ -392,16 +392,26 @@ class QAProjectAssignment(models.Model):
             self.qa.Role.QA,
             self.qa.Role.TEAM_LEADER,
             self.qa.Role.PROJECT_MANAGER,
+            self.qa.Role.DIALER_MANAGER,
         }:
             raise ValidationError(
                 {
                     "qa": (
                         "Project access can only be assigned to QA, Team Leader, "
-                        "or Project Manager users."
+                        "Project Manager, or Dialer Manager users."
                     )
                 }
             )
-        if self.qa.branch_id != self.dialer_campaign.dialer.branch_id:
+        if self.qa.role == self.qa.Role.DIALER_MANAGER:
+            if self.qa.company_id != self.dialer_campaign.dialer.branch.company_id:
+                raise ValidationError(
+                    {
+                        "dialer_campaign": (
+                            "A Dialer Manager can only be assigned projects from their company."
+                        )
+                    }
+                )
+        elif self.qa.branch_id != self.dialer_campaign.dialer.branch_id:
             raise ValidationError(
                 {
                     "dialer_campaign": (

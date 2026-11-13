@@ -267,3 +267,180 @@ class ProjectPerformanceView(APIView):
                 "generated_at": timezone.now(),
             }
         )
+
+
+DIALER_OBSERVABILITY_WINDOWS = {
+    "today": "Today",
+    "6h": "6 hrs",
+    "12h": "12 hrs",
+    "yesterday": "Yesterday",
+    "7d": "7 days",
+    "month": "This month",
+}
+
+
+def _observability_window(key, tz):
+    from datetime import datetime, time
+
+    now_local = timezone.now().astimezone(tz)
+    today = now_local.date()
+    midnight = datetime.combine(today, time.min, tzinfo=tz)
+
+    if key == "today":
+        return midnight, now_local
+    if key == "6h":
+        return now_local - timedelta(hours=6), now_local
+    if key == "12h":
+        return now_local - timedelta(hours=12), now_local
+    if key == "yesterday":
+        return midnight - timedelta(days=1), midnight
+    if key == "7d":
+        return midnight - timedelta(days=6), now_local
+    if key == "month":
+        return midnight.replace(day=1), now_local
+    raise ValidationError(
+        {"window": "Choose Today, 6 hrs, 12 hrs, Yesterday, 7 days, or This month."}
+    )
+
+
+class DialerManagerObservabilityView(APIView):
+    """Company-wide closer SALE/list observability for Dialer Managers only."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from zoneinfo import ZoneInfo
+        from django.db.models.functions import Coalesce, Trim
+
+        user = request.user
+        if user.is_superuser or user.role != User.Role.DIALER_MANAGER:
+            raise PermissionDenied("Dialer observability is available to Dialer Managers.")
+        if not user.company_id:
+            raise PermissionDenied("A company assignment is required.")
+
+        key = str(request.query_params.get("window", "today")).strip().lower()
+        timezone_name = getattr(user.branch, "timezone", None) or "America/New_York"
+        local_tz = ZoneInfo(timezone_name)
+        start_local, end_local = _observability_window(key, local_tz)
+
+        # Mirror the inbound-list resolver's eligibility rules so outbound and
+        # manual SALEs never appear as false observability errors.
+        sales = (
+            CallEvent.objects.filter(
+                dialer__branch__company_id=user.company_id,
+                dialer__is_closer=True,
+                disposition__iexact="SALE",
+            )
+            .exclude(call_direction=CallEvent.Direction.OUTBOUND)
+            .exclude(dial_method=CallEvent.DialMethod.MANUAL)
+            .annotate(
+                sale_at=Coalesce("call_date", "finalized_at", "received_at"),
+                ingroup_key=Trim("closer_group"),
+            )
+            .filter(ingroup_key__gt="")
+            .filter(sale_at__gte=start_local.astimezone(timezone.get_current_timezone()))
+            .filter(sale_at__lt=end_local.astimezone(timezone.get_current_timezone()))
+        )
+
+        grouped_rows = list(
+            sales.values(
+                "dialer_id",
+                "dialer__name",
+                "ingroup_key",
+                "inbound_list_name",
+            )
+            .annotate(count=Count("id"))
+            .order_by("dialer__name", "closer_group", "inbound_list_name")
+        )
+
+        dialers = {}
+        total_errors = 0
+        for row in grouped_rows:
+            dialer_id = str(row["dialer_id"])
+            dialer = dialers.setdefault(
+                dialer_id,
+                {
+                    "id": dialer_id,
+                    "name": row["dialer__name"],
+                    "sales": 0,
+                    "error_count": 0,
+                    "ingroups": {},
+                    "errors": {},
+                },
+            )
+            count = row["count"] or 0
+            dialer["sales"] += count
+
+            raw_list_name = (row["inbound_list_name"] or "").strip()
+            is_error = not raw_list_name or raw_list_name.upper().startswith("ERROR:")
+            if is_error:
+                message = raw_list_name or "Unresolved list name"
+                dialer["error_count"] += count
+                dialer["errors"][message] = dialer["errors"].get(message, 0) + count
+                total_errors += count
+
+            ingroup_name = " ".join((row["ingroup_key"] or "").split())
+            ingroup = dialer["ingroups"].setdefault(
+                ingroup_name,
+                {"name": ingroup_name, "sales": 0, "lists": {}},
+            )
+            ingroup["sales"] += count
+            if not is_error:
+                ingroup["lists"][raw_list_name] = (
+                    ingroup["lists"].get(raw_list_name, 0) + count
+                )
+
+        payload_dialers = []
+        for dialer in sorted(dialers.values(), key=lambda item: item["name"].casefold()):
+            ingroups = []
+            for ingroup in sorted(
+                dialer["ingroups"].values(), key=lambda item: item["name"].casefold()
+            ):
+                ingroups.append(
+                    {
+                        "name": ingroup["name"],
+                        "sales": ingroup["sales"],
+                        "lists": [
+                            {"name": list_name, "count": count}
+                            for list_name, count in sorted(
+                                ingroup["lists"].items(),
+                                key=lambda item: (-item[1], item[0].casefold()),
+                            )
+                        ],
+                    }
+                )
+            payload_dialers.append(
+                {
+                    "id": dialer["id"],
+                    "name": dialer["name"],
+                    "sales": dialer["sales"],
+                    "error_count": dialer["error_count"],
+                    "ingroups": ingroups,
+                    "errors": [
+                        {"message": message, "count": count}
+                        for message, count in sorted(
+                            dialer["errors"].items(),
+                            key=lambda item: (-item[1], item[0].casefold()),
+                        )
+                    ],
+                }
+            )
+
+        return Response(
+            {
+                "window": {
+                    "key": key,
+                    "label": DIALER_OBSERVABILITY_WINDOWS.get(key, key),
+                    "from": start_local.isoformat(),
+                    "to": end_local.isoformat(),
+                    "timezone": timezone_name,
+                },
+                "totals": {
+                    "sales": sum(item["sales"] for item in payload_dialers),
+                    "dialers": len(payload_dialers),
+                    "errors": total_errors,
+                },
+                "dialers": payload_dialers,
+                "generated_at": timezone.now(),
+            }
+        )

@@ -22,6 +22,7 @@ import { scoreDisplay } from '../lib/evaluationResults';
 import { appDate } from '../lib/datetime';
 import type { CallEvent, DashboardSummary, PaginatedResponse, QAReport, QAReportSummary } from '../types';
 import { ProjectPerformancePage } from './ProjectPerformancePage';
+import { DialerObservabilityPage } from './DialerObservabilityPage';
 
 const { Title, Text } = Typography;
 
@@ -38,6 +39,7 @@ const statusColor: Record<string, string> = { downloaded: 'success', downloading
 
 export function DashboardPage() {
   const { user } = useAuth();
+  if (user?.role === 'dialer_manager' && !user.is_superuser) return <DialerObservabilityPage />;
   if (user?.role === 'qa' && !user.is_superuser) return <QAAnalystCommandCenter />;
   if (user?.role === 'team_leader' && !user.is_superuser) return <TeamLeaderCommandCenter />;
   if ((user?.role === 'project_manager' || user?.role === 'supervisor') && !user.is_superuser) return <ProjectPerformancePage overview />;

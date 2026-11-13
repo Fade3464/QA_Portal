@@ -28,6 +28,9 @@ function ProtectedLayout() {
   if (loading) return <ContentLoader fullPage label="Preparing your workspace" />;
   if (!user) return <Navigate to="/login" state={{ from: location.pathname }} replace />;
   if (user.must_change_password) return <Navigate to="/change-password" replace />;
+  if (user.role === 'dialer_manager' && !user.is_superuser && !['/', '/account'].includes(location.pathname)) {
+    return <Navigate to="/" replace />;
+  }
   return <AppShell />;
 }
 

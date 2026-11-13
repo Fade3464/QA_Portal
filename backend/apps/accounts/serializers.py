@@ -2,6 +2,7 @@ from rest_framework import serializers
 
 from .models import User
 from apps.tenancy.access import branch_projects
+from apps.tenancy.services import company_projects
 
 
 class LoginSerializer(serializers.Serializer):
@@ -88,6 +89,16 @@ class CurrentUserSerializer(serializers.ModelSerializer):
         }
 
     def get_assigned_projects(self, obj):
+        if obj.role == User.Role.DIALER_MANAGER and not obj.is_superuser:
+            return [
+                {
+                    "id": str(project.pk),
+                    "name": project.project_name,
+                    "campaign": project.campaign,
+                    "dialer": project.dialer.name,
+                }
+                for project in company_projects(obj)
+            ]
         if obj.role == User.Role.SUPERVISOR and not obj.is_superuser:
             return [
                 {
