@@ -377,6 +377,52 @@ class AdministrationApiTests(TestCase):
         self.assertEqual(duplicate_ingroups.status_code, 400)
         self.assertIn("cannot be listed twice", duplicate_ingroups.content.decode())
 
+    def test_existing_fronter_mapping_can_be_saved_when_editing_same_closer(self):
+        fronter = Dialer(
+            branch=self.branch,
+            name="Editable Fronter",
+            api_url="https://editable-fronter.example.com/vicidial/non_agent_api.php",
+            api_username="api",
+        )
+        fronter.set_api_password("secret")
+        fronter.save()
+
+        closer = Dialer(
+            branch=self.branch,
+            name="Editable Closer",
+            is_closer=True,
+            api_url="https://editable-closer.example.com/vicidial/non_agent_api.php",
+            api_username="api",
+        )
+        closer.set_api_password("secret")
+        closer.set_webhook_secret("another-long-private-webhook-secret")
+        closer.save()
+        mapping = DialerFronterMapping.objects.create(
+            closer_dialer=closer,
+            fronter_dialer=fronter,
+            ingroup_name="GROUP_ONE",
+        )
+
+        self.client.force_login(self.admin)
+        response = self.client.patch(
+            reverse("administration-dialer-detail", kwargs={"pk": closer.pk}),
+            {
+                "fronter_mappings": [
+                    {
+                        "id": str(mapping.pk),
+                        "fronter_dialer": str(fronter.pk),
+                        "ingroup_name": "GROUP_ONE, GROUP_TWO",
+                    }
+                ]
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        mapping.refresh_from_db()
+        self.assertEqual(mapping.ingroup_name, "GROUP_ONE, GROUP_TWO")
+        self.assertEqual(closer.fronter_mappings.count(), 1)
+
     def test_fronter_cannot_be_mapped_to_two_closers(self):
         fronter = Dialer(
             branch=self.branch,

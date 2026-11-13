@@ -280,6 +280,15 @@ class DialerCampaignAdminSerializer(serializers.ModelSerializer):
 
 
 class DialerFronterMappingAdminSerializer(serializers.ModelSerializer):
+    # fronter_dialer is a OneToOneField, so DRF would normally attach an
+    # automatic UniqueValidator. In this nested serializer DRF has no child
+    # instance during a parent update, making unchanged mappings look like
+    # duplicates. Ownership is validated in DialerAdminSerializer.validate(),
+    # while the database OneToOne constraint remains the concurrency-safe guard.
+    fronter_dialer = serializers.PrimaryKeyRelatedField(
+        queryset=Dialer.objects.all(),
+        validators=[],
+    )
     fronter_dialer_name = serializers.CharField(source="fronter_dialer.name", read_only=True)
 
     class Meta:
