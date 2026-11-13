@@ -76,6 +76,8 @@ def scoped_calls(user):
     )
     if user.is_superuser:
         return queryset
+    if user.role == User.Role.DIALER_MANAGER:
+        return queryset.none()
     if user.role == User.Role.SUPERVISOR:
         if not user.company_id or not user.branch_id:
             return queryset.none()

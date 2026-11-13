@@ -234,6 +234,116 @@ class AdministrationApiTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(DialerCampaign.objects.count(), 0)
 
+    def test_administrator_can_create_dialer_manager_without_project_assignments(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse("administration-user-list"),
+            {
+                "email": "dialer-manager@example.com",
+                "first_name": "Dialer",
+                "last_name": "Manager",
+                "role": User.Role.DIALER_MANAGER,
+                "company": str(self.company.pk),
+                "branch": str(self.branch.pk),
+                "password": "temporary-strong-password",
+                "is_active": True,
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        manager = User.objects.get(email="dialer-manager@example.com")
+        self.assertEqual(manager.role, User.Role.DIALER_MANAGER)
+        self.assertEqual(manager.company_id, self.company.pk)
+        self.assertEqual(manager.branch_id, self.branch.pk)
+        self.assertFalse(manager.qa_project_assignments.exists())
+
+    def test_closer_dialer_requires_fronter_mapping_and_ingroup(self):
+        fronter = Dialer(
+            branch=self.branch,
+            name="Fronter",
+            api_url="https://fronter.example.com/vicidial/non_agent_api.php",
+            api_username="api",
+        )
+        fronter.set_api_password("secret")
+        fronter.set_webhook_secret("a-long-private-webhook-secret")
+        fronter.save()
+
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse("administration-dialer-list"),
+            {
+                "branch": str(self.branch.pk),
+                "name": "Closer",
+                "is_closer": True,
+                "fronter_dialer": str(fronter.pk),
+                "fronter_ingroup_name": "  ARENA_FRONT  ",
+                "api_url": "https://closer.example.com/vicidial/non_agent_api.php",
+                "api_username": "api",
+                "api_password": "private-api-password",
+                "api_source": "qa_portal",
+                "webhook_secret": "another-long-private-webhook-secret",
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        closer = Dialer.objects.get(name="Closer")
+        self.assertTrue(closer.is_closer)
+        self.assertEqual(closer.fronter_dialer_id, fronter.pk)
+        self.assertEqual(closer.fronter_ingroup_name, "ARENA_FRONT")
+        self.assertEqual(response.json()["fronter_dialer_name"], "Fronter")
+
+        missing_mapping = self.client.post(
+            reverse("administration-dialer-list"),
+            {
+                "branch": str(self.branch.pk),
+                "name": "Broken closer",
+                "is_closer": True,
+                "api_url": "https://broken.example.com/vicidial/non_agent_api.php",
+                "api_username": "api",
+                "api_password": "private-api-password",
+                "api_source": "qa_portal",
+                "webhook_secret": "third-long-private-webhook-secret",
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(missing_mapping.status_code, 400)
+
+    def test_fronter_dialer_cannot_keep_closer_mapping_fields(self):
+        fronter = Dialer(
+            branch=self.branch,
+            name="Base fronter",
+            api_url="https://base.example.com/vicidial/non_agent_api.php",
+            api_username="api",
+        )
+        fronter.set_api_password("secret")
+        fronter.set_webhook_secret("a-long-private-webhook-secret")
+        fronter.save()
+        closer = Dialer(
+            branch=self.branch,
+            name="Mapped closer",
+            is_closer=True,
+            fronter_dialer=fronter,
+            fronter_ingroup_name="FRONT_GROUP",
+            api_url="https://mapped.example.com/vicidial/non_agent_api.php",
+            api_username="api",
+        )
+        closer.set_api_password("secret")
+        closer.set_webhook_secret("another-long-private-webhook-secret")
+        closer.full_clean()
+        closer.save()
+
+        self.client.force_login(self.admin)
+        response = self.client.patch(
+            reverse("administration-dialer-detail", kwargs={"pk": closer.pk}),
+            {"is_closer": False},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        closer.refresh_from_db()
+        self.assertFalse(closer.is_closer)
+        self.assertIsNone(closer.fronter_dialer_id)
+        self.assertEqual(closer.fronter_ingroup_name, "")
+
     def test_administrator_assigns_qa_to_projects_in_the_same_branch(self):
         dialer = Dialer(
             branch=self.branch,

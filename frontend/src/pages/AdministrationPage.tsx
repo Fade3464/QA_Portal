@@ -29,6 +29,7 @@ import {
   Form,
   Input,
   Row,
+  Radio,
   Select,
   Space,
   Statistic,
@@ -70,6 +71,7 @@ const roleOptions = [
   { value: 'team_leader', label: 'Team Leader' },
   { value: 'project_manager', label: 'Project Manager' },
   { value: 'supervisor', label: 'Supervisor' },
+  { value: 'dialer_manager', label: 'Dialer Manager' },
 ];
 
 export function AdministrationPage() {
@@ -138,7 +140,7 @@ export function AdministrationPage() {
         project_assignment_ids: record.assigned_projects?.map((project) => project.id) ?? [],
       });
     }
-    else form.setFieldsValue({ is_active: true, analytics_enabled: false, must_change_password: true, timezone: 'America/New_York', request_timeout_seconds: 15, api_source: 'qa_portal', preset_lookup_verify_tls: true, avatar: 'groups', ...editor.defaults });
+    else form.setFieldsValue({ is_active: true, analytics_enabled: false, must_change_password: true, timezone: 'America/New_York', request_timeout_seconds: 15, api_source: 'qa_portal', preset_lookup_verify_tls: true, is_closer: false, avatar: 'groups', ...editor.defaults });
   }, [editor, form]);
 
   const normalizedQuery = query.trim().toLowerCase();
@@ -246,6 +248,7 @@ export function AdministrationPage() {
   ];
   const dialerColumns: TableProps<DialerRecord>['columns'] = [
     { title: 'Dialer', key: 'dialer', render: (_, row) => <EntityCell icon={<ApiOutlined />} title={row.name} detail={`${row.company_name} · ${row.branch_name}`} /> },
+    { title: 'Type', key: 'type', width: 100, render: (_, row) => <Tag color={row.is_closer ? 'purple' : 'blue'}>{row.is_closer ? 'Closer' : 'Fronter'}</Tag> },
     { title: 'API endpoint', dataIndex: 'api_url', key: 'api_url', ellipsis: true },
     { title: 'Source', dataIndex: 'api_source', key: 'api_source', render: (value) => <Tag>{value}</Tag> },
     { title: 'Campaigns', key: 'campaigns', width: 120, render: (_, row) => <span><strong>{row.campaigns.length}</strong><br /><Text type="secondary">project mappings</Text></span> },
@@ -324,6 +327,11 @@ function EditorDrawer({ editor, form, saving, companies, branches, users, dialer
   const projectOptions = dialers
     .filter((dialer) => dialer.branch === selectedBranch && (dialer.is_active || dialer.campaigns.some((project) => selectedProjectIds.includes(project.id))))
     .flatMap((dialer) => dialer.campaigns.map((project) => ({ value: project.id, label: `${dialer.name} · ${project.project_name} (${project.campaign})` })));
+  const selectedDialerIsCloser = Form.useWatch('is_closer', form) as boolean | undefined;
+  const selectedDialerBranch = branches.find((branch) => branch.id === selectedBranch);
+  const fronterDialerOptions = selectedDialerBranch ? dialers
+    .filter((dialer) => !dialer.is_closer && dialer.id !== editor?.record?.id && dialer.company_name === selectedDialerBranch.company_name)
+    .map((dialer) => ({ value: dialer.id, label: `${dialer.name} · ${dialer.branch_name}` })) : [];
   return <Drawer open={Boolean(editor)} onClose={onClose} size="large" destroyOnHidden title={<div className="drawer-title"><span className="drawer-title__icon">{resource === 'teams' ? <ClusterOutlined /> : resource === 'users' ? <TeamOutlined /> : resource === 'dialers' ? <ApiOutlined /> : resource === 'branches' ? <ApartmentOutlined /> : <BankOutlined />}</span><span><strong>{isEdit ? 'Edit' : 'Add'} {resource ? resourceLabels[resource].singular : ''}</strong></span></div>} extra={<Space><Button onClick={onClose}>Cancel</Button><Button type="primary" loading={saving} onClick={() => form.submit()}>Save changes</Button></Space>}>
     <Form form={form} layout="vertical" requiredMark="optional" onFinish={onSave} className="admin-form">
       {resource === 'companies' && <>
@@ -343,7 +351,83 @@ function EditorDrawer({ editor, form, saving, companies, branches, users, dialer
       {resource === 'branches' && <><Form.Item name="company" label="Company" rules={[{ required: true }]}><Select showSearch={{ optionFilterProp: 'label' }} options={companyOptions} placeholder="Select company" /></Form.Item><Form.Item name="name" label="Branch name" rules={[{ required: true }]}><Input placeholder="e.g. New York" /></Form.Item><Form.Item name="code" label="Branch code" rules={[{ required: true }, { pattern: /^[a-z0-9-]+$/ }]}><Input placeholder="nyc" /></Form.Item><Form.Item name="timezone" label="Timezone" rules={[{ required: true }]}><Select options={[{ value: 'America/New_York', label: 'Eastern Time — New York (EST/EDT)' }]} /></Form.Item></>}
       {resource === 'teams' && <><Form.Item name="branch" label="Branch" rules={[{ required: true }]}><Select showSearch={{ optionFilterProp: 'label' }} options={branches.map((branch) => ({ value: branch.id, label: `${branch.company_name} · ${branch.name}` }))} onChange={() => form.setFieldValue('team_leader', undefined)} placeholder="Select branch" /></Form.Item><Form.Item name="name" label="Team name" extra="Prefix before the hyphen in agent_full_name." rules={[{ required: true }]}><Input placeholder="e.g. Annihilators" /></Form.Item><Form.Item name="avatar" label="Team avatar" rules={[{ required: true, message: 'Choose a team avatar.' }]}><TeamAvatarPicker /></Form.Item><Form.Item name="team_leader" label="Team leader" rules={[{ required: true }]}><Select showSearch={{ optionFilterProp: 'label' }} options={leaderOptions} disabled={!selectedBranch} placeholder={selectedBranch ? 'Select a team leader' : 'Select a branch first'} /></Form.Item></>}
       {resource === 'users' && <><Row gutter={14}><Col span={12}><Form.Item name="first_name" label="First name" rules={[{ required: true }]}><Input /></Form.Item></Col><Col span={12}><Form.Item name="last_name" label="Last name" rules={[{ required: true }]}><Input /></Form.Item></Col></Row><Form.Item name="email" label="Work email" rules={[{ required: true }, { type: 'email' }]}><Input /></Form.Item><Form.Item name="role" label="Portal role" rules={[{ required: true }]}><Select options={roleOptions} onChange={(role) => { if (!['qa', 'team_leader', 'project_manager'].includes(role)) form.setFieldValue('project_assignment_ids', []); if (role !== 'project_manager') form.setFieldValue('call_editor_access', false); }} /></Form.Item><Form.Item name="company" label="Company" rules={[{ required: true }]}><Select showSearch={{ optionFilterProp: 'label' }} options={companyOptions} onChange={() => { form.setFieldValue('branch', undefined); form.setFieldValue('project_assignment_ids', []); }} /></Form.Item><Form.Item name="branch" label="Branch" rules={[{ required: true }]}><Select showSearch={{ optionFilterProp: 'label' }} options={branchOptions} disabled={!selectedCompany} onChange={() => form.setFieldValue('project_assignment_ids', [])} /></Form.Item>{selectedRole === 'supervisor' && <Form.Item label="Project access"><Text type="secondary">All projects of every dialer in the selected company and branch are included automatically, including projects added later.</Text></Form.Item>}{selectedRole && ['qa', 'team_leader', 'project_manager'].includes(selectedRole) && <Form.Item name="project_assignment_ids" label="Dialer projects" rules={selectedRole === 'team_leader' ? [] : [{ required: true, message: 'Assign at least one dialer project.' }]}><Select mode="multiple" allowClear showSearch={{ optionFilterProp: 'label' }} options={projectOptions} disabled={!selectedBranch} maxTagCount="responsive" placeholder={selectedBranch ? 'Select allowed projects' : 'Select a branch first'} /></Form.Item>}{selectedRole === 'project_manager' && <Form.Item name="call_editor_access" label="Call editor access" valuePropName="checked" extra="Allows manual editing only for calls in this Project Manager's assigned projects."><Switch /></Form.Item>}<Form.Item name="password" label={isEdit ? 'New temporary password' : 'Temporary password'} extra={isEdit ? 'Leave blank to keep current password.' : undefined} rules={isEdit ? [{ min: 12 }] : [{ required: true }, { min: 12 }]}><Input.Password prefix={<KeyOutlined />} autoComplete="new-password" /></Form.Item><Form.Item name="must_change_password" label="Require password change" valuePropName="checked"><Switch /></Form.Item></>}
-      {resource === 'dialers' && <><Form.Item name="branch" label="Mapped branch" rules={[{ required: true }]}><Select showSearch={{ optionFilterProp: 'label' }} options={branches.map((branch) => ({ value: branch.id, label: `${branch.company_name} · ${branch.name}` }))} /></Form.Item><Form.Item name="name" label="Connection name" rules={[{ required: true }]}><Input placeholder="Primary VICIdial" /></Form.Item><Form.Item name="api_url" label="VICIdial API URL" rules={[{ required: true }, { type: 'url' }]}><Input placeholder="https://dialer.example.com/non_agent_api.php" /></Form.Item><Row gutter={14}><Col span={12}><Form.Item name="api_username" label="API username" rules={[{ required: true }]}><Input /></Form.Item></Col><Col span={12}><Form.Item name="api_source" label="API source" rules={[{ required: true }]}><Input /></Form.Item></Col></Row><Form.Item name="api_password" label={isEdit ? 'Replace API password' : 'API password'} extra={isEdit ? 'Leave blank to retain current credential.' : undefined} rules={isEdit ? [] : [{ required: true }]}><Input.Password autoComplete="new-password" /></Form.Item><Card size="small" title="SALE preset lookup" className="admin-inline-card"><Form.Item name="preset_lookup_url" label="VICIdial User Stats URL" rules={[{ type: 'url' }]} extra="Example: https://dialer.example.com/hidden-admin-path/user_stats.php"><Input placeholder="https://dialer.example.com/.../user_stats.php" /></Form.Item><Row gutter={14}><Col span={12}><Form.Item name="preset_lookup_username" label="Report username"><Input autoComplete="off" /></Form.Item></Col><Col span={12}><Form.Item name="preset_lookup_password" label={isEdit ? 'Replace report password' : 'Report password'} extra={isEdit ? 'Leave blank to retain the current credential.' : undefined}><Input.Password autoComplete="new-password" /></Form.Item></Col></Row><Form.Item name="preset_lookup_verify_tls" label="Verify TLS certificate" valuePropName="checked"><Switch /></Form.Item></Card><Form.Item name="webhook_secret" label={isEdit ? 'Rotate webhook secret' : 'Webhook secret'} extra={isEdit ? 'Leave blank to retain current secret.' : undefined} rules={isEdit ? [] : [{ required: true }, { min: 24 }]}><Input.Password autoComplete="new-password" /></Form.Item><div className="campaign-mapping-editor"><div className="campaign-mapping-editor__heading"><strong>Campaign projects</strong></div><Form.List name="campaigns">{(fields, { add, remove }) => <div className="campaign-mapping-editor__list">{fields.map(({ key, name, ...restField }, index) => <Row gutter={10} align="middle" key={key}><Col flex="1 1 180px"><Form.Item {...restField} name={[name, 'campaign']} label={index === 0 ? 'Campaign code' : undefined} rules={[{ required: true, message: 'Enter a campaign code.' }]}><Input placeholder="e.g. RETENTION" /></Form.Item></Col><Col flex="1 1 220px"><Form.Item {...restField} name={[name, 'project_name']} label={index === 0 ? 'Project name' : undefined} rules={[{ required: true, message: 'Enter a project name.' }]}><Input placeholder="e.g. Customer Retention" /></Form.Item></Col><Col flex="36px" className={index === 0 ? 'campaign-mapping-editor__remove--labelled' : ''}><Button type="text" danger shape="circle" icon={<MinusCircleOutlined />} aria-label={`Remove campaign mapping ${index + 1}`} onClick={() => remove(name)} /></Col></Row>)}<Button type="dashed" block icon={<PlusOutlined />} onClick={() => add({ campaign: '', project_name: '' })}>Add campaign mapping</Button></div>}</Form.List></div><Form.Item name="request_timeout_seconds" label="Request timeout (seconds)" rules={[{ required: true }]}><Input type="number" min={5} max={120} /></Form.Item></>}
+      {resource === 'dialers' && <>
+        <Form.Item name="branch" label="Mapped branch" rules={[{ required: true }]}>
+          <Select
+            showSearch={{ optionFilterProp: 'label' }}
+            options={branches.map((branch) => ({ value: branch.id, label: `${branch.company_name} · ${branch.name}` }))}
+            onChange={() => form.setFieldValue('fronter_dialer', undefined)}
+          />
+        </Form.Item>
+        <Form.Item name="name" label="Connection name" rules={[{ required: true }]}>
+          <Input placeholder="Primary VICIdial" />
+        </Form.Item>
+        <Form.Item name="is_closer" label="Dialer type" rules={[{ required: true, message: 'Choose Fronter or Closer.' }]}>
+          <Radio.Group buttonStyle="solid">
+            <Radio.Button value={false}>Fronter</Radio.Button>
+            <Radio.Button value={true}>Closer</Radio.Button>
+          </Radio.Group>
+        </Form.Item>
+        <Form.Item name="api_url" label="VICIdial Non-Agent API URL" rules={[{ required: true }, { type: 'url' }]}>
+          <Input placeholder="https://dialer.example.com/vicidial/non_agent_api.php" />
+        </Form.Item>
+        <Row gutter={14}>
+          <Col span={12}><Form.Item name="api_username" label="API username" rules={[{ required: true }]}><Input /></Form.Item></Col>
+          <Col span={12}><Form.Item name="api_source" label="API source" rules={[{ required: true }]}><Input /></Form.Item></Col>
+        </Row>
+        <Form.Item name="api_password" label={isEdit ? 'Replace API password' : 'API password'} extra={isEdit ? 'Leave blank to retain current credential.' : undefined} rules={isEdit ? [] : [{ required: true }]}>
+          <Input.Password autoComplete="new-password" />
+        </Form.Item>
+        {selectedDialerIsCloser && <>
+          <Card size="small" title="Fronter mapping" className="admin-inline-card">
+            <Form.Item
+              name="fronter_dialer"
+              label="Mapped fronter dialer"
+              rules={[{ required: true, message: 'Choose the fronter dialer mapped to this closer.' }]}
+              extra="Only fronter dialers from the same company can be mapped."
+            >
+              <Select
+                showSearch={{ optionFilterProp: 'label' }}
+                options={fronterDialerOptions}
+                disabled={!selectedDialerBranch}
+                placeholder={selectedDialerBranch ? 'Select fronter dialer' : 'Select a mapped branch first'}
+              />
+            </Form.Item>
+            <Form.Item
+              name="fronter_ingroup_name"
+              label="Fronter in-group name on this closer"
+              rules={[{ required: true, message: 'Enter the fronter in-group name used on this closer.' }]}
+            >
+              <Input placeholder="e.g. ARENA_FRONT" />
+            </Form.Item>
+          </Card>
+          <Card size="small" title="SALE preset lookup" className="admin-inline-card">
+            <Form.Item name="preset_lookup_url" label="VICIdial User Stats URL" rules={[{ type: 'url' }]} extra="Example: https://dialer.example.com/hidden-admin-path/user_stats.php">
+              <Input placeholder="https://dialer.example.com/.../user_stats.php" />
+            </Form.Item>
+            <Row gutter={14}>
+              <Col span={12}><Form.Item name="preset_lookup_username" label="Report username"><Input autoComplete="off" /></Form.Item></Col>
+              <Col span={12}><Form.Item name="preset_lookup_password" label={isEdit ? 'Replace report password' : 'Report password'} extra={isEdit ? 'Leave blank to retain the current credential.' : undefined}><Input.Password autoComplete="new-password" /></Form.Item></Col>
+            </Row>
+            <Form.Item name="preset_lookup_verify_tls" label="Verify TLS certificate" valuePropName="checked"><Switch /></Form.Item>
+          </Card>
+        </>}
+        <Form.Item name="webhook_secret" label={isEdit ? 'Rotate webhook secret' : 'Webhook secret'} extra={isEdit ? 'Leave blank to retain current secret.' : undefined} rules={isEdit ? [] : [{ required: true }, { min: 24 }]}>
+          <Input.Password autoComplete="new-password" />
+        </Form.Item>
+        <div className="campaign-mapping-editor">
+          <div className="campaign-mapping-editor__heading"><strong>Campaign projects</strong></div>
+          <Form.List name="campaigns">{(fields, { add, remove }) => <div className="campaign-mapping-editor__list">
+            {fields.map(({ key, name, ...restField }, index) => <Row gutter={10} align="middle" key={key}>
+              <Col flex="1 1 180px"><Form.Item {...restField} name={[name, 'campaign']} label={index === 0 ? 'Campaign code' : undefined} rules={[{ required: true, message: 'Enter a campaign code.' }]}><Input placeholder="e.g. RETENTION" /></Form.Item></Col>
+              <Col flex="1 1 220px"><Form.Item {...restField} name={[name, 'project_name']} label={index === 0 ? 'Project name' : undefined} rules={[{ required: true, message: 'Enter a project name.' }]}><Input placeholder="e.g. Customer Retention" /></Form.Item></Col>
+              <Col flex="36px" className={index === 0 ? 'campaign-mapping-editor__remove--labelled' : ''}><Button type="text" danger shape="circle" icon={<MinusCircleOutlined />} aria-label={`Remove campaign mapping ${index + 1}`} onClick={() => remove(name)} /></Col>
+            </Row>)}
+            <Button type="dashed" block icon={<PlusOutlined />} onClick={() => add({ campaign: '', project_name: '' })}>Add campaign mapping</Button>
+          </div>}</Form.List>
+        </div>
+        <Form.Item name="request_timeout_seconds" label="Request timeout (seconds)" rules={[{ required: true }]}><Input type="number" min={5} max={120} /></Form.Item>
+      </>}
       <div className="form-status-row"><span><strong>Active</strong></span><Form.Item name="is_active" valuePropName="checked" noStyle><Switch /></Form.Item></div>
     </Form>
   </Drawer>;

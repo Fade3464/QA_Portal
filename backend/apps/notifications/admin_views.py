@@ -94,6 +94,7 @@ class CustomNotificationInputSerializer(serializers.Serializer):
                 User.Role.TEAM_LEADER,
                 User.Role.PROJECT_MANAGER,
                 User.Role.SUPERVISOR,
+                User.Role.DIALER_MANAGER,
             }
             invalid_roles = set(target_ids) - allowed_roles
             if invalid_roles:

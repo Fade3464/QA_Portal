@@ -210,6 +210,15 @@ class CallEvent(models.Model):
         blank=True,
     )
 
+    # Populated by the inbound SALE list-resolution workflow. The workflow is
+    # intentionally implemented separately; this field only establishes the
+    # durable nullable storage required for it.
+    inbound_list_name = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+    )
+
     disposition = models.CharField(
         max_length=40,
         blank=True,

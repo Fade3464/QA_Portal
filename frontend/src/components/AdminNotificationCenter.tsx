@@ -59,6 +59,7 @@ const roleOptions = [
   { value: 'team_leader', label: 'Team Leaders' },
   { value: 'project_manager', label: 'Project Managers' },
   { value: 'supervisor', label: 'Supervisors' },
+  { value: 'dialer_manager', label: 'Dialer Managers' },
 ];
 
 const severityColors = { info: 'blue', warning: 'gold', error: 'red' } as const;

@@ -1,4 +1,4 @@
-export type UserRole = 'qa' | 'team_leader' | 'project_manager' | 'supervisor' | 'administrator';
+export type UserRole = 'qa' | 'team_leader' | 'project_manager' | 'supervisor' | 'dialer_manager' | 'administrator';
 
 export interface TenantReference {
   id: string;
@@ -243,6 +243,7 @@ export interface CallEvent {
   call_direction: 'INBOUND' | 'TRANSFER' | 'CLOSER' | 'OUTBOUND';
   dial_method: 'AUTO' | 'MANUAL' | 'UNKNOWN' | 'N/A';
   phone_number: string;
+  inbound_list_name: string | null;
   disposition: string;
   stale: boolean;
   client_status: string | null;
@@ -462,6 +463,10 @@ export interface DialerRecord {
   branch_name: string;
   company_name: string;
   name: string;
+  is_closer: boolean;
+  fronter_dialer: string | null;
+  fronter_dialer_name: string | null;
+  fronter_ingroup_name: string;
   api_url: string;
   api_username: string;
   api_source: string;

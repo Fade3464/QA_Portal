@@ -14,6 +14,7 @@ class User(AbstractUser):
         TEAM_LEADER = "team_leader", "Team Leader"
         PROJECT_MANAGER = "project_manager", "Project Manager"
         SUPERVISOR = "supervisor", "Supervisor"
+        DIALER_MANAGER = "dialer_manager", "Dialer Manager"
         ADMINISTRATOR = "administrator", "System Administrator"
 
     class AppearanceMode(models.TextChoices):

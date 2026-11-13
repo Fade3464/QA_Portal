@@ -35,6 +35,7 @@ const SIDEBAR_SHORTCUTS = {
   team_leader: { title: 'Review QA reports', description: 'Review feedback and record your next steps.', path: '/queue', action: 'Open QA inbox', icon: <AuditOutlined /> },
   project_manager: { title: 'Project performance', description: 'Compare quality and coverage across projects.', path: '/team', action: 'View performance', icon: <BarChartOutlined /> },
   supervisor: { title: 'Project performance', description: 'Compare quality and coverage across projects.', path: '/team', action: 'View performance', icon: <BarChartOutlined /> },
+  dialer_manager: { title: 'Dialer account', description: 'Review your company and branch assignment.', path: '/account', action: 'View account', icon: <SettingOutlined /> },
   administrator: { title: 'Workspace administration', description: 'Manage users, teams, and portal settings.', path: '/admin', action: 'Open administration', icon: <SettingOutlined /> },
 };
 
@@ -219,6 +220,7 @@ export function AppShell() {
       { key: '/account', icon: <UserOutlined />, label: <Link to="/account">Account</Link> },
     ];
     return all.filter((item) => {
+      if (user?.role === 'dialer_manager') return item.key === '/' || item.key === '/account';
       if ('allowAI' in item) return canUseAI(user ?? null);
       if ('callEditor' in item) return user?.role === 'project_manager' && Boolean(user.call_editor_access);
       return !item.roles || item.roles.includes(user?.role ?? '');

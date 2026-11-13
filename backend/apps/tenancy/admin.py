@@ -142,8 +142,9 @@ class QAProjectAssignmentAdmin(admin.ModelAdmin):
 @admin.register(Dialer)
 class DialerAdmin(admin.ModelAdmin):
     form = DialerAdminForm
-    list_display = ("name", "branch", "api_url", "is_active", "updated_at")
-    list_filter = ("branch__company", "branch", "is_active")
+    list_display = ("name", "branch", "is_closer", "fronter_dialer", "api_url", "is_active", "updated_at")
+    list_filter = ("branch__company", "branch", "is_closer", "is_active")
     search_fields = ("name", "branch__name", "branch__company__name", "api_url")
     readonly_fields = ("id", "created_at", "updated_at")
+    autocomplete_fields = ("fronter_dialer",)
     inlines = (DialerCampaignInline,)

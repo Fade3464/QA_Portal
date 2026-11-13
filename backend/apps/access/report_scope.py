@@ -27,6 +27,8 @@ def scoped_reports(user):
     queryset = _report_base_queryset()
     if user.is_superuser:
         return queryset
+    if user.role == User.Role.DIALER_MANAGER:
+        return queryset.none()
     if user.role == User.Role.QA:
         return queryset.filter(reviewer=user)
     if user.role == User.Role.SUPERVISOR:

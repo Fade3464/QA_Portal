@@ -281,6 +281,7 @@ class DialerCampaignAdminSerializer(serializers.ModelSerializer):
 class DialerAdminSerializer(serializers.ModelSerializer):
     branch_name = serializers.CharField(source="branch.name", read_only=True)
     company_name = serializers.CharField(source="branch.company.name", read_only=True)
+    fronter_dialer_name = serializers.CharField(source="fronter_dialer.name", read_only=True)
     api_password = serializers.CharField(
         write_only=True, required=False, allow_blank=False
     )
@@ -301,6 +302,10 @@ class DialerAdminSerializer(serializers.ModelSerializer):
             "branch_name",
             "company_name",
             "name",
+            "is_closer",
+            "fronter_dialer",
+            "fronter_dialer_name",
+            "fronter_ingroup_name",
             "api_url",
             "api_username",
             "api_password",
@@ -378,6 +383,43 @@ class DialerAdminSerializer(serializers.ModelSerializer):
                 seen.add(key)
                 mapping["campaign"] = campaign
                 mapping["project_name"] = project_name
+
+        is_closer = attrs.get(
+            "is_closer",
+            getattr(self.instance, "is_closer", False),
+        )
+        branch = attrs.get("branch", getattr(self.instance, "branch", None))
+        fronter = attrs.get(
+            "fronter_dialer",
+            getattr(self.instance, "fronter_dialer", None),
+        )
+        ingroup_name = " ".join(
+            attrs.get(
+                "fronter_ingroup_name",
+                getattr(self.instance, "fronter_ingroup_name", ""),
+            ).split()
+        )
+        if is_closer:
+            errors = {}
+            if not fronter:
+                errors["fronter_dialer"] = "Choose the fronter dialer mapped to this closer."
+            else:
+                if self.instance and fronter.pk == self.instance.pk:
+                    errors["fronter_dialer"] = "A closer dialer cannot map to itself."
+                elif fronter.is_closer:
+                    errors["fronter_dialer"] = "A closer dialer must map to a fronter dialer."
+                elif branch and fronter.branch.company_id != branch.company_id:
+                    errors["fronter_dialer"] = "The fronter and closer dialers must belong to the same company."
+            if not ingroup_name:
+                errors["fronter_ingroup_name"] = "Enter the fronter in-group name used on this closer."
+            if errors:
+                raise serializers.ValidationError(errors)
+            attrs["fronter_ingroup_name"] = ingroup_name
+        else:
+            # A fronter dialer has no parent/fronter mapping. Clear these
+            # fields when a closer is converted back to a fronter as well.
+            attrs["fronter_dialer"] = None
+            attrs["fronter_ingroup_name"] = ""
         return attrs
 
     @staticmethod

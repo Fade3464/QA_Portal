@@ -288,6 +288,7 @@ class CallEventSerializer(serializers.ModelSerializer):
             "call_direction",
             "dial_method",
             "phone_number",
+            "inbound_list_name",
             "disposition",
             "stale",
             "client_status",
