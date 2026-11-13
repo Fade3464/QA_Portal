@@ -66,9 +66,13 @@ class DialerAdminForm(forms.ModelForm):
             self.add_error(
                 "api_password", "An API password is required for a new dialer."
             )
-        if not self.instance.pk and not cleaned.get("webhook_secret"):
+        if (
+            not self.instance.pk
+            and cleaned.get("is_closer")
+            and not cleaned.get("webhook_secret")
+        ):
             self.add_error(
-                "webhook_secret", "A webhook secret is required for a new dialer."
+                "webhook_secret", "A webhook secret is required for a new closer dialer."
             )
         lookup_url = cleaned.get("preset_lookup_url")
         lookup_username = cleaned.get("preset_lookup_username")

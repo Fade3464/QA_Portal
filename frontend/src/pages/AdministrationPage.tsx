@@ -412,20 +412,22 @@ function EditorDrawer({ editor, form, saving, companies, branches, users, dialer
             <Form.Item name="preset_lookup_verify_tls" label="Verify TLS certificate" valuePropName="checked"><Switch /></Form.Item>
           </Card>
         </>}
-        <Form.Item name="webhook_secret" label={isEdit ? 'Rotate webhook secret' : 'Webhook secret'} extra={isEdit ? 'Leave blank to retain current secret.' : undefined} rules={isEdit ? [] : [{ required: true }, { min: 24 }]}>
-          <Input.Password autoComplete="new-password" />
-        </Form.Item>
-        <div className="campaign-mapping-editor">
-          <div className="campaign-mapping-editor__heading"><strong>Campaign projects</strong></div>
-          <Form.List name="campaigns">{(fields, { add, remove }) => <div className="campaign-mapping-editor__list">
-            {fields.map(({ key, name, ...restField }, index) => <Row gutter={10} align="middle" key={key}>
-              <Col flex="1 1 180px"><Form.Item {...restField} name={[name, 'campaign']} label={index === 0 ? 'Campaign code' : undefined} rules={[{ required: true, message: 'Enter a campaign code.' }]}><Input placeholder="e.g. RETENTION" /></Form.Item></Col>
-              <Col flex="1 1 220px"><Form.Item {...restField} name={[name, 'project_name']} label={index === 0 ? 'Project name' : undefined} rules={[{ required: true, message: 'Enter a project name.' }]}><Input placeholder="e.g. Customer Retention" /></Form.Item></Col>
-              <Col flex="36px" className={index === 0 ? 'campaign-mapping-editor__remove--labelled' : ''}><Button type="text" danger shape="circle" icon={<MinusCircleOutlined />} aria-label={`Remove campaign mapping ${index + 1}`} onClick={() => remove(name)} /></Col>
-            </Row>)}
-            <Button type="dashed" block icon={<PlusOutlined />} onClick={() => add({ campaign: '', project_name: '' })}>Add campaign mapping</Button>
-          </div>}</Form.List>
-        </div>
+        {selectedDialerIsCloser && <>
+          <Form.Item name="webhook_secret" label={isEdit ? 'Rotate webhook secret' : 'Webhook secret'} extra={isEdit ? 'Leave blank to retain current secret.' : undefined} rules={isEdit ? [] : [{ required: true }, { min: 24 }]}>
+            <Input.Password autoComplete="new-password" />
+          </Form.Item>
+          <div className="campaign-mapping-editor">
+            <div className="campaign-mapping-editor__heading"><strong>Campaign projects</strong></div>
+            <Form.List name="campaigns">{(fields, { add, remove }) => <div className="campaign-mapping-editor__list">
+              {fields.map(({ key, name, ...restField }, index) => <Row gutter={10} align="middle" key={key}>
+                <Col flex="1 1 180px"><Form.Item {...restField} name={[name, 'campaign']} label={index === 0 ? 'Campaign code' : undefined} rules={[{ required: true, message: 'Enter a campaign code.' }]}><Input placeholder="e.g. RETENTION" /></Form.Item></Col>
+                <Col flex="1 1 220px"><Form.Item {...restField} name={[name, 'project_name']} label={index === 0 ? 'Project name' : undefined} rules={[{ required: true, message: 'Enter a project name.' }]}><Input placeholder="e.g. Customer Retention" /></Form.Item></Col>
+                <Col flex="36px" className={index === 0 ? 'campaign-mapping-editor__remove--labelled' : ''}><Button type="text" danger shape="circle" icon={<MinusCircleOutlined />} aria-label={`Remove campaign mapping ${index + 1}`} onClick={() => remove(name)} /></Col>
+              </Row>)}
+              <Button type="dashed" block icon={<PlusOutlined />} onClick={() => add({ campaign: '', project_name: '' })}>Add campaign mapping</Button>
+            </div>}</Form.List>
+          </div>
+        </>}
         <Form.Item name="request_timeout_seconds" label="Request timeout (seconds)" rules={[{ required: true }]}><Input type="number" min={5} max={120} /></Form.Item>
       </>}
       <div className="form-status-row"><span><strong>Active</strong></span><Form.Item name="is_active" valuePropName="checked" noStyle><Switch /></Form.Item></div>

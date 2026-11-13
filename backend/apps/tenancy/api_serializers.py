@@ -328,14 +328,18 @@ class DialerAdminSerializer(serializers.ModelSerializer):
         return f"/api/v1/webhooks/vicidial/{obj.id}/dispo/"
 
     def validate(self, attrs):
+        is_closer = attrs.get(
+            "is_closer",
+            getattr(self.instance, "is_closer", False),
+        )
         if not self.instance:
             if not attrs.get("api_password"):
                 raise serializers.ValidationError(
                     {"api_password": "An API password is required."}
                 )
-            if not attrs.get("webhook_secret"):
+            if is_closer and not attrs.get("webhook_secret"):
                 raise serializers.ValidationError(
-                    {"webhook_secret": "A webhook secret is required."}
+                    {"webhook_secret": "A webhook secret is required for a closer dialer."}
                 )
         lookup_url = attrs.get(
             "preset_lookup_url",
@@ -384,10 +388,6 @@ class DialerAdminSerializer(serializers.ModelSerializer):
                 mapping["campaign"] = campaign
                 mapping["project_name"] = project_name
 
-        is_closer = attrs.get(
-            "is_closer",
-            getattr(self.instance, "is_closer", False),
-        )
         branch = attrs.get("branch", getattr(self.instance, "branch", None))
         fronter = attrs.get(
             "fronter_dialer",
@@ -443,14 +443,15 @@ class DialerAdminSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         campaigns = validated_data.pop("campaigns", [])
         api_password = validated_data.pop("api_password")
-        webhook_secret = validated_data.pop("webhook_secret")
+        webhook_secret = validated_data.pop("webhook_secret", "")
         preset_lookup_password = validated_data.pop("preset_lookup_password", "")
         with transaction.atomic():
             dialer = Dialer(**validated_data)
             dialer.set_api_password(api_password)
             if preset_lookup_password:
                 dialer.set_preset_lookup_password(preset_lookup_password)
-            dialer.set_webhook_secret(webhook_secret)
+            if webhook_secret:
+                dialer.set_webhook_secret(webhook_secret)
             dialer.full_clean()
             dialer.save()
             self._replace_campaigns(dialer, campaigns)
