@@ -57,8 +57,13 @@ class BranchViewSet(ManagedModelViewSet):
 class DialerViewSet(ManagedModelViewSet):
     serializer_class = DialerAdminSerializer
     queryset = Dialer.objects.select_related(
-        "branch", "branch__company", "fronter_dialer", "fronter_dialer__branch__company"
-    ).prefetch_related("campaigns")
+        "branch",
+        "branch__company",
+        "closer_mapping__closer_dialer",
+    ).prefetch_related(
+        "campaigns",
+        "fronter_mappings__fronter_dialer__branch__company",
+    )
 
 
 class TeamViewSet(ManagedModelViewSet):

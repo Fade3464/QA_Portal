@@ -4,7 +4,7 @@ from django.urls import reverse
 
 from apps.accounts.models import User
 
-from .models import Branch, Company, Dialer, DialerCampaign, QAProjectAssignment, Team
+from .models import Branch, Company, Dialer, DialerCampaign, DialerFronterMapping, QAProjectAssignment, Team
 
 
 class AdministrationApiTests(TestCase):
@@ -257,16 +257,23 @@ class AdministrationApiTests(TestCase):
         self.assertEqual(manager.branch_id, self.branch.pk)
         self.assertFalse(manager.qa_project_assignments.exists())
 
-    def test_closer_dialer_requires_fronter_mapping_and_ingroup(self):
-        fronter = Dialer(
+    def test_closer_dialer_supports_multiple_unique_fronter_mappings(self):
+        fronter_one = Dialer(
             branch=self.branch,
-            name="Fronter",
-            api_url="https://fronter.example.com/vicidial/non_agent_api.php",
+            name="Fronter One",
+            api_url="https://fronter-one.example.com/vicidial/non_agent_api.php",
             api_username="api",
         )
-        fronter.set_api_password("secret")
-        fronter.set_webhook_secret("a-long-private-webhook-secret")
-        fronter.save()
+        fronter_one.set_api_password("secret")
+        fronter_one.save()
+        fronter_two = Dialer(
+            branch=self.branch,
+            name="Fronter Two",
+            api_url="https://fronter-two.example.com/vicidial/non_agent_api.php",
+            api_username="api",
+        )
+        fronter_two.set_api_password("secret")
+        fronter_two.save()
 
         self.client.force_login(self.admin)
         response = self.client.post(
@@ -275,8 +282,16 @@ class AdministrationApiTests(TestCase):
                 "branch": str(self.branch.pk),
                 "name": "Closer",
                 "is_closer": True,
-                "fronter_dialer": str(fronter.pk),
-                "fronter_ingroup_name": "  ARENA_FRONT  ",
+                "fronter_mappings": [
+                    {
+                        "fronter_dialer": str(fronter_one.pk),
+                        "ingroup_name": "  ARENA_FRONT_ONE  ",
+                    },
+                    {
+                        "fronter_dialer": str(fronter_two.pk),
+                        "ingroup_name": "ARENA_FRONT_TWO",
+                    },
+                ],
                 "api_url": "https://closer.example.com/vicidial/non_agent_api.php",
                 "api_username": "api",
                 "api_password": "private-api-password",
@@ -288,9 +303,17 @@ class AdministrationApiTests(TestCase):
         self.assertEqual(response.status_code, 201, response.content)
         closer = Dialer.objects.get(name="Closer")
         self.assertTrue(closer.is_closer)
-        self.assertEqual(closer.fronter_dialer_id, fronter.pk)
-        self.assertEqual(closer.fronter_ingroup_name, "ARENA_FRONT")
-        self.assertEqual(response.json()["fronter_dialer_name"], "Fronter")
+        mappings = list(closer.fronter_mappings.order_by("ingroup_name"))
+        self.assertEqual(len(mappings), 2)
+        self.assertEqual(
+            {mapping.fronter_dialer_id for mapping in mappings},
+            {fronter_one.pk, fronter_two.pk},
+        )
+        self.assertEqual(
+            {mapping.ingroup_name for mapping in mappings},
+            {"ARENA_FRONT_ONE", "ARENA_FRONT_TWO"},
+        )
+        self.assertEqual(len(response.json()["fronter_mappings"]), 2)
 
         missing_mapping = self.client.post(
             reverse("administration-dialer-list"),
@@ -308,7 +331,57 @@ class AdministrationApiTests(TestCase):
         )
         self.assertEqual(missing_mapping.status_code, 400)
 
-    def test_fronter_dialer_cannot_keep_closer_mapping_fields(self):
+    def test_fronter_cannot_be_mapped_to_two_closers(self):
+        fronter = Dialer(
+            branch=self.branch,
+            name="Exclusive Fronter",
+            api_url="https://exclusive.example.com/vicidial/non_agent_api.php",
+            api_username="api",
+        )
+        fronter.set_api_password("secret")
+        fronter.save()
+
+        closer_one = Dialer(
+            branch=self.branch,
+            name="Closer One",
+            is_closer=True,
+            api_url="https://closer-one.example.com/vicidial/non_agent_api.php",
+            api_username="api",
+        )
+        closer_one.set_api_password("secret")
+        closer_one.set_webhook_secret("another-long-private-webhook-secret")
+        closer_one.save()
+        DialerFronterMapping.objects.create(
+            closer_dialer=closer_one,
+            fronter_dialer=fronter,
+            ingroup_name="FRONT_ONE",
+        )
+
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse("administration-dialer-list"),
+            {
+                "branch": str(self.branch.pk),
+                "name": "Closer Two",
+                "is_closer": True,
+                "fronter_mappings": [
+                    {
+                        "fronter_dialer": str(fronter.pk),
+                        "ingroup_name": "FRONT_TWO",
+                    }
+                ],
+                "api_url": "https://closer-two.example.com/vicidial/non_agent_api.php",
+                "api_username": "api",
+                "api_password": "private-api-password",
+                "api_source": "qa_portal",
+                "webhook_secret": "third-long-private-webhook-secret",
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("already mapped to closer Closer One", response.content.decode())
+
+    def test_converting_closer_to_fronter_removes_owned_mappings(self):
         fronter = Dialer(
             branch=self.branch,
             name="Base fronter",
@@ -316,21 +389,22 @@ class AdministrationApiTests(TestCase):
             api_username="api",
         )
         fronter.set_api_password("secret")
-        fronter.set_webhook_secret("a-long-private-webhook-secret")
         fronter.save()
         closer = Dialer(
             branch=self.branch,
             name="Mapped closer",
             is_closer=True,
-            fronter_dialer=fronter,
-            fronter_ingroup_name="FRONT_GROUP",
             api_url="https://mapped.example.com/vicidial/non_agent_api.php",
             api_username="api",
         )
         closer.set_api_password("secret")
         closer.set_webhook_secret("another-long-private-webhook-secret")
-        closer.full_clean()
         closer.save()
+        DialerFronterMapping.objects.create(
+            closer_dialer=closer,
+            fronter_dialer=fronter,
+            ingroup_name="FRONT_GROUP",
+        )
 
         self.client.force_login(self.admin)
         response = self.client.patch(
@@ -341,8 +415,7 @@ class AdministrationApiTests(TestCase):
         self.assertEqual(response.status_code, 200, response.content)
         closer.refresh_from_db()
         self.assertFalse(closer.is_closer)
-        self.assertIsNone(closer.fronter_dialer_id)
-        self.assertEqual(closer.fronter_ingroup_name, "")
+        self.assertFalse(closer.fronter_mappings.exists())
 
     def test_administrator_assigns_qa_to_projects_in_the_same_branch(self):
         dialer = Dialer(

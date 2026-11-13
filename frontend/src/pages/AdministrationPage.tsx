@@ -328,10 +328,29 @@ function EditorDrawer({ editor, form, saving, companies, branches, users, dialer
     .filter((dialer) => dialer.branch === selectedBranch && (dialer.is_active || dialer.campaigns.some((project) => selectedProjectIds.includes(project.id))))
     .flatMap((dialer) => dialer.campaigns.map((project) => ({ value: project.id, label: `${dialer.name} · ${project.project_name} (${project.campaign})` })));
   const selectedDialerIsCloser = Form.useWatch('is_closer', form) as boolean | undefined;
+  const selectedFronterMappings = Form.useWatch('fronter_mappings', form) as Array<{ fronter_dialer?: string; ingroup_name?: string }> | undefined;
   const selectedDialerBranch = branches.find((branch) => branch.id === selectedBranch);
-  const fronterDialerOptions = selectedDialerBranch ? dialers
-    .filter((dialer) => !dialer.is_closer && dialer.id !== editor?.record?.id && dialer.company_name === selectedDialerBranch.company_name)
-    .map((dialer) => ({ value: dialer.id, label: `${dialer.name} · ${dialer.branch_name}` })) : [];
+  const availableFronterDialers = selectedDialerBranch ? dialers
+    .filter((dialer) =>
+      !dialer.is_closer
+      && dialer.id !== editor?.record?.id
+      && dialer.company_name === selectedDialerBranch.company_name
+      && (!dialer.mapped_closer_dialer || dialer.mapped_closer_dialer === editor?.record?.id)
+    ) : [];
+  const fronterDialerOptionsFor = (rowIndex: number) => {
+    const usedByOtherRows = new Set(
+      (selectedFronterMappings ?? [])
+        .filter((_, index) => index !== rowIndex)
+        .map((mapping) => mapping?.fronter_dialer)
+        .filter((value): value is string => Boolean(value)),
+    );
+    return availableFronterDialers
+      .filter((dialer) => !usedByOtherRows.has(dialer.id))
+      .map((dialer) => ({
+        value: dialer.id,
+        label: `${dialer.name} · ${dialer.branch_name}`,
+      }));
+  };
   return <Drawer open={Boolean(editor)} onClose={onClose} size="large" destroyOnHidden title={<div className="drawer-title"><span className="drawer-title__icon">{resource === 'teams' ? <ClusterOutlined /> : resource === 'users' ? <TeamOutlined /> : resource === 'dialers' ? <ApiOutlined /> : resource === 'branches' ? <ApartmentOutlined /> : <BankOutlined />}</span><span><strong>{isEdit ? 'Edit' : 'Add'} {resource ? resourceLabels[resource].singular : ''}</strong></span></div>} extra={<Space><Button onClick={onClose}>Cancel</Button><Button type="primary" loading={saving} onClick={() => form.submit()}>Save changes</Button></Space>}>
     <Form form={form} layout="vertical" requiredMark="optional" onFinish={onSave} className="admin-form">
       {resource === 'companies' && <>
@@ -356,14 +375,19 @@ function EditorDrawer({ editor, form, saving, companies, branches, users, dialer
           <Select
             showSearch={{ optionFilterProp: 'label' }}
             options={branches.map((branch) => ({ value: branch.id, label: `${branch.company_name} · ${branch.name}` }))}
-            onChange={() => form.setFieldValue('fronter_dialer', undefined)}
+            onChange={() => form.setFieldValue('fronter_mappings', [])}
           />
         </Form.Item>
         <Form.Item name="name" label="Connection name" rules={[{ required: true }]}>
           <Input placeholder="Primary VICIdial" />
         </Form.Item>
         <Form.Item name="is_closer" label="Dialer type" rules={[{ required: true, message: 'Choose Fronter or Closer.' }]}>
-          <Radio.Group buttonStyle="solid">
+          <Radio.Group
+            buttonStyle="solid"
+            onChange={(event) => {
+              if (!event.target.value) form.setFieldValue('fronter_mappings', []);
+            }}
+          >
             <Radio.Button value={false}>Fronter</Radio.Button>
             <Radio.Button value={true}>Closer</Radio.Button>
           </Radio.Group>
@@ -379,27 +403,70 @@ function EditorDrawer({ editor, form, saving, companies, branches, users, dialer
           <Input.Password autoComplete="new-password" />
         </Form.Item>
         {selectedDialerIsCloser && <>
-          <Card size="small" title="Fronter mapping" className="admin-inline-card">
-            <Form.Item
-              name="fronter_dialer"
-              label="Mapped fronter dialer"
-              rules={[{ required: true, message: 'Choose the fronter dialer mapped to this closer.' }]}
-              extra="Only fronter dialers from the same company can be mapped."
+          <Card size="small" title="Fronter mappings" className="admin-inline-card">
+            <Text type="secondary">
+              A closer can receive transfers from multiple fronter dialers. A fronter already assigned to another closer is not available here.
+            </Text>
+            <Form.List
+              name="fronter_mappings"
+              rules={[{
+                validator: async (_, mappings) => {
+                  if (!mappings?.length) throw new Error('Map at least one fronter dialer to this closer.');
+                },
+              }]}
             >
-              <Select
-                showSearch={{ optionFilterProp: 'label' }}
-                options={fronterDialerOptions}
-                disabled={!selectedDialerBranch}
-                placeholder={selectedDialerBranch ? 'Select fronter dialer' : 'Select a mapped branch first'}
-              />
-            </Form.Item>
-            <Form.Item
-              name="fronter_ingroup_name"
-              label="Fronter in-group name on this closer"
-              rules={[{ required: true, message: 'Enter the fronter in-group name used on this closer.' }]}
-            >
-              <Input placeholder="e.g. ARENA_FRONT" />
-            </Form.Item>
+              {(fields, { add, remove }, { errors }) => <>
+                <div className="campaign-mapping-editor__list" style={{ marginTop: 12 }}>
+                  {fields.map(({ key, name, ...restField }, index) => <Row gutter={10} align="middle" key={key}>
+                    <Col flex="1 1 260px">
+                      <Form.Item
+                        {...restField}
+                        name={[name, 'fronter_dialer']}
+                        label={index === 0 ? 'Mapped fronter dialer' : undefined}
+                        rules={[{ required: true, message: 'Choose a fronter dialer.' }]}
+                      >
+                        <Select
+                          showSearch={{ optionFilterProp: 'label' }}
+                          options={fronterDialerOptionsFor(index)}
+                          disabled={!selectedDialerBranch}
+                          placeholder={selectedDialerBranch ? 'Select fronter dialer' : 'Select a mapped branch first'}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col flex="1 1 220px">
+                      <Form.Item
+                        {...restField}
+                        name={[name, 'ingroup_name']}
+                        label={index === 0 ? 'In-group name on closer' : undefined}
+                        rules={[{ required: true, message: 'Enter the fronter in-group name.' }]}
+                      >
+                        <Input placeholder="e.g. ARENA_FRONT" />
+                      </Form.Item>
+                    </Col>
+                    <Col flex="36px" className={index === 0 ? 'campaign-mapping-editor__remove--labelled' : ''}>
+                      <Button
+                        type="text"
+                        danger
+                        shape="circle"
+                        icon={<MinusCircleOutlined />}
+                        aria-label={`Remove fronter mapping ${index + 1}`}
+                        onClick={() => remove(name)}
+                      />
+                    </Col>
+                  </Row>)}
+                  <Button
+                    type="dashed"
+                    block
+                    icon={<PlusOutlined />}
+                    disabled={!selectedDialerBranch || availableFronterDialers.length === 0}
+                    onClick={() => add({ fronter_dialer: undefined, ingroup_name: '' })}
+                  >
+                    Add fronter mapping
+                  </Button>
+                  <Form.ErrorList errors={errors} />
+                </div>
+              </>}
+            </Form.List>
           </Card>
           <Card size="small" title="SALE preset lookup" className="admin-inline-card">
             <Form.Item name="preset_lookup_url" label="VICIdial User Stats URL" rules={[{ type: 'url' }]} extra="Example: https://dialer.example.com/hidden-admin-path/user_stats.php">

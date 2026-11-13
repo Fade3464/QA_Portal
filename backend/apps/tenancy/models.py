@@ -159,18 +159,10 @@ class Dialer(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     branch = models.ForeignKey(Branch, on_delete=models.PROTECT, related_name="dialers")
     name = models.CharField(max_length=160)
-    # Existing dialers are fronter dialers. Closer dialers can be linked back
-    # to the fronter whose transferred calls they receive, together with the
-    # closer-side in-group name used for that fronter.
+    # Existing dialers are fronter dialers. Closer-to-fronter ownership is
+    # stored in DialerFronterMapping so one closer can own many fronters while
+    # each fronter can belong to at most one closer.
     is_closer = models.BooleanField(default=False, db_index=True)
-    fronter_dialer = models.ForeignKey(
-        "self",
-        on_delete=models.PROTECT,
-        related_name="mapped_closer_dialers",
-        null=True,
-        blank=True,
-    )
-    fronter_ingroup_name = models.CharField(max_length=120, blank=True)
     api_url = models.URLField(max_length=500)
     api_username = models.CharField(max_length=120)
     api_password_ciphertext = models.TextField(blank=True, editable=False)
@@ -194,31 +186,6 @@ class Dialer(models.Model):
                 fields=["branch", "name"], name="unique_dialer_name_per_branch"
             )
         ]
-
-    def clean(self) -> None:
-        super().clean()
-        self.fronter_ingroup_name = " ".join((self.fronter_ingroup_name or "").split())
-        errors = {}
-        if self.is_closer:
-            if not self.fronter_dialer_id:
-                errors["fronter_dialer"] = "Choose the fronter dialer mapped to this closer."
-            if not self.fronter_ingroup_name:
-                errors["fronter_ingroup_name"] = "Enter the fronter in-group name used on this closer."
-            if self.fronter_dialer_id:
-                if self.pk and self.fronter_dialer_id == self.pk:
-                    errors["fronter_dialer"] = "A closer dialer cannot map to itself."
-                elif self.fronter_dialer.is_closer:
-                    errors["fronter_dialer"] = "A closer dialer must map to a fronter dialer."
-                elif (
-                    self.branch_id
-                    and self.fronter_dialer.branch_id
-                    and self.branch.company_id != self.fronter_dialer.branch.company_id
-                ):
-                    errors["fronter_dialer"] = "The fronter and closer dialers must belong to the same company."
-        elif self.fronter_dialer_id or self.fronter_ingroup_name:
-            errors["fronter_dialer"] = "Fronter mapping is only available for closer dialers."
-        if errors:
-            raise ValidationError(errors)
 
     def __str__(self) -> str:
         return f"{self.branch} · {self.name}"
@@ -283,6 +250,54 @@ class Dialer(models.Model):
             and self.webhook_secret_hash
             and check_password(raw_secret, self.webhook_secret_hash)
         )
+
+
+class DialerFronterMapping(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    closer_dialer = models.ForeignKey(
+        Dialer,
+        on_delete=models.CASCADE,
+        related_name="fronter_mappings",
+    )
+    fronter_dialer = models.OneToOneField(
+        Dialer,
+        on_delete=models.PROTECT,
+        related_name="closer_mapping",
+    )
+    ingroup_name = models.CharField(max_length=120)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["closer_dialer__name", "fronter_dialer__name"]
+
+    def clean(self) -> None:
+        super().clean()
+        self.ingroup_name = " ".join((self.ingroup_name or "").split())
+        errors = {}
+        if not self.ingroup_name:
+            errors["ingroup_name"] = "Enter the fronter in-group name used on this closer."
+        if self.closer_dialer_id and not self.closer_dialer.is_closer:
+            errors["closer_dialer"] = "Mappings can only belong to closer dialers."
+        if self.fronter_dialer_id and self.fronter_dialer.is_closer:
+            errors["fronter_dialer"] = "A closer dialer can only map fronter dialers."
+        if self.closer_dialer_id and self.fronter_dialer_id:
+            if self.closer_dialer_id == self.fronter_dialer_id:
+                errors["fronter_dialer"] = "A closer dialer cannot map to itself."
+            elif (
+                self.closer_dialer.branch_id
+                and self.fronter_dialer.branch_id
+                and self.closer_dialer.branch.company_id
+                != self.fronter_dialer.branch.company_id
+            ):
+                errors["fronter_dialer"] = (
+                    "The fronter and closer dialers must belong to the same company."
+                )
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self) -> str:
+        return f"{self.closer_dialer.name} ← {self.fronter_dialer.name} ({self.ingroup_name})"
 
 
 class DialerCampaign(models.Model):

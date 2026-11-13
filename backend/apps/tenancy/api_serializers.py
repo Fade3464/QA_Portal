@@ -13,6 +13,7 @@ from .models import (
     Company,
     Dialer,
     DialerCampaign,
+    DialerFronterMapping,
     QAProjectAssignment,
     Team,
 )
@@ -278,10 +279,21 @@ class DialerCampaignAdminSerializer(serializers.ModelSerializer):
         read_only_fields = ("id",)
 
 
+class DialerFronterMappingAdminSerializer(serializers.ModelSerializer):
+    fronter_dialer_name = serializers.CharField(source="fronter_dialer.name", read_only=True)
+
+    class Meta:
+        model = DialerFronterMapping
+        fields = ("id", "fronter_dialer", "fronter_dialer_name", "ingroup_name")
+        read_only_fields = ("id", "fronter_dialer_name")
+
+
 class DialerAdminSerializer(serializers.ModelSerializer):
     branch_name = serializers.CharField(source="branch.name", read_only=True)
     company_name = serializers.CharField(source="branch.company.name", read_only=True)
-    fronter_dialer_name = serializers.CharField(source="fronter_dialer.name", read_only=True)
+    fronter_mappings = DialerFronterMappingAdminSerializer(many=True, required=False)
+    mapped_closer_dialer = serializers.SerializerMethodField()
+    mapped_closer_dialer_name = serializers.SerializerMethodField()
     api_password = serializers.CharField(
         write_only=True, required=False, allow_blank=False
     )
@@ -303,9 +315,9 @@ class DialerAdminSerializer(serializers.ModelSerializer):
             "company_name",
             "name",
             "is_closer",
-            "fronter_dialer",
-            "fronter_dialer_name",
-            "fronter_ingroup_name",
+            "fronter_mappings",
+            "mapped_closer_dialer",
+            "mapped_closer_dialer_name",
             "api_url",
             "api_username",
             "api_password",
@@ -322,10 +334,31 @@ class DialerAdminSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "webhook_path", "created_at", "updated_at")
+        read_only_fields = (
+            "id",
+            "mapped_closer_dialer",
+            "mapped_closer_dialer_name",
+            "webhook_path",
+            "created_at",
+            "updated_at",
+        )
 
     def get_webhook_path(self, obj):
         return f"/api/v1/webhooks/vicidial/{obj.id}/dispo/"
+
+    def _incoming_closer_mapping(self, obj):
+        try:
+            return obj.closer_mapping
+        except DialerFronterMapping.DoesNotExist:
+            return None
+
+    def get_mapped_closer_dialer(self, obj):
+        mapping = self._incoming_closer_mapping(obj)
+        return str(mapping.closer_dialer_id) if mapping else None
+
+    def get_mapped_closer_dialer_name(self, obj):
+        mapping = self._incoming_closer_mapping(obj)
+        return mapping.closer_dialer.name if mapping else None
 
     def validate(self, attrs):
         is_closer = attrs.get(
@@ -341,6 +374,7 @@ class DialerAdminSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"webhook_secret": "A webhook secret is required for a closer dialer."}
                 )
+
         lookup_url = attrs.get(
             "preset_lookup_url",
             getattr(self.instance, "preset_lookup_url", ""),
@@ -353,15 +387,23 @@ class DialerAdminSerializer(serializers.ModelSerializer):
         existing_lookup_password = bool(
             self.instance and self.instance.preset_lookup_password_ciphertext
         )
-        configured_parts = bool(lookup_url or lookup_username or lookup_password or existing_lookup_password)
+        configured_parts = bool(
+            lookup_url or lookup_username or lookup_password or existing_lookup_password
+        )
         if configured_parts:
             errors = {}
             if not lookup_url:
-                errors["preset_lookup_url"] = "User Stats URL is required when preset lookup is configured."
+                errors["preset_lookup_url"] = (
+                    "User Stats URL is required when preset lookup is configured."
+                )
             if not lookup_username:
-                errors["preset_lookup_username"] = "User Stats username is required when preset lookup is configured."
+                errors["preset_lookup_username"] = (
+                    "User Stats username is required when preset lookup is configured."
+                )
             if not lookup_password and not existing_lookup_password:
-                errors["preset_lookup_password"] = "User Stats password is required when preset lookup is configured."
+                errors["preset_lookup_password"] = (
+                    "User Stats password is required when preset lookup is configured."
+                )
             if errors:
                 raise serializers.ValidationError(errors)
 
@@ -389,37 +431,121 @@ class DialerAdminSerializer(serializers.ModelSerializer):
                 mapping["project_name"] = project_name
 
         branch = attrs.get("branch", getattr(self.instance, "branch", None))
-        fronter = attrs.get(
-            "fronter_dialer",
-            getattr(self.instance, "fronter_dialer", None),
-        )
-        ingroup_name = " ".join(
-            attrs.get(
-                "fronter_ingroup_name",
-                getattr(self.instance, "fronter_ingroup_name", ""),
-            ).split()
-        )
+        fronter_mappings = attrs.get("fronter_mappings")
+
+        # A fronter already owned by a closer cannot silently become a closer or
+        # move to another company while that ownership exists.
+        incoming_mapping = None
+        if self.instance:
+            incoming_mapping = DialerFronterMapping.objects.filter(
+                fronter_dialer=self.instance
+            ).select_related("closer_dialer__branch__company").first()
+        if incoming_mapping:
+            if is_closer:
+                raise serializers.ValidationError(
+                    {
+                        "is_closer": (
+                            f"This fronter is already mapped to closer "
+                            f"{incoming_mapping.closer_dialer.name}. Remove that mapping first."
+                        )
+                    }
+                )
+            if branch and branch.company_id != incoming_mapping.closer_dialer.branch.company_id:
+                raise serializers.ValidationError(
+                    {
+                        "branch": (
+                            "A mapped fronter cannot be moved to another company. "
+                            "Remove its closer mapping first."
+                        )
+                    }
+                )
+
         if is_closer:
-            errors = {}
-            if not fronter:
-                errors["fronter_dialer"] = "Choose the fronter dialer mapped to this closer."
-            else:
-                if self.instance and fronter.pk == self.instance.pk:
-                    errors["fronter_dialer"] = "A closer dialer cannot map to itself."
-                elif fronter.is_closer:
-                    errors["fronter_dialer"] = "A closer dialer must map to a fronter dialer."
-                elif branch and fronter.branch.company_id != branch.company_id:
-                    errors["fronter_dialer"] = "The fronter and closer dialers must belong to the same company."
-            if not ingroup_name:
-                errors["fronter_ingroup_name"] = "Enter the fronter in-group name used on this closer."
+            effective_mappings = fronter_mappings
+            if effective_mappings is None:
+                if self.instance and self.instance.is_closer:
+                    effective_mappings = list(
+                        self.instance.fronter_mappings.select_related(
+                            "fronter_dialer__branch__company"
+                        ).values(
+                            "fronter_dialer",
+                            "ingroup_name",
+                        )
+                    )
+                else:
+                    effective_mappings = []
+
+            if not effective_mappings:
+                raise serializers.ValidationError(
+                    {"fronter_mappings": "Map at least one fronter dialer to this closer."}
+                )
+
+            errors = []
+            seen_fronters = set()
+            normalized = []
+            for index, mapping in enumerate(effective_mappings):
+                fronter = mapping.get("fronter_dialer")
+                if fronter and not isinstance(fronter, Dialer):
+                    fronter = Dialer.objects.select_related("branch__company").filter(
+                        pk=fronter
+                    ).first()
+                ingroup_name = " ".join((mapping.get("ingroup_name") or "").split())
+                item_errors = {}
+                if not fronter:
+                    item_errors["fronter_dialer"] = "Choose a fronter dialer."
+                else:
+                    if self.instance and fronter.pk == self.instance.pk:
+                        item_errors["fronter_dialer"] = (
+                            "A closer dialer cannot map to itself."
+                        )
+                    elif fronter.is_closer:
+                        item_errors["fronter_dialer"] = (
+                            "A closer dialer can only map fronter dialers."
+                        )
+                    elif branch and fronter.branch.company_id != branch.company_id:
+                        item_errors["fronter_dialer"] = (
+                            "The fronter and closer dialers must belong to the same company."
+                        )
+                    elif fronter.pk in seen_fronters:
+                        item_errors["fronter_dialer"] = (
+                            "This fronter is listed more than once."
+                        )
+                    else:
+                        owner_qs = DialerFronterMapping.objects.filter(
+                            fronter_dialer=fronter
+                        )
+                        if self.instance:
+                            owner_qs = owner_qs.exclude(closer_dialer=self.instance)
+                        owner = owner_qs.select_related("closer_dialer").first()
+                        if owner:
+                            item_errors["fronter_dialer"] = (
+                                f"This fronter is already mapped to closer "
+                                f"{owner.closer_dialer.name}."
+                            )
+                    seen_fronters.add(fronter.pk)
+                if not ingroup_name:
+                    item_errors["ingroup_name"] = (
+                        "Enter the fronter in-group name used on this closer."
+                    )
+                if item_errors:
+                    errors.append({"index": index, **item_errors})
+                elif fronter_mappings is not None:
+                    normalized.append(
+                        {"fronter_dialer": fronter, "ingroup_name": ingroup_name}
+                    )
             if errors:
-                raise serializers.ValidationError(errors)
-            attrs["fronter_ingroup_name"] = ingroup_name
+                raise serializers.ValidationError({"fronter_mappings": errors})
+            if fronter_mappings is not None:
+                attrs["fronter_mappings"] = normalized
         else:
-            # A fronter dialer has no parent/fronter mapping. Clear these
-            # fields when a closer is converted back to a fronter as well.
-            attrs["fronter_dialer"] = None
-            attrs["fronter_ingroup_name"] = ""
+            if fronter_mappings:
+                raise serializers.ValidationError(
+                    {"fronter_mappings": "Fronter mappings are only available for closer dialers."}
+                )
+            # When a closer is converted back to a fronter its owned mappings
+            # are removed during update().
+            if fronter_mappings is not None:
+                attrs["fronter_mappings"] = []
         return attrs
 
     @staticmethod
@@ -440,8 +566,34 @@ class DialerAdminSerializer(serializers.ModelSerializer):
             retained_ids.append(current.pk)
         dialer.campaigns.exclude(pk__in=retained_ids).delete()
 
+    @staticmethod
+    def _replace_fronter_mappings(dialer, mappings):
+        existing = {
+            item.fronter_dialer_id: item
+            for item in dialer.fronter_mappings.select_related("fronter_dialer")
+        }
+        retained_ids = []
+        for mapping in mappings:
+            fronter = mapping["fronter_dialer"]
+            current = existing.get(fronter.pk)
+            if current:
+                current.ingroup_name = mapping["ingroup_name"]
+                current.full_clean()
+                current.save(update_fields=["ingroup_name", "updated_at"])
+            else:
+                current = DialerFronterMapping(
+                    closer_dialer=dialer,
+                    fronter_dialer=fronter,
+                    ingroup_name=mapping["ingroup_name"],
+                )
+                current.full_clean()
+                current.save()
+            retained_ids.append(current.pk)
+        dialer.fronter_mappings.exclude(pk__in=retained_ids).delete()
+
     def create(self, validated_data):
         campaigns = validated_data.pop("campaigns", [])
+        fronter_mappings = validated_data.pop("fronter_mappings", [])
         api_password = validated_data.pop("api_password")
         webhook_secret = validated_data.pop("webhook_secret", "")
         preset_lookup_password = validated_data.pop("preset_lookup_password", "")
@@ -454,11 +606,14 @@ class DialerAdminSerializer(serializers.ModelSerializer):
                 dialer.set_webhook_secret(webhook_secret)
             dialer.full_clean()
             dialer.save()
+            if dialer.is_closer:
+                self._replace_fronter_mappings(dialer, fronter_mappings)
             self._replace_campaigns(dialer, campaigns)
         return dialer
 
     def update(self, instance, validated_data):
         campaigns = validated_data.pop("campaigns", None)
+        fronter_mappings = validated_data.pop("fronter_mappings", None)
         api_password = validated_data.pop("api_password", "")
         webhook_secret = validated_data.pop("webhook_secret", "")
         preset_lookup_password = validated_data.pop("preset_lookup_password", "")
@@ -473,6 +628,10 @@ class DialerAdminSerializer(serializers.ModelSerializer):
         with transaction.atomic():
             instance.full_clean()
             instance.save()
+            if not instance.is_closer:
+                instance.fronter_mappings.all().delete()
+            elif fronter_mappings is not None:
+                self._replace_fronter_mappings(instance, fronter_mappings)
             if campaigns is not None:
                 self._replace_campaigns(instance, campaigns)
         return instance

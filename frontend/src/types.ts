@@ -464,9 +464,14 @@ export interface DialerRecord {
   company_name: string;
   name: string;
   is_closer: boolean;
-  fronter_dialer: string | null;
-  fronter_dialer_name: string | null;
-  fronter_ingroup_name: string;
+  fronter_mappings: Array<{
+    id: string;
+    fronter_dialer: string;
+    fronter_dialer_name: string;
+    ingroup_name: string;
+  }>;
+  mapped_closer_dialer: string | null;
+  mapped_closer_dialer_name: string | null;
   api_url: string;
   api_username: string;
   api_source: string;

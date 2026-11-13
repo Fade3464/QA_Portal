@@ -2,7 +2,7 @@ from django import forms
 from django.contrib import admin
 from django.core.exceptions import ImproperlyConfigured
 
-from .models import Branch, Company, Dialer, DialerCampaign, QAProjectAssignment, Team
+from .models import Branch, Company, Dialer, DialerCampaign, DialerFronterMapping, QAProjectAssignment, Team
 
 
 @admin.register(Company)
@@ -113,6 +113,14 @@ class DialerCampaignInline(admin.TabularInline):
     fields = ("campaign", "project_name")
 
 
+class DialerFronterMappingInline(admin.TabularInline):
+    model = DialerFronterMapping
+    fk_name = "closer_dialer"
+    extra = 1
+    fields = ("fronter_dialer", "ingroup_name")
+    autocomplete_fields = ("fronter_dialer",)
+
+
 @admin.register(DialerCampaign)
 class DialerCampaignAdmin(admin.ModelAdmin):
     list_display = ("campaign", "project_name", "dialer")
@@ -123,6 +131,18 @@ class DialerCampaignAdmin(admin.ModelAdmin):
         "dialer__name",
         "dialer__branch__name",
     )
+
+
+@admin.register(DialerFronterMapping)
+class DialerFronterMappingAdmin(admin.ModelAdmin):
+    list_display = ("closer_dialer", "fronter_dialer", "ingroup_name", "updated_at")
+    list_filter = ("closer_dialer__branch__company", "closer_dialer__branch")
+    search_fields = (
+        "closer_dialer__name",
+        "fronter_dialer__name",
+        "ingroup_name",
+    )
+    autocomplete_fields = ("closer_dialer", "fronter_dialer")
 
 
 @admin.register(QAProjectAssignment)
@@ -146,9 +166,12 @@ class QAProjectAssignmentAdmin(admin.ModelAdmin):
 @admin.register(Dialer)
 class DialerAdmin(admin.ModelAdmin):
     form = DialerAdminForm
-    list_display = ("name", "branch", "is_closer", "fronter_dialer", "api_url", "is_active", "updated_at")
+    list_display = ("name", "branch", "is_closer", "fronter_mapping_count", "api_url", "is_active", "updated_at")
     list_filter = ("branch__company", "branch", "is_closer", "is_active")
     search_fields = ("name", "branch__name", "branch__company__name", "api_url")
     readonly_fields = ("id", "created_at", "updated_at")
-    autocomplete_fields = ("fronter_dialer",)
-    inlines = (DialerCampaignInline,)
+    inlines = (DialerFronterMappingInline, DialerCampaignInline)
+
+    @admin.display(description="Fronters")
+    def fronter_mapping_count(self, obj):
+        return obj.fronter_mappings.count() if obj.is_closer else "—"
