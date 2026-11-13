@@ -489,7 +489,15 @@ class DialerAdminSerializer(serializers.ModelSerializer):
                     fronter = Dialer.objects.select_related("branch__company").filter(
                         pk=fronter
                     ).first()
-                ingroup_name = " ".join((mapping.get("ingroup_name") or "").split())
+                raw_ingroup_name = mapping.get("ingroup_name") or ""
+                try:
+                    ingroup_name, _ = DialerFronterMapping.normalize_ingroup_names(
+                        raw_ingroup_name
+                    )
+                    ingroup_error = None
+                except DjangoValidationError as exc:
+                    ingroup_name = raw_ingroup_name
+                    ingroup_error = " ".join(exc.messages)
                 item_errors = {}
                 if not fronter:
                     item_errors["fronter_dialer"] = "Choose a fronter dialer."
@@ -523,10 +531,8 @@ class DialerAdminSerializer(serializers.ModelSerializer):
                                 f"{owner.closer_dialer.name}."
                             )
                     seen_fronters.add(fronter.pk)
-                if not ingroup_name:
-                    item_errors["ingroup_name"] = (
-                        "Enter the fronter in-group name used on this closer."
-                    )
+                if ingroup_error:
+                    item_errors["ingroup_name"] = ingroup_error
                 if item_errors:
                     errors.append({"index": index, **item_errors})
                 elif fronter_mappings is not None:

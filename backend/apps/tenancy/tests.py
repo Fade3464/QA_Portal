@@ -285,7 +285,7 @@ class AdministrationApiTests(TestCase):
                 "fronter_mappings": [
                     {
                         "fronter_dialer": str(fronter_one.pk),
-                        "ingroup_name": "  ARENA_FRONT_ONE  ",
+                        "ingroup_name": "  ARENA_FRONT_ONE ,  ARENA_FRONT_BACKUP  ",
                     },
                     {
                         "fronter_dialer": str(fronter_two.pk),
@@ -311,7 +311,7 @@ class AdministrationApiTests(TestCase):
         )
         self.assertEqual(
             {mapping.ingroup_name for mapping in mappings},
-            {"ARENA_FRONT_ONE", "ARENA_FRONT_TWO"},
+            {"ARENA_FRONT_ONE, ARENA_FRONT_BACKUP", "ARENA_FRONT_TWO"},
         )
         self.assertEqual(len(response.json()["fronter_mappings"]), 2)
 
@@ -330,6 +330,52 @@ class AdministrationApiTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(missing_mapping.status_code, 400)
+
+        too_many_ingroups = self.client.post(
+            reverse("administration-dialer-list"),
+            {
+                "branch": str(self.branch.pk),
+                "name": "Too many ingroups",
+                "is_closer": True,
+                "fronter_mappings": [
+                    {
+                        "fronter_dialer": str(fronter_one.pk),
+                        "ingroup_name": "GROUP_ONE, GROUP_TWO, GROUP_THREE",
+                    }
+                ],
+                "api_url": "https://too-many.example.com/vicidial/non_agent_api.php",
+                "api_username": "api",
+                "api_password": "private-api-password",
+                "api_source": "qa_portal",
+                "webhook_secret": "fourth-long-private-webhook-secret",
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(too_many_ingroups.status_code, 400)
+        self.assertIn("at most two in-group names", too_many_ingroups.content.decode())
+
+        duplicate_ingroups = self.client.post(
+            reverse("administration-dialer-list"),
+            {
+                "branch": str(self.branch.pk),
+                "name": "Duplicate ingroups",
+                "is_closer": True,
+                "fronter_mappings": [
+                    {
+                        "fronter_dialer": str(fronter_one.pk),
+                        "ingroup_name": "GROUP_ONE, group_one",
+                    }
+                ],
+                "api_url": "https://duplicate.example.com/vicidial/non_agent_api.php",
+                "api_username": "api",
+                "api_password": "private-api-password",
+                "api_source": "qa_portal",
+                "webhook_secret": "fifth-long-private-webhook-secret",
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(duplicate_ingroups.status_code, 400)
+        self.assertIn("cannot be listed twice", duplicate_ingroups.content.decode())
 
     def test_fronter_cannot_be_mapped_to_two_closers(self):
         fronter = Dialer(

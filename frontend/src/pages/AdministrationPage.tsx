@@ -437,10 +437,23 @@ function EditorDrawer({ editor, form, saving, companies, branches, users, dialer
                       <Form.Item
                         {...restField}
                         name={[name, 'ingroup_name']}
-                        label={index === 0 ? 'In-group name on closer' : undefined}
-                        rules={[{ required: true, message: 'Enter the fronter in-group name.' }]}
+                        label={index === 0 ? 'In-group name(s) on closer' : undefined}
+                        extra={index === 0 ? 'Enter one or two in-group names. Separate two names with a comma.' : undefined}
+                        rules={[
+                          { required: true, message: 'Enter at least one fronter in-group name.' },
+                          {
+                            validator: async (_, value) => {
+                              if (!value) return;
+                              const parts = String(value).split(',').map((part) => part.trim());
+                              if (parts.some((part) => !part)) throw new Error('Do not leave an empty in-group name around a comma.');
+                              if (parts.length > 2) throw new Error('A fronter can have at most two in-group names on this closer.');
+                              const unique = new Set(parts.map((part) => part.toLocaleLowerCase()));
+                              if (unique.size !== parts.length) throw new Error('The same in-group name cannot be listed twice.');
+                            },
+                          },
+                        ]}
                       >
-                        <Input placeholder="e.g. ARENA_FRONT" />
+                        <Input placeholder="e.g. ARENA_FRONT, ARENA_FRONT_2" />
                       </Form.Item>
                     </Col>
                     <Col flex="36px" className={index === 0 ? 'campaign-mapping-editor__remove--labelled' : ''}>

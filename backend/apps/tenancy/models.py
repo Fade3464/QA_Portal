@@ -271,12 +271,37 @@ class DialerFronterMapping(models.Model):
     class Meta:
         ordering = ["closer_dialer__name", "fronter_dialer__name"]
 
+    @staticmethod
+    def normalize_ingroup_names(value: str) -> tuple[str, list[str]]:
+        raw_parts = (value or "").split(",")
+        names = [" ".join(part.split()) for part in raw_parts]
+        if not (value or "").strip() or any(not name for name in names):
+            raise ValidationError(
+                "Enter one or two in-group names separated by a comma."
+            )
+        if len(names) > 2:
+            raise ValidationError(
+                "A fronter mapping can contain at most two in-group names."
+            )
+        if len({name.casefold() for name in names}) != len(names):
+            raise ValidationError("The same in-group name cannot be listed twice.")
+        return ", ".join(names), names
+
+    @property
+    def ingroup_names(self) -> list[str]:
+        try:
+            _, names = self.normalize_ingroup_names(self.ingroup_name)
+            return names
+        except ValidationError:
+            return []
+
     def clean(self) -> None:
         super().clean()
-        self.ingroup_name = " ".join((self.ingroup_name or "").split())
         errors = {}
-        if not self.ingroup_name:
-            errors["ingroup_name"] = "Enter the fronter in-group name used on this closer."
+        try:
+            self.ingroup_name, _ = self.normalize_ingroup_names(self.ingroup_name)
+        except ValidationError as exc:
+            errors["ingroup_name"] = exc.messages
         if self.closer_dialer_id and not self.closer_dialer.is_closer:
             errors["closer_dialer"] = "Mappings can only belong to closer dialers."
         if self.fronter_dialer_id and self.fronter_dialer.is_closer:
