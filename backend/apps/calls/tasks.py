@@ -15,6 +15,7 @@ from django.utils import timezone
 from .agent_identity import lookup_stale_agent_identity
 from .models import CallEvent
 from .preset_lookup import lookup_sale_preset
+from .inbound_list_lookup import InboundListLookupError, lookup_inbound_sale_list_name
 from .services import download_recording, lookup_recording, recording_duration_seconds
 from apps.notifications.services import (
     queue_missing_preset_notification,
@@ -76,6 +77,115 @@ def _refresh_recording_after_failure(event, reason):
 
 
 PRESET_LOOKUP_RETRY_DELAYS = (15, 30, 45, 60)
+INBOUND_LIST_LOOKUP_RETRY_DELAYS = (15, 30, 60)
+
+
+def _eligible_for_inbound_sale_list_resolution(event: CallEvent) -> bool:
+    """True only for closer SALEs that are actually inbound and mappable."""
+    return bool(
+        (event.disposition or "").upper() == "SALE"
+        and event.dialer.is_closer
+        and event.call_direction != CallEvent.Direction.OUTBOUND
+        and event.dial_method != CallEvent.DialMethod.MANUAL
+        and (event.closer_group or "").strip()
+    )
+
+
+@shared_task(
+    name="calls.resolve_sale_inbound_list",
+    bind=True,
+    max_retries=len(INBOUND_LIST_LOOKUP_RETRY_DELAYS),
+    acks_late=True,
+    reject_on_worker_lost=True,
+    soft_time_limit=45,
+    time_limit=60,
+)
+def resolve_sale_inbound_list(self, event_id: str):
+    """Resolve and persist the fronter list name for a closer SALE call."""
+    try:
+        event = CallEvent.objects.select_related(
+            "dialer", "dialer__branch", "branch"
+        ).get(pk=event_id)
+    except CallEvent.DoesNotExist:
+        return {"status": "missing"}
+
+    if (event.disposition or "").upper() != "SALE":
+        return {"status": "not_sale"}
+    if not event.dialer.is_closer:
+        return {"status": "not_closer"}
+    if event.call_direction == CallEvent.Direction.OUTBOUND:
+        return {"status": "not_inbound"}
+    if event.dial_method == CallEvent.DialMethod.MANUAL:
+        return {"status": "not_inbound"}
+    if not (event.closer_group or "").strip():
+        return {"status": "not_inbound"}
+    if event.inbound_list_name and not event.inbound_list_name.startswith("ERROR:"):
+        return {
+            "status": "already_resolved",
+            "inbound_list_name": event.inbound_list_name,
+        }
+
+    try:
+        list_name = lookup_inbound_sale_list_name(event)
+    except InboundListLookupError as exc:
+        if exc.retryable and self.request.retries < self.max_retries:
+            countdown = INBOUND_LIST_LOOKUP_RETRY_DELAYS[
+                min(self.request.retries, len(INBOUND_LIST_LOOKUP_RETRY_DELAYS) - 1)
+            ]
+            logger.info(
+                "Inbound SALE list lookup will retry",
+                extra={
+                    "event_id": event_id,
+                    "attempt": self.request.retries + 1,
+                    "countdown": countdown,
+                    "error": exc.safe_message,
+                },
+            )
+            raise self.retry(
+                exc=RuntimeError(exc.safe_message),
+                countdown=countdown,
+            )
+
+        error_value = f"ERROR: {exc.safe_message}"[:255]
+        with transaction.atomic():
+            current = CallEvent.objects.select_for_update().select_related("dialer").get(
+                pk=event.pk
+            )
+            if not _eligible_for_inbound_sale_list_resolution(current):
+                return {"status": "superseded"}
+            current.inbound_list_name = error_value
+            current.save(update_fields=["inbound_list_name"])
+        logger.warning(
+            "Inbound SALE list lookup failed",
+            extra={"event_id": event_id, "error": exc.safe_message},
+        )
+        return {"status": "error", "error": exc.safe_message}
+
+    with transaction.atomic():
+        current = CallEvent.objects.select_for_update().select_related("dialer").get(
+            pk=event.pk
+        )
+        if not _eligible_for_inbound_sale_list_resolution(current):
+            return {"status": "superseded"}
+        # Do not overwrite a successful value written by another idempotent run.
+        if current.inbound_list_name and not current.inbound_list_name.startswith("ERROR:"):
+            return {
+                "status": "already_resolved",
+                "inbound_list_name": current.inbound_list_name,
+            }
+        current.inbound_list_name = list_name[:255]
+        current.save(update_fields=["inbound_list_name"])
+
+    logger.info(
+        "Resolved inbound SALE fronter list",
+        extra={"event_id": event_id, "inbound_list_name": list_name},
+    )
+    return {"status": "resolved", "inbound_list_name": list_name}
+
+
+def _queue_inbound_sale_list_resolution(event: CallEvent) -> None:
+    if _eligible_for_inbound_sale_list_resolution(event):
+        resolve_sale_inbound_list.delay(str(event.pk))
 
 
 @shared_task(
@@ -105,6 +215,7 @@ def resolve_sale_preset(self, event_id: str):
         return {"status": "not_sale"}
     if event.preset:
         resolve_missing_preset_notification(event)
+        _queue_inbound_sale_list_resolution(event)
         return {"status": "already_resolved", "preset": event.preset}
 
     try:
@@ -115,6 +226,7 @@ def resolve_sale_preset(self, event_id: str):
             extra={"event_id": event_id, "error": str(exc)},
         )
         queue_missing_preset_notification(event)
+        _queue_inbound_sale_list_resolution(event)
         return {"status": "configuration_error", "error": str(exc)}
     except httpx.HTTPError as exc:
         result = None
@@ -139,6 +251,7 @@ def resolve_sale_preset(self, event_id: str):
                     "updated": bool(updated),
                 },
             )
+            _queue_inbound_sale_list_resolution(event)
             return {"status": "resolved", "preset": event.preset}
         return {"status": "superseded"}
 
@@ -148,6 +261,7 @@ def resolve_sale_preset(self, event_id: str):
             "SALE call has no preset after VICIdial lookup retries",
             extra={"event_id": event_id, "error": error},
         )
+        _queue_inbound_sale_list_resolution(event)
         return {"status": "not_found"}
 
     countdown = PRESET_LOOKUP_RETRY_DELAYS[
